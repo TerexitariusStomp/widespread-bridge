@@ -11,7 +11,7 @@
 //   forge watchlists 60m · external boards 60m–6h
 
 import { nearView } from "./near";
-import { readJobs, readBounties } from "./evmread";
+import { readJobs, readBounties, readTokenUris } from "./evmread";
 import { scanMirrorSubmissions } from "./ingest";
 import { listBounties, listRecords } from "./store";
 import {
@@ -592,6 +592,30 @@ async function pollErc8183Generic(env: Env): Promise<FeedRecord[]> {
     });
 }
 
+// Olas Mech Marketplace (Gnosis) — ERC721 AI Agent Registry. Enumerates
+// registered mech services and mirrors them as `kind:"service"` supply —
+// Olas is agent-to-agent service commerce, so records are capability
+// listings, not bounties. Metadata is IPFS behind their gateway.
+async function pollOlas(env: Env): Promise<FeedRecord[]> {
+  const rpc = env.OLAS_RPC ?? "https://rpc.gnosischain.com";
+  const registry = env.OLAS_REGISTRY ?? "0xE49CB081e8d96920C38aA7AB90cb0294ab4Bc8EA";
+  const tokens = await readTokenUris(rpc, registry, 60).catch(() => []);
+  const metas = await Promise.all(tokens.map(async (t) => {
+    const m = await fetch(t.uri).then((r) => (r.ok ? r.json() : null)).catch(() => null) as Record<string, unknown> | null;
+    return { id: t.id, m };
+  }));
+  return metas.filter(({ m }) => m?.name).map(({ id, m }) => ({
+    id: `olas:${id}`,
+    source: "olas", forge: "generic", kind: "service",
+    title: String(m!.name).slice(0, 200),
+    ...(m!.description ? { spec: String(m!.description).slice(0, 500) } : {}),
+    escrow: { state: "external" },
+    payout: { rails: ["olas"], note: `Olas mech #${id} on Gnosis — agent-to-agent service; request/delivery settle on their marketplace rails (crypto-economic), outside this feed` },
+    url: "https://marketplace.olas.network/gnosis/ai-agents",
+    updated_at: Date.now(),
+  } satisfies FeedRecord));
+}
+
 // ----------------------------------------------------------------- merge
 
 const SOURCE_INTERVALS: Record<string, number> = {
@@ -601,7 +625,7 @@ const SOURCE_INTERVALS: Record<string, number> = {
   radicle: 60 * 60 * 1000, "external:immunefi": 6 * 60 * 60 * 1000,
   termix: 30 * 60 * 1000, wurk: 30 * 60 * 1000,
   agentledger: 30 * 60 * 1000, claudelance: 30 * 60 * 1000,
-  erc8183: 30 * 60 * 1000,
+  erc8183: 30 * 60 * 1000, olas: 60 * 60 * 1000,
 };
 
 async function runSource(env: Env, name: string, fn: () => Promise<FeedRecord[]>): Promise<{ stamp: SourceStamp; records: FeedRecord[] }> {
@@ -667,7 +691,7 @@ export async function refreshFeed(env: Env, ctx?: ExecutionContext): Promise<Fee
     if (existing) return existing;
   }
   try {
-    const [nearR, kvR, ghR, tgR, fwR, imR, txR, wkR, alR, clR, e8R, trust] = await Promise.all([
+    const [nearR, kvR, ghR, tgR, fwR, imR, txR, wkR, alR, clR, e8R, olR, trust] = await Promise.all([
       runSource(env, "near-chain", () => pollNearChain(env)),
       runSource(env, "kv-registry", () => pollKvRegistry(env)),
       runSource(env, "github", () => pollGithub(env)),
@@ -679,13 +703,14 @@ export async function refreshFeed(env: Env, ctx?: ExecutionContext): Promise<Fee
       runSource(env, "agentledger", () => pollAgentLedger(env)),
       runSource(env, "claudelance", () => pollClaudelance(env)),
       runSource(env, "erc8183", () => pollErc8183Generic(env)),
+      runSource(env, "olas", () => pollOlas(env)),
       trustIndex(env),
     ]);
     const sources: FeedDoc["sources"] = {};
     for (const [name, r] of Object.entries({
       "near-chain": nearR, "kv-registry": kvR, github: ghR, tangled: tgR,
       forgejo: fwR, "external:immunefi": imR, termix: txR, wurk: wkR,
-      agentledger: alR, claudelance: clR, erc8183: e8R,
+      agentledger: alR, claudelance: clR, erc8183: e8R, olas: olR,
     })) sources[name] = r.stamp;
 
     // Merge: fresh records replace stale ones by id; records from
@@ -693,7 +718,7 @@ export async function refreshFeed(env: Env, ctx?: ExecutionContext): Promise<Fee
     const prior = await getFeedDoc(env);
     const byId = new Map<string, FeedRecord>();
     for (const r of prior?.records ?? []) byId.set(r.id, r);
-    for (const r of [...nearR.records, ...kvR.records, ...ghR.records, ...tgR.records, ...fwR.records, ...imR.records, ...txR.records, ...wkR.records, ...alR.records, ...clR.records, ...e8R.records]) {
+    for (const r of [...nearR.records, ...kvR.records, ...ghR.records, ...tgR.records, ...fwR.records, ...imR.records, ...txR.records, ...wkR.records, ...alR.records, ...clR.records, ...e8R.records, ...olR.records]) {
       const t = r.repo ? trust.get(r.repo) : undefined;
       byId.set(r.id, { ...r, ...(t ? { trust: t } : {}) });
     }

@@ -54,6 +54,9 @@ export interface Env {
   EVM8183_CONTRACT?: string;
   EVM8183_NAME?: string;
   EVM8183_URL?: string;
+  /** Olas Mech Marketplace NFT registry on Gnosis. */
+  OLAS_RPC?: string;
+  OLAS_REGISTRY?: string;
   /** Evaluator panel: comma-separated model roster (diverse families) and
    * seat count — adjudicatePanel draws blind + minority-veto. */
   PANEL_MODELS?: string;
@@ -86,7 +89,7 @@ export interface FeedRecord {
   id: string;
   source: string;              // near-chain | kv-registry | github | github-thirdparty:<p> | tangled | radicle | forgejo | gitlab | external:<p>
   forge: string;               // github | gitlab | forgejo | codeberg | tangled | radicle | deltagit | generic | near
-  kind: "bounty" | "task" | "gig";
+  kind: "bounty" | "task" | "gig" | "service";
   repo?: string;               // owner/repo shorthand when forge-native
   locator?: string;            // canonical repo locator/URL
   title: string;

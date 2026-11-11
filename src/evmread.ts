@@ -18,6 +18,9 @@ const SEL = {
   jobCount: "0x4c5d8a0f", // jobCount()
   getJob: "0xbf22c457",   // getJob(uint256)
   getBounty: "0xee8c4bbf", // getBounty(uint256) — Claudelance TaskBoard
+  totalSupply: "0x18160ddd",      // ERC721 totalSupply()
+  tokenByIndex: "0x4f6ccce7",     // ERC721Enumerable tokenByIndex(uint256)
+  tokenURI: "0xc87b56dd",         // ERC721 tokenURI(uint256)
 };
 
 /** Batched eth_call — JSON-RPC allows an array of calls in one HTTP
@@ -112,6 +115,36 @@ export function decodeBounty(hex: string): EvmBounty | null {
       instructionUrl: abiString(hex, Number(w(14)) + head),
     };
   } catch { return null; }
+}
+
+/** Decode an ABI string return (offset word + len + bytes). */
+export function decodeString(hex: string): string | null {
+  if (!hex || hex.length < 2 + 128) return null;
+  try {
+    const off = Number(BigInt("0x" + hex.slice(2, 66)));
+    const p = 2 + off * 2;
+    const len = Number(BigInt("0x" + hex.slice(p, p + 64)));
+    const raw = hex.slice(p + 64, p + 64 + len * 2);
+    let out = "";
+    for (let i = 0; i < raw.length; i += 2) out += String.fromCharCode(parseInt(raw.slice(i, i + 2), 16));
+    return out.replace(/\0+$/, "");
+  } catch { return null; }
+}
+
+/** Enumerate an ERC721Enumerable registry → [{id, uri}]. */
+export async function readTokenUris(rpc: string, contract: string, max = 60): Promise<{ id: number; uri: string }[]> {
+  const sup = await evmCall(rpc, contract, SEL.totalSupply);
+  if (!sup) return [];
+  const n = Math.min(Number(BigInt(sup)), max);
+  const idxRes = await evmCallBatch(rpc, Array.from({ length: n }, (_, i) => ({
+    to: contract, data: SEL.tokenByIndex + i.toString(16).padStart(64, "0"),
+  })));
+  const ids = idxRes.map((r) => (r ? Number(BigInt(r)) : null));
+  const uriRes = await evmCallBatch(rpc, ids.map((id) => ({
+    to: contract, data: SEL.tokenURI + (id ?? 0).toString(16).padStart(64, "0"),
+  })));
+  return ids.map((id, i) => ({ id: id ?? i, uri: uriRes[i] ? decodeString(uriRes[i]!) ?? "" : "" }))
+    .filter((t) => t.uri);
 }
 
 /** Sequential-scan Claudelance bounties (ids are 1-based, contiguous),
