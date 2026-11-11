@@ -193,6 +193,11 @@ export interface DispatchRecord {
   /** Platform-side listing/job id or posting tx hash, set via /api/dispatch/mark. */
   ref?: string;
   spend_auth?: SpendAuth;
+  /** Observed deliverable kinds this surface handles — routing metadata
+   * from execution history, not platform self-description. */
+  capability_tags?: string[];
+  /** Execution-grounded delivery score (0..1) when history exists. */
+  score?: number;
   created_at: number;
   updated_at: number;
 }

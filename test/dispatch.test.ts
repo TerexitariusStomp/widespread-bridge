@@ -172,3 +172,23 @@ describe("escrow-first invariant", () => {
     expect(tx.note).toContain("FUNDER signs");
   });
 });
+
+describe("channel_score routing", () => {
+  it("orders channels by execution-grounded delivery rate, neutral prior for cold surfaces", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => nearResponse({
+      status: "open", spec: "Work", specHash: "h", locked: "1000",
+    })));
+    const kv = fakeKV({
+      "dispatch-perf:wurk": JSON.stringify({ submissions: 10, settled: 9, failed: 1 }),
+      "dispatch-perf:olas": JSON.stringify({ submissions: 10, settled: 2, failed: 8 }),
+    });
+    const env = fakeEnv({ CLAIMS: kv as unknown as Env["CLAIMS"] });
+    const res = await createDispatch(env, {
+      market_id: "9", platforms: ["olas", "a2a", "wurk"],
+    }, "https://wide.example");
+    expect(res.records!.map((r) => r.platform)).toEqual(["wurk", "a2a", "olas"]);
+    expect(res.records![0]!.score).toBe(0.9);
+    expect(res.records![2]!.score).toBe(0.2);
+    expect(res.records![0]!.capability_tags).toContain("feedback");
+  });
+});

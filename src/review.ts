@@ -183,7 +183,8 @@ export async function runReview(
   };
   // ERC-8004-shaped reputation record — settled verdicts become portable
   // trust signals in the emerging standard's schema.
-  record.reputation_8004 = rep8004For(record);
+  const origin = (record.claim?.payload as Record<string, unknown> | undefined)?.origin_platform;
+  record.reputation_8004 = rep8004For(record, typeof origin === "string" ? origin : undefined);
   await putRecord(env, record);
   return record;
 }

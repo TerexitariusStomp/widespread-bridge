@@ -58,3 +58,31 @@ describe("scanDispatchChannels", () => {
     expect(res.scanned).toBe(1);
   });
 });
+
+describe("tiered content dedup", () => {
+  it("marks identical content on a second channel as duplicate", async () => {
+    let calls = 0;
+    vi.stubGlobal("fetch", vi.fn(async (u: RequestInfo) => {
+      calls++;
+      if (String(u).includes("submissions")) {
+        return new Response(JSON.stringify({ data: { submissions: [
+          { id: "s1", content: "The quick brown fox jumps over the lazy dog and delivers the patch" },
+          { id: "s2", content: "The quick brown fox jumps over the lazy dog and delivers the patch" },
+        ] } }), { headers: { "content-type": "application/json" } });
+      }
+      return new Response("x", { status: 500 });
+    }));
+    const kv = fakeKV({
+      "dispatch:5:wurk": JSON.stringify(channel({ platform: "wurk", id: "5:wurk", market_id: "5", ref: "j1" })),
+    });
+    const env = fakeEnv({
+      CLAIMS: kv as unknown as Env["CLAIMS"],
+      WURK_API_KEY: "k", WURK_API: "https://api.wurk.fun",
+    });
+    const res = await scanDispatchChannels(env);
+    expect(res.submissions).toBe(1); // second identical content → duplicate, not filed
+    const subs = await listDispatchSubmissions(env, "5");
+    expect(subs).toHaveLength(2);
+    expect(subs[1]!.duplicate_of).toBe("wurk:s1");
+  });
+});

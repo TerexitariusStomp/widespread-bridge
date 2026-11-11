@@ -19,8 +19,47 @@ const DESCRIPTOR_ONLY = new Set(["termix", "claudelance", "olas", "wurk",
   "rentahuman", "humanping", "dework", "bountycaster",
   "a2a", "mcp", "rss", "nanda", "x402-bazaar"]);
 
+/** Static capability priors per surface — replaced by observed
+ * deliverable kinds once collect.ts records real submissions. */
+const CAPABILITY_PRIORS: Record<string, string[]> = {
+  wurk: ["feedback", "research", "content", "human-review"],
+  termix: ["code", "audit", "agent-tasks"],
+  claudelance: ["code", "ci-verified", "audit"],
+  agentledger: ["general", "agent-tasks"],
+  olas: ["compute", "tool-call", "inference"],
+  virtuals: ["agent-services", "game", "content"],
+  fetchai: ["agent-services", "data", "logistics"],
+  agenthansa: ["bounties", "quests"],
+  payman: ["human-tasks", "payments"],
+  gokuna: ["photo-proof", "video-proof", "physical-verification"],
+  rentahuman: ["physical-world", "errands", "inspection"],
+  humanping: ["consensus-review", "human-verification"],
+  dework: ["code", "dao-tasks", "design"],
+  bountycaster: ["design", "code", "writing", "research"],
+};
+
 const PREFIX = "dispatch:";
 const PLATFORMS = new Set([...EVM8183_PLATFORMS, ...DESCRIPTOR_ONLY]);
+
+/** Execution-grounded channel score: settled-delivery rate per surface from
+ * KV counters (written by collect/settle), never the platform's own
+ * description. Cold surfaces get a neutral 0.5 prior so they can prove out. */
+export async function channelScore(env: Env, platform: string): Promise<number> {
+  const perf = await env.CLAIMS.get<{ submissions?: number; settled?: number; failed?: number }>(
+    `dispatch-perf:${platform}`, "json").catch(() => null);
+  if (!perf || !(perf.submissions ?? 0)) return 0.5;
+  const settled = perf.settled ?? 0, failed = perf.failed ?? 0;
+  return Math.round((settled / Math.max(1, settled + failed)) * 100) / 100;
+}
+
+/** Update delivery counters — called by collect when a channel produces a
+ * submission, and by mark when a channel settles/closes. */
+export async function recordPerf(env: Env, platform: string, event: "submissions" | "settled" | "failed"): Promise<void> {
+  const key = `dispatch-perf:${platform}`;
+  const cur = await env.CLAIMS.get<Record<string, number>>(key, "json").catch(() => null) ?? {};
+  cur[event] = (cur[event] ?? 0) + 1;
+  await env.CLAIMS.put(key, JSON.stringify(cur));
+}
 
 /** AP2-Intent-Mandate-shaped check: a native channel may only be created
  * when a matching, unexpired spend authorization covers its cost. */
@@ -133,10 +172,15 @@ export async function createDispatch(
         note: "FUNDER signs createJob + fund(jobId, expectedToken, expectedBudget, optParams) — the funder's own wallet escrows on the platform rail; this bridge never signs, broadcasts, or advances funds.",
       };
     }
+    record.capability_tags = CAPABILITY_PRIORS[platform] ?? ["general"];
+    const score = await channelScore(env, platform);
+    if (score !== 0.5) record.score = score;
     await env.CLAIMS.put(key, JSON.stringify(record));
     return record;
   }));
-  return { records: records.filter((r): r is DispatchRecord => !!r),
+  const kept = records.filter((r): r is DispatchRecord => !!r);
+  kept.sort((a, b) => ((b as { score?: number }).score ?? 0.5) - ((a as { score?: number }).score ?? 0.5));
+  return { records: kept,
     ...(skipped.length ? { skipped_no_auth: skipped } : {}) };
 }
 
@@ -234,6 +278,8 @@ export async function markDispatch(
   if (!rec) return null;
   const updated: DispatchRecord = { ...rec, ref, state: state ?? "active", updated_at: Date.now() };
   await env.CLAIMS.put(key, JSON.stringify(updated));
+  if (state === "settled") await recordPerf(env, platform, "settled");
+  if (state === "closed") await recordPerf(env, platform, "failed");
   return updated;
 }
 

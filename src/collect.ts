@@ -4,6 +4,7 @@
 // there. Native channels (rail=platform) get their on-chain/API state read
 // here; the canonical escrow still settles exactly once.
 import { evmCall, decodeJob } from "./evmread";
+import { recordPerf } from "./dispatch";
 import type { DispatchRecord, Env } from "./types";
 
 const SEL_GETJOB = "0xbf22c457"; // getJob(uint256)
@@ -15,8 +16,55 @@ export interface DispatchSubmission {
   ref: string;
   submission_id: string;
   deliverable_ref?: string;
+  duplicate_of?: string;   // same work filed earlier on another channel
   note?: string;
   received_at: number;
+}
+
+// ---- tiered dedup (PAN/Winnowing-informed) -------------------------------
+// tier 1: dispatch-sub exact key   tier 2: canonicalized content hash
+// tier 3: 64-bit simhash over 4-token shingles, hamming ≤ 3 = near-dup
+
+function simhash(text: string): bigint {
+  const toks = text.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(Boolean);
+  const v = new Array<number>(64).fill(0);
+  for (let i = 0; i + 4 <= toks.length; i++) {
+    const shingle = toks.slice(i, i + 4).join(" ");
+    let h = 0xcbf29ce484222325n;
+    for (const c of shingle) { h ^= BigInt(c.codePointAt(0)!); h = (h * 0x100000001b3n) & 0xffffffffffffffffn; }
+    for (let b = 0; b < 64; b++) v[b]! += (h >> BigInt(b)) & 1n ? 1 : -1;
+  }
+  let fp = 0n;
+  for (let b = 0; b < 64; b++) if (v[b]! >= 0) fp |= 1n << BigInt(b);
+  return fp;
+}
+
+const hamming = (a: bigint, b: bigint) => { let x = a ^ b, n = 0; while (x) { n++; x &= x - 1n; } return n; };
+const shaHex = async (t: string) => {
+  const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(t));
+  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
+};
+
+async function dedupe(env: Env, marketId: string, sub: DispatchSubmission): Promise<string | null> {
+  const exact = await env.CLAIMS.get(`dispatch-sub:${marketId}:${sub.platform}:${sub.submission_id}`).catch(() => null);
+  if (exact) return exact === "__exists__" ? "self" : "self";
+  const content = sub.deliverable_ref?.toLowerCase().replace(/\s+/g, " ").trim();
+  if (!content) return null;
+  const hashKey = `dispcontent:${marketId}:${await shaHex(content)}`;
+  const prior = await env.CLAIMS.get(hashKey).catch(() => null);
+  if (prior) return prior; // identical content on another channel
+  // near-dup: compare against this market's stored fingerprints
+  const fpKey = `dispfp:${marketId}`;
+  const fps = await env.CLAIMS.get<{ fp: string; sid: string }[]>(fpKey, "json").catch(() => null) ?? [];
+  const mine = simhash(content);
+  const hit = fps.find((f) => hamming(BigInt("0x" + f.fp), mine) <= 3);
+  if (hit) return hit.sid;
+  await env.CLAIMS.put(hashKey, `${sub.platform}:${sub.submission_id}`);
+  if (fps.length < 200) {
+    fps.push({ fp: mine.toString(16), sid: `${sub.platform}:${sub.submission_id}` });
+    await env.CLAIMS.put(fpKey, JSON.stringify(fps));
+  }
+  return null;
 }
 
 const pad64 = (n: bigint) => n.toString(16).padStart(64, "0");
@@ -88,7 +136,13 @@ export async function scanDispatchChannels(env: Env): Promise<{ scanned: number;
       const key = `dispatch-sub:${rec.market_id}:${rec.platform}:${sub.submission_id}`;
       const seen = await env.CLAIMS.get(key).catch(() => null);
       if (seen) continue;
+      const dup = await dedupe(env, rec.market_id, sub);
+      if (dup && dup !== "self") {
+        await env.CLAIMS.put(key, JSON.stringify({ ...sub, duplicate_of: dup }));
+        continue; // same work filed earlier on another channel — no second claim
+      }
       await env.CLAIMS.put(key, JSON.stringify(sub));
+      await recordPerf(env, rec.platform, "submissions");
       count++;
     }
     if (subs.length && rec.state === "active") {
