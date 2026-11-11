@@ -493,7 +493,9 @@ async function pollWurk(env: Env): Promise<FeedRecord[]> {
     { "x-api-key": env.WURK_API_KEY }).catch(() => null) as Record<string, unknown> | null;
   const items = (Array.isArray(data) ? data
     : (data?.items ?? data?.jobs ?? data?.data)) as Record<string, unknown>[];
-  if (!Array.isArray(items)) return [];
+  if (!Array.isArray(items)) {
+    return [];
+  }
   return items.slice(0, 100).map((j) => {
     const rw = (j.reward ?? {}) as Record<string, unknown>;
     const perWinner = rw.amount && rw.winnerCount
