@@ -619,6 +619,13 @@ export default {
   // The "picks up the claim" lane: poll each watched repo's op-log and run
   // the pipeline on ship entries we haven't seen before. Needs a cron slot —
   // when none is free the /api/state opportunistic scan covers pickup.
+  async queue(batch: MessageBatch, _env: Env): Promise<void> {
+    // The service has a queue consumer bound at the account level that no
+    // code path produces for. Cloudflare now rejects deploys of a script
+    // without a queue handler — ack rather than silently retry-loop.
+    for (const m of batch.messages) m.ack();
+  },
+
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(scan(env).catch((e) => console.error(`scan: ${String(e)}`)));
     ctx.waitUntil(scanMirrorSubmissions(env).catch((e) => console.error(`ingest: ${String(e)}`)));
