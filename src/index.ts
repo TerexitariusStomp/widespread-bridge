@@ -36,6 +36,8 @@ import { handleClaimPost, handleClaimVerify } from "./claims";
 import { createFiatOrder, captureFiatOrder, tryOpsEscrow } from "./fiat";
 import { handleMirrorClaimPost, handleMirrorClaimsList, handleMirrorClaimTimeout, handleMirrorRequestChanges, handleMirrorVerdict, handleMirrorPayout } from "./mirrorclaims";
 import { scanMirrorSubmissions } from "./ingest";
+import { agentCard, createDispatch, handleA2a, listDispatches, markDispatch, settleCalldata } from "./dispatch";
+import { listDispatchSubmissions, scanDispatchChannels } from "./collect";
 import type { FeedRecord, Bounty, Env } from "./types";
 
 const json = (body: unknown, status = 200) =>
@@ -281,6 +283,15 @@ export default {
     // Sponsor-tool surface: AG Grid payout-trace viewer.
     if (pathname === "/sponsor") return sponsorPage(env);
     if (pathname === "/healthz") return json({ ok: true, service: "slopcash-bridge" });
+    if (pathname === "/.well-known/agent-card.json" && req.method === "GET") {
+      return json(agentCard(env.PUBLIC_BASE || url.origin));
+    }
+    if (pathname === "/a2a" && req.method === "POST") {
+      return handleA2a(req, async () => {
+        const markets = await listOnchainMarkets(env).catch(() => null);
+        return { markets: markets ?? [], total: markets?.length ?? 0, source: markets ? "chain" : "unavailable" };
+      });
+    }
     if (pathname === "/api/state" && req.method === "GET") {
       // Opportunistic pickup: an open dashboard polls this route, so new ship
       // claims get reviewed without needing a cron trigger slot.
@@ -293,6 +304,13 @@ export default {
     // Market truth is the CHAIN (widespread-near contract listOpen), not our
     // KV — the bridge is a thin renderer; participant infra holds the state.
     if (pathname === "/api/markets" && req.method === "GET") {
+      const marketId = url.searchParams.get("market_id");
+      if (marketId) {
+        const acct = env.NEAR_CONTRACT;
+        if (!acct) return bad("no NEAR_CONTRACT configured", 503);
+        const market = await nearView(env, acct, "getMarket", { marketId }).catch(() => null);
+        return market ? json({ market }) : bad("market not found", 404);
+      }
       const onchain = await listOnchainMarkets(env).catch(() => null);
       if (onchain && url.searchParams.get("format") === "erc8183") {
         // ERC-8183 repo-variant job descriptors — any conformant client
@@ -315,6 +333,58 @@ export default {
       if (onchain) return json({ markets: onchain, total: onchain.length, source: "chain" });
       return json({ markets: [], total: 0, source: "chain",
         error: "no NEAR_CONTRACT configured — markets live on-chain, not in KV" });
+    }
+    if (pathname === "/api/dispatch" && req.method === "GET") {
+      return json({ dispatches: await listDispatches(env, url.searchParams.get("market_id") ?? undefined) });
+    }
+    if (pathname === "/api/dispatch" && req.method === "POST") {
+      if (!isAuthorized(req, env)) return bad("unauthorized", 401);
+      const body = await req.json().catch(() => null) as {
+        market_id?: string; platforms?: string[];
+        spend_auth?: import("./types").SpendAuth[];
+        targets?: Record<string, { rpc?: string; contract?: string }>;
+        description?: string; expired_at?: number;
+      } | null;
+      if (!body?.market_id || !Array.isArray(body.platforms)) {
+        return bad("market_id and platforms[] required", 400);
+      }
+      const result = await createDispatch(env, {
+        market_id: body.market_id,
+        platforms: body.platforms,
+        spend_auth: body.spend_auth,
+        targets: body.targets,
+        description: body.description,
+        expired_at: body.expired_at,
+      }, env.PUBLIC_BASE || url.origin);
+      if (result.error) return bad(result.error, result.status ?? 400);
+      return json({ ok: true, dispatches: result.records,
+        ...(result.skipped_no_auth ? { skipped_no_auth: result.skipped_no_auth } : {}) }, 201);
+    }
+    if (pathname === "/api/dispatch/mark" && req.method === "POST") {
+      if (!isAuthorized(req, env)) return bad("unauthorized", 401);
+      const b = (await req.json().catch(() => ({}))) as { market_id?: string; platform?: string; ref?: string; state?: "active" | "settled" | "closed" };
+      if (!b.market_id || !b.platform || !b.ref) return bad("market_id, platform, ref required", 400);
+      const rec = await markDispatch(env, b.market_id, b.platform, b.ref, b.state);
+      return rec ? json({ ok: true, dispatch: rec }) : bad("dispatch channel not found", 404);
+    }
+    if (pathname === "/api/dispatch/submissions" && req.method === "GET") {
+      return json({ submissions: await listDispatchSubmissions(env, url.searchParams.get("market_id") ?? undefined) });
+    }
+    // Platform-rail settlement — returns complete() calldata for the
+    // evaluator seat after adjudication accepts a deliverable. The canonical
+    // payout on rail=platform happens on that contract, once.
+    if (pathname === "/api/dispatch/settle" && req.method === "POST") {
+      if (!isAuthorized(req, env)) return bad("unauthorized", 401);
+      const b = (await req.json().catch(() => ({}))) as { market_id?: string; platform?: string; job_id?: number; reason?: string };
+      if (!b.market_id || !b.platform || b.job_id === undefined) return bad("market_id, platform, job_id required", 400);
+      const ch = await env.CLAIMS.get(`dispatch:${b.market_id}:${b.platform}`, "json").catch(() => null) as
+        { rail?: string; prepared_tx?: { to: string; chain: string }; state?: string } | null;
+      if (!ch || ch.rail !== "platform" || !ch.prepared_tx) return bad("no platform-rail channel for that market+platform", 404);
+      return json({ prepared_tx: {
+        to: ch.prepared_tx.to, chain: ch.prepared_tx.chain,
+        data: settleCalldata(b.job_id, `0x${"776964652d766572646963742d6163636570746564".padEnd(64, "0")}`),
+        note: "complete(jobId, reason) — evaluator seat signs; releases the platform escrow to the winning provider once.",
+      } });
     }
     if (pathname === "/api/evaluate" && req.method === "POST") {
       return handleEvaluate(req, env);
@@ -651,5 +721,6 @@ export default {
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(scan(env).catch((e) => console.error(`scan: ${String(e)}`)));
     ctx.waitUntil(scanMirrorSubmissions(env).catch((e) => console.error(`ingest: ${String(e)}`)));
+    ctx.waitUntil(scanDispatchChannels(env).catch((e) => console.error(`collect: ${String(e)}`)));
   },
 } satisfies ExportedHandler<Env>;

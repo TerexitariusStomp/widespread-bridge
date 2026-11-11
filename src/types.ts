@@ -74,6 +74,9 @@ export interface Env {
    * secretKey = ed25519:<base58> full-access key (NEAR_OPS_SECRET_KEY). */
   NEAR_OPS_ACCOUNT?: string;
   NEAR_OPS_SECRET_KEY?: string;
+  /** EVM address our oracle occupies as the `evaluator` on outbound 8183
+   * jobs — named in createJob calldata so our verdict lands on-chain. */
+  ORACLE_EVM_ADDRESS?: string;
   /** Paxos — licensed transmitter of record for PYUSD payouts. */
   PAXOS_CLIENT_ID?: string;
   PAXOS_CLIENT_SECRET?: string;
@@ -160,6 +163,38 @@ export interface FeedDoc {
   sources: Record<string, { ok: boolean; count: number; error?: string; fetched_at: number }>;
   records: FeedRecord[];
   mirrors?: MirrorListing[];
+}
+
+/** AP2-Intent-Mandate-shaped spend authorization: the funder's signed
+ * ceiling for native postings on a single platform surface. */
+export interface SpendAuth {
+  authorized_by: string;
+  platform: string;
+  ceiling: number;
+  currency: string;
+  expiry: number;
+  sig?: string;
+}
+
+/** Durable intent to expose one canonical Widespread market to a workforce
+ * surface. Descriptors never imply that a third-party job was paid or posted. */
+export interface DispatchRecord {
+  id: string;
+  market_id: string;
+  platform: string;
+  kind: "descriptor" | "native";
+  state: "prepared" | "active" | "collecting" | "settled" | "closed";
+  rail: "widespread" | "platform";
+  spec_hash: string;
+  market_url: string;
+  claim_url: string;
+  /** Unsigned tx the funder/oracle signs — posting or settlement calldata. */
+  prepared_tx?: { to: string; data: string; chain: string; note: string };
+  /** Platform-side listing/job id or posting tx hash, set via /api/dispatch/mark. */
+  ref?: string;
+  spend_auth?: SpendAuth;
+  created_at: number;
+  updated_at: number;
 }
 
 /** One row of GET /api/:owner/:repo/dg/oplog (snake_case over the wire). */
