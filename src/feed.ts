@@ -457,6 +457,60 @@ async function pollImmunefi(env: Env): Promise<FeedRecord[]> {
   }).filter((r) => r.title);
 }
 
+async function pollTermix(env: Env): Promise<FeedRecord[]> {
+  // TermiX AACP bounty campaigns — public read on per-chain API bases
+  // (docs.termix.ai/aacp/network.md). BNB backend is the reachable default;
+  // TERMIX_API overrides for the Base/Robinhood deployments.
+  const base = env.TERMIX_API ?? "https://platform-backend.prod.termix.live";
+  const data = await fetchJson(`${base}/api/v1/campaigns?status=LIVE`)
+    .catch(() => null) as Record<string, unknown> | null;
+  const items = (Array.isArray(data) ? data
+    : (data?.items ?? data?.campaigns ?? data?.data)) as Record<string, unknown>[];
+  if (!Array.isArray(items)) return [];
+  return items.slice(0, 100).map((c) => {
+    const reward = String(c.rewardPerSlot ?? "");
+    const cur = String(c.currency ?? "USDT");
+    const slots = Number(c.totalSlots ?? 0) - Number(c.claimedCount ?? 0);
+    return {
+      id: `termix:${String(c.id).slice(0, 40)}`,
+      source: "termix", forge: "generic", kind: "bounty",
+      title: String(c.title ?? c.summary ?? "TermiX campaign").slice(0, 200),
+      ...(reward ? { amount: reward, currency: cur, est_usd: estUsd(reward, cur) } : {}),
+      escrow: { state: "external" },
+      payout: { rails: ["usdc", "usdt"], note: `${slots > 0 ? slots : "?"} slots open — face-value rewardPerSlot ${reward} ${cur}; source-platform payout is outside this feed` },
+      url: `https://www.termix.ai/`,
+      widespread_offer: mirrorOffer(env, reward || undefined, cur),
+      updated_at: Date.now(),
+    } satisfies FeedRecord;
+  }).filter((r) => r.title);
+}
+
+async function pollWurk(env: Env): Promise<FeedRecord[]> {
+  // WURK job catalog is account-gated (402 without a registered agent key).
+  // Activates once WURK_API_KEY is set — see scripts/wurk-register.mjs.
+  if (!env.WURK_API_KEY) return [];
+  const data = await fetchJson(`${env.WURK_API ?? "https://api.wurk.fun"}/api/v1/jobs`,
+    { authorization: `Bearer ${env.WURK_API_KEY}` }).catch(() => null) as Record<string, unknown> | null;
+  const items = (Array.isArray(data) ? data
+    : (data?.items ?? data?.jobs ?? data?.data)) as Record<string, unknown>[];
+  if (!Array.isArray(items)) return [];
+  return items.slice(0, 100).map((j) => {
+    const reward = String(j.reward ?? j.amount ?? "");
+    const cur = String(j.currency ?? "USDC");
+    return {
+      id: `wurk:${String(j.id ?? j.jobId ?? j.title).slice(0, 40)}`,
+      source: "wurk", forge: "generic", kind: "bounty",
+      title: String(j.title ?? j.brief ?? "WURK job").slice(0, 200),
+      ...(reward ? { amount: reward, currency: cur, est_usd: estUsd(reward, cur) } : {}),
+      escrow: { state: "external" },
+      payout: { rails: ["usdc"], note: "x402 USDC on Solana/Base — source-platform payout is outside this feed" },
+      url: `https://wurk.fun/`,
+      widespread_offer: mirrorOffer(env, reward || undefined, cur),
+      updated_at: Date.now(),
+    } satisfies FeedRecord;
+  }).filter((r) => r.title);
+}
+
 // ----------------------------------------------------------------- merge
 
 const SOURCE_INTERVALS: Record<string, number> = {
@@ -464,6 +518,7 @@ const SOURCE_INTERVALS: Record<string, number> = {
   github: 15 * 60 * 1000, tangled: FEED_TTL_MS,
   forgejo: 60 * 60 * 1000, codeberg: 60 * 60 * 1000, gitlab: 60 * 60 * 1000,
   radicle: 60 * 60 * 1000, "external:immunefi": 6 * 60 * 60 * 1000,
+  termix: 30 * 60 * 1000, wurk: 30 * 60 * 1000,
 };
 
 async function runSource(env: Env, name: string, fn: () => Promise<FeedRecord[]>): Promise<{ stamp: SourceStamp; records: FeedRecord[] }> {
@@ -529,19 +584,21 @@ export async function refreshFeed(env: Env, ctx?: ExecutionContext): Promise<Fee
     if (existing) return existing;
   }
   try {
-    const [nearR, kvR, ghR, tgR, fwR, imR, trust] = await Promise.all([
+    const [nearR, kvR, ghR, tgR, fwR, imR, txR, wkR, trust] = await Promise.all([
       runSource(env, "near-chain", () => pollNearChain(env)),
       runSource(env, "kv-registry", () => pollKvRegistry(env)),
       runSource(env, "github", () => pollGithub(env)),
       runSource(env, "tangled", () => pollTangled(env)),
       runSource(env, "forgejo", () => pollForgeWatch(env)),
       runSource(env, "external:immunefi", () => pollImmunefi(env)),
+      runSource(env, "termix", () => pollTermix(env)),
+      runSource(env, "wurk", () => pollWurk(env)),
       trustIndex(env),
     ]);
     const sources: FeedDoc["sources"] = {};
     for (const [name, r] of Object.entries({
       "near-chain": nearR, "kv-registry": kvR, github: ghR, tangled: tgR,
-      forgejo: fwR, "external:immunefi": imR,
+      forgejo: fwR, "external:immunefi": imR, termix: txR, wurk: wkR,
     })) sources[name] = r.stamp;
 
     // Merge: fresh records replace stale ones by id; records from
@@ -549,7 +606,7 @@ export async function refreshFeed(env: Env, ctx?: ExecutionContext): Promise<Fee
     const prior = await getFeedDoc(env);
     const byId = new Map<string, FeedRecord>();
     for (const r of prior?.records ?? []) byId.set(r.id, r);
-    for (const r of [...nearR.records, ...kvR.records, ...ghR.records, ...tgR.records, ...fwR.records, ...imR.records]) {
+    for (const r of [...nearR.records, ...kvR.records, ...ghR.records, ...tgR.records, ...fwR.records, ...imR.records, ...txR.records, ...wkR.records]) {
       const t = r.repo ? trust.get(r.repo) : undefined;
       byId.set(r.id, { ...r, ...(t ? { trust: t } : {}) });
     }

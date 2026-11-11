@@ -119,7 +119,7 @@ function extractJson(text: string): Record<string, unknown> | null {
  * request+response bytes; GET /v1/signature/<chat_id> returns the proof.
  * Verifying that signature ties the verdict to TEE-executed inference —
  * an operator can't fake which model ran or what it said. */
-async function nearAiCall(env: Env, input: AdjudicatorInput): Promise<{
+async function nearAiCall(env: Env, input: AdjudicatorInput, prompt?: string): Promise<{
   raw: string; model: string; signature_id?: string; tee_signature?: unknown;
 }> {
   const base = env.NEAR_AI_BASE || "https://cloud-api.near.ai/v1";
@@ -134,7 +134,7 @@ async function nearAiCall(env: Env, input: AdjudicatorInput): Promise<{
       model,
       messages: [
         { role: "system", content: SYSTEM },
-        { role: "user", content: buildPrompt(input) },
+        { role: "user", content: prompt ?? buildPrompt(input) },
       ],
       // Reasoning models (DeepSeek-V4.x) spend part of the budget on
       // reasoning_content before emitting content — 1024 starves the
@@ -163,16 +163,17 @@ async function nearAiCall(env: Env, input: AdjudicatorInput): Promise<{
   return { raw, model, signature_id: out.id, tee_signature };
 }
 
-export async function adjudicate(env: Env, input: AdjudicatorInput): Promise<Adjudication> {
+/** One judge call. `model` lets a panel override the env default;
+ * `blind` strips claimant identity from the prompt so the judge weighs
+ * the work, not the worker. */
+async function callJudge(env: Env, input: AdjudicatorInput, model: string, blind: boolean): Promise<Adjudication> {
   const useNearAi = !!(env as { NEAR_AI_API_KEY?: string }).NEAR_AI_API_KEY;
-  const model = useNearAi
-    ? (env.NEAR_AI_MODEL || "deepseek-ai/DeepSeek-V4.1-Flash-1017")
-    : (env.LLM_MODEL || "@cf/meta/llama-3.3-70b-instruct-fp8-fast");
+  const eff = blind ? blindInput(input) : input;
   let raw = "";
   let sig: { signature_id?: string; tee_signature?: unknown } = {};
   try {
     if (useNearAi) {
-      const r = await nearAiCall(env, input);
+      const r = await nearAiCall(env, input, buildPrompt(eff));
       raw = r.raw; sig = { signature_id: r.signature_id, tee_signature: r.tee_signature };
     } else {
       // Ai.run may return {response} or an OpenAI-style chat.completion
@@ -180,7 +181,7 @@ export async function adjudicate(env: Env, input: AdjudicatorInput): Promise<Adj
       const out = (await env.AI.run(model as keyof AiModels, {
         messages: [
           { role: "system", content: SYSTEM },
-          { role: "user", content: buildPrompt(input) },
+          { role: "user", content: buildPrompt(eff) },
         ],
         max_tokens: 1024,
         temperature: 0,
@@ -222,5 +223,60 @@ export async function adjudicate(env: Env, input: AdjudicatorInput): Promise<Adj
     ...(sig.signature_id ? { signature_id: sig.signature_id } : {}),
     ...(sig.tee_signature ? { tee_signature: sig.tee_signature } : {}),
     ...(parsed ? {} : { error: "unparseable-output" }),
+  };
+}
+
+/** Strip anything that identifies the claimant so panel judges weigh
+ * the work, not the worker — lineage/identity cues are the documented
+ * self-preference leak in LLM panels (Verdict-Bench 2025). */
+function blindInput(input: AdjudicatorInput): AdjudicatorInput {
+  const { entry, ...rest } = input;
+  const { agent: _a, actor: _b, claimant: _c, ...e } = entry as unknown as Record<string, unknown>;
+  return { ...rest, entry: e as unknown as OpLogEntry };
+}
+
+export async function adjudicate(env: Env, input: AdjudicatorInput): Promise<Adjudication> {
+  const useNearAi = !!(env as { NEAR_AI_API_KEY?: string }).NEAR_AI_API_KEY;
+  const model = useNearAi
+    ? (env.NEAR_AI_MODEL || "deepseek-ai/DeepSeek-V4.1-Flash-1017")
+    : (env.LLM_MODEL || "@cf/meta/llama-3.3-70b-instruct-fp8-fast");
+  return callJudge(env, input, model, false);
+}
+
+/** Bias-corrected evaluator panel for non-recomputable verticals.
+ * Science (2025): naive panels amplify shared bias; single judges hit
+ * ~88% ground truth; judges are great at TPR (>96%) but terrible at TNR
+ * (<25%) — they approve slop. Policy: odd-N diverse-family judges on
+ * BLINDED evidence; minority-veto — any "reject" escalates instead of
+ * letting a majority rubber-stamp; per-judge verdicts are recorded for
+ * calibration against human-labeled outcomes. PANEL_MODELS overrides the
+ * default seat list; PANEL_SEATS caps the draw. */
+export async function adjudicatePanel(env: Env, input: AdjudicatorInput): Promise<Adjudication> {
+  const seats = Math.max(3, Math.min(7, parseInt(env.PANEL_SEATS ?? "3", 10) || 3));
+  const roster = (env.PANEL_MODELS ??
+    `${env.NEAR_AI_MODEL || "deepseek-ai/DeepSeek-V4.1-Flash-1017"},${env.LLM_MODEL || "@cf/meta/llama-3.3-70b-instruct-fp8-fast"}`)
+    .split(",").map((m: string) => m.trim()).filter(Boolean);
+  const judges = await Promise.all(
+    Array.from({ length: seats }, (_, i) =>
+      callJudge(env, input, roster[i % roster.length], true)),
+  );
+  const dissent = judges.filter((j) => j.verdict === "reject");
+  const accepts = judges.length - dissent.length;
+  // Minority-veto: one dissent blocks an accept — escalates to the next
+  // tier (human or TEE-verified re-judge) rather than majority-approve.
+  const verdict = dissent.length === 0 ? "accept" : "reject";
+  const confidence = accepts / judges.length;
+  return {
+    verdict,
+    reasoning: dissent.length === 0
+      ? `panel ${accepts}/${judges.length} accept — ${judges[0]?.reasoning ?? ""}`
+      : `minority-veto: ${dissent.length}/${judges.length} dissent → escalate. ${dissent[0]?.reasoning ?? ""}`,
+    confidence,
+    model: `panel(${roster.join("|")})`,
+    panel: judges.map((j) => ({
+      model: j.model, verdict: j.verdict, confidence: j.confidence,
+      ...(j.signature_id ? { signature_id: j.signature_id } : {}),
+    })),
+    panel_escalated: dissent.length > 0,
   };
 }

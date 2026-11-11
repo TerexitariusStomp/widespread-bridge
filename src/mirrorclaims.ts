@@ -179,6 +179,76 @@ export async function handleMirrorVerdict(req: Request, env: Env, ctx?: Executio
     next: accept ? "POST /api/mirrors/payout {mirror_id} to send PYUSD/USD to the winner." : null });
 }
 
+/** Payer asks for revisions instead of a verdict — TermiX's
+ * CHANGES_REQUESTED, capped at 2 rounds. Costs the claimant nothing;
+ * the claim goes back to pending on resubmission. */
+export async function handleMirrorRequestChanges(req: Request, env: Env): Promise<Response> {
+  const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+  const mirrorId = String(body?.mirror_id ?? "");
+  const claimHash = String(body?.claim_hash ?? "");
+  const note = String(body?.note ?? "");
+  if (!mirrorId || !claimHash) {
+    return Response.json({ ok: false, error: "mirror_id and claim_hash required" }, { status: 400 });
+  }
+  const raw = await env.CLAIMS.get(claimKey(mirrorId, claimHash));
+  const claim = raw ? JSON.parse(raw) : null;
+  if (!claim) return Response.json({ ok: false, error: "claim not found" }, { status: 404 });
+  if (claim.status !== "pending" && claim.status !== "changes_requested") {
+    return Response.json({ ok: false, error: `claim is ${claim.status} — changes only on open claims` }, { status: 409 });
+  }
+  const rounds = Number(claim.change_rounds ?? 0) + 1;
+  if (rounds > 2) {
+    return Response.json({ ok: false, error: "revision limit reached (2 rounds) — issue a verdict instead" }, { status: 409 });
+  }
+  claim.status = "changes_requested";
+  claim.change_rounds = rounds;
+  claim.change_notes = [...(claim.change_notes ?? []), { note, at: Date.now() }];
+  await env.CLAIMS.put(claimKey(mirrorId, claimHash), JSON.stringify(claim));
+  return Response.json({ ok: true, claim_hash: claimHash, status: "changes_requested", round: rounds,
+    next: "Resubmit via POST /api/mirrors/claims — the new claim supersedes this round." });
+}
+
+/** Provider-favorable timeout — TermiX's claim-after-timeout. If a
+ * submitted claim sits past CLAIM_TIMEOUT_MS (default 7d) with no
+ * verdict, the provider can settle in their own favor. Protects workers
+ * from dead payers at zero cost to the claimant. */
+export async function handleMirrorClaimTimeout(req: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
+  const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+  const mirrorId = String(body?.mirror_id ?? "");
+  const claimHash = String(body?.claim_hash ?? "");
+  if (!mirrorId || !claimHash) {
+    return Response.json({ ok: false, error: "mirror_id and claim_hash required" }, { status: 400 });
+  }
+  const prior = await env.CLAIMS.get(settleKey(mirrorId)).then((v) => v ? JSON.parse(v) : null);
+  if (prior) return Response.json({ ok: true, status: "already_decided", settlement: prior });
+  const raw = await env.CLAIMS.get(claimKey(mirrorId, claimHash));
+  const claim = raw ? JSON.parse(raw) : null;
+  if (!claim) return Response.json({ ok: false, error: "claim not found" }, { status: 404 });
+  const timeoutMs = Number(env.CLAIM_TIMEOUT_MS ?? 7 * 24 * 60 * 60 * 1000);
+  const age = Date.now() - Number(claim.created_at ?? 0);
+  if (claim.status !== "pending" && claim.status !== "changes_requested") {
+    return Response.json({ ok: false, error: `claim is ${claim.status} — not open` }, { status: 409 });
+  }
+  if (age < timeoutMs) {
+    return Response.json({ ok: false, error: `verdict window still open (${Math.round((timeoutMs - age) / 3600000)}h left)` }, { status: 409 });
+  }
+  const mirror = await getMirror(env, ctx, mirrorId);
+  const usd = mirror?.original?.est_usd ?? 0;
+  const cutBps = mirror?.cut_bps ?? 1000;
+  const settlement = {
+    mirror_id: mirrorId, winning_claim_hash: claimHash,
+    winner: { forgeUserId: claim.forgeUserId, forgeLogin: claim.forgeLogin, actor: claim.actor },
+    face_usd: usd, platform_cut_usd: +(usd * cutBps / 10000).toFixed(2),
+    net_usd: +(usd * (1 - cutBps / 10000)).toFixed(2),
+    verdict: "accept", reasoning: "claim-after-timeout — verdict window elapsed without decision",
+    decided_at: Date.now(), status: "won", timeout: true,
+  };
+  await env.CLAIMS.put(settleKey(mirrorId), JSON.stringify(settlement));
+  claim.status = "won";
+  await env.CLAIMS.put(claimKey(mirrorId, claimHash), JSON.stringify(claim));
+  return Response.json({ ok: true, settlement, next: "POST /api/mirrors/payout {mirror_id} to send PYUSD/USD to the winner." });
+}
+
 export async function handleMirrorPayout(req: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   const mirrorId = String(body?.mirror_id ?? "");

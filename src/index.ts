@@ -33,7 +33,7 @@ import {
 import { putFeedDoc } from "./feedstore";
 import { handleClaimPost, handleClaimVerify } from "./claims";
 import { createFiatOrder, captureFiatOrder, tryOpsEscrow } from "./fiat";
-import { handleMirrorClaimPost, handleMirrorClaimsList, handleMirrorVerdict, handleMirrorPayout } from "./mirrorclaims";
+import { handleMirrorClaimPost, handleMirrorClaimsList, handleMirrorClaimTimeout, handleMirrorRequestChanges, handleMirrorVerdict, handleMirrorPayout } from "./mirrorclaims";
 import { scanMirrorSubmissions } from "./ingest";
 import type { FeedRecord, Bounty, Env } from "./types";
 
@@ -552,6 +552,12 @@ export default {
     }
     if (pathname === "/api/mirrors/claims" && req.method === "GET") {
       return handleMirrorClaimsList(url, env, ctx);
+    }
+    if (pathname === "/api/mirrors/request-changes" && req.method === "POST") {
+      return handleMirrorRequestChanges(req, env);
+    }
+    if (pathname === "/api/mirrors/claim-timeout" && req.method === "POST") {
+      return handleMirrorClaimTimeout(req, env, ctx);
     }
     if (pathname === "/api/mirrors/verdict" && req.method === "POST") {
       return handleMirrorVerdict(req, env, ctx);

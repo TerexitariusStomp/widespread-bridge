@@ -37,6 +37,17 @@ export interface Env {
   FEED_IMMUNEFI?: string;
   FEED_ALGORA?: string;
   FEED_POLAR?: string;
+  /** TermiX AACP per-chain API base (default BNB backend). */
+  TERMIX_API?: string;
+  /** WURK registered-agent API key + base — activates the wurk feed source. */
+  WURK_API_KEY?: string;
+  WURK_API?: string;
+  /** Evaluator panel: comma-separated model roster (diverse families) and
+   * seat count — adjudicatePanel draws blind + minority-veto. */
+  PANEL_MODELS?: string;
+  PANEL_SEATS?: string;
+  /** Provider-favorable timeout for undecided mirror claims (default 7d). */
+  CLAIM_TIMEOUT_MS?: string;
   /** HMAC secret for /api/claims attestation tokens (falls back to ADMIN_TOKEN). */
   ATTEST_SECRET?: string;
   /** Markup (bps) applied when mirroring third-party bounties into our
@@ -222,6 +233,9 @@ export interface Bounty {
   upstream?: string;
   work_id?: string | null;
   note?: string | null;
+  /** Typed proofs a submission must supply — the human-side complement
+   * to spec for non-recomputable verticals (routes claims to the panel). */
+  proof_requirements?: ProofRequirement[];
   created_at: number;
 }
 
@@ -240,6 +254,19 @@ export interface Adjudication {
   tee_signature?: unknown;
   /** Ed25519 oracle verdict envelope the market contract binds on-chain. */
   oracle_verdict_sig?: string;
+  /** Per-judge verdicts when the panel tier ran — recorded for
+   * calibration against human-labeled outcomes. */
+  panel?: { model: string; verdict: "accept" | "reject"; confidence: number; signature_id?: string }[];
+  /** Minority-veto fired — verdict was escalated rather than majority-decided. */
+  panel_escalated?: boolean;
+}
+
+/** Typed proof a market can require of submissions — the human-side
+ * complement to specHash for non-recomputable verticals. */
+export interface ProofRequirement {
+  id: string;
+  kind: "URL" | "SCREENSHOT" | "HASH" | "ATTESTATION";
+  note?: string;
 }
 
 export interface PayoutReceipt {
@@ -288,5 +315,7 @@ export interface ReviewRecord {
   attestation?: { uuid?: string; logIndex?: string; integratedTime?: number; skipped?: string } | null;
   payout: PayoutReceipt | null;
   writeback: Writeback | null;
+  /** ERC-8004-schema reputation record emitted from this settled review. */
+  reputation_8004?: unknown;
   reviewed_at: number;
 }

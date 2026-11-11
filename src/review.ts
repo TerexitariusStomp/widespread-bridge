@@ -1,6 +1,7 @@
 // The pipeline: claim → evidence → AI verdict → PayPal payout → receipt.
 
-import { adjudicate } from "./adjudicator";
+import { adjudicate, adjudicatePanel } from "./adjudicator";
+import { rep8004For } from "./rep8004";
 import { crosscheck, findDerivative, gatherCommitEvidence, laterUpstreamFingerprints, upstreamFor } from "./evidence";
 import { oracleEnv, signVerdict } from "./oracle";
 import { fetchOpLog, verifyChain } from "./oplog";
@@ -75,15 +76,14 @@ export async function runReview(
       }).catch(() => null)
     : null;
 
-  const adjudication = await adjudicate(env, {
-    repo,
-    entry,
-    chain,
-    bounty,
-    commits,
-    check,
-    derivative,
-  });
+  // Non-recomputable work (no code evidence, or the bounty declares typed
+  // proof requirements) goes to the bias-corrected evaluator panel —
+  // blind presentation, minority-veto escalation. Code claims stay on the
+  // cheaper single recompute judge.
+  const adjudicatorInput = { repo, entry, chain, bounty, commits, check, derivative };
+  const adjudication = (!claim.commits?.length || bounty?.proof_requirements?.length)
+    ? await adjudicatePanel(env, adjudicatorInput)
+    : await adjudicate(env, adjudicatorInput);
 
   // Money moves only on: model says accept + confidence floor + intact chain.
   const minConfidence = Number(env.MIN_CONFIDENCE ?? "0.6");
@@ -181,6 +181,9 @@ export async function runReview(
     writeback,
     reviewed_at: Date.now(),
   };
+  // ERC-8004-shaped reputation record — settled verdicts become portable
+  // trust signals in the emerging standard's schema.
+  record.reputation_8004 = rep8004For(record);
   await putRecord(env, record);
   return record;
 }
