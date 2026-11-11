@@ -567,6 +567,31 @@ async function pollClaudelance(env: Env): Promise<FeedRecord[]> {
     });
 }
 
+// Generic ERC-8183 job contract mirror — any conformant deployment can be
+// plugged in with only env config (Escroue ServiceBoard, AgentHire, a
+// second AgentLedger chain, our own deploy once funded).
+async function pollErc8183Generic(env: Env): Promise<FeedRecord[]> {
+  if (!env.EVM8183_RPC || !env.EVM8183_CONTRACT) return [];
+  const jobs = await readJobs(env.EVM8183_RPC, env.EVM8183_CONTRACT, 50).catch(() => []);
+  const name = env.EVM8183_NAME ?? "erc8183";
+  return jobs
+    .filter(({ job }) => job.status <= 1)
+    .map(({ id, job }) => {
+      const usdc = (Number(job.budget) / 1e6).toFixed(2);
+      return {
+        id: `${name}:${id}`,
+        source: name, forge: "generic", kind: "bounty",
+        title: job.description.slice(0, 200) || `${name} job #${id}`,
+        amount: usdc, currency: "USDC", est_usd: Number(usdc),
+        escrow: { state: "external" },
+        payout: { rails: ["usdc"], note: `ERC-8183 job #${id} at ${env.EVM8183_CONTRACT} — source-platform payout is outside this feed` },
+        url: String(env.EVM8183_URL ?? ""),
+        widespread_offer: mirrorOffer(env, usdc, "USDC"),
+        updated_at: Date.now(),
+      } satisfies FeedRecord;
+    });
+}
+
 // ----------------------------------------------------------------- merge
 
 const SOURCE_INTERVALS: Record<string, number> = {
@@ -576,6 +601,7 @@ const SOURCE_INTERVALS: Record<string, number> = {
   radicle: 60 * 60 * 1000, "external:immunefi": 6 * 60 * 60 * 1000,
   termix: 30 * 60 * 1000, wurk: 30 * 60 * 1000,
   agentledger: 30 * 60 * 1000, claudelance: 30 * 60 * 1000,
+  erc8183: 30 * 60 * 1000,
 };
 
 async function runSource(env: Env, name: string, fn: () => Promise<FeedRecord[]>): Promise<{ stamp: SourceStamp; records: FeedRecord[] }> {
@@ -641,7 +667,7 @@ export async function refreshFeed(env: Env, ctx?: ExecutionContext): Promise<Fee
     if (existing) return existing;
   }
   try {
-    const [nearR, kvR, ghR, tgR, fwR, imR, txR, wkR, alR, clR, trust] = await Promise.all([
+    const [nearR, kvR, ghR, tgR, fwR, imR, txR, wkR, alR, clR, e8R, trust] = await Promise.all([
       runSource(env, "near-chain", () => pollNearChain(env)),
       runSource(env, "kv-registry", () => pollKvRegistry(env)),
       runSource(env, "github", () => pollGithub(env)),
@@ -652,13 +678,14 @@ export async function refreshFeed(env: Env, ctx?: ExecutionContext): Promise<Fee
       runSource(env, "wurk", () => pollWurk(env)),
       runSource(env, "agentledger", () => pollAgentLedger(env)),
       runSource(env, "claudelance", () => pollClaudelance(env)),
+      runSource(env, "erc8183", () => pollErc8183Generic(env)),
       trustIndex(env),
     ]);
     const sources: FeedDoc["sources"] = {};
     for (const [name, r] of Object.entries({
       "near-chain": nearR, "kv-registry": kvR, github: ghR, tangled: tgR,
       forgejo: fwR, "external:immunefi": imR, termix: txR, wurk: wkR,
-      agentledger: alR, claudelance: clR,
+      agentledger: alR, claudelance: clR, erc8183: e8R,
     })) sources[name] = r.stamp;
 
     // Merge: fresh records replace stale ones by id; records from
@@ -666,7 +693,7 @@ export async function refreshFeed(env: Env, ctx?: ExecutionContext): Promise<Fee
     const prior = await getFeedDoc(env);
     const byId = new Map<string, FeedRecord>();
     for (const r of prior?.records ?? []) byId.set(r.id, r);
-    for (const r of [...nearR.records, ...kvR.records, ...ghR.records, ...tgR.records, ...fwR.records, ...imR.records, ...txR.records, ...wkR.records, ...alR.records, ...clR.records]) {
+    for (const r of [...nearR.records, ...kvR.records, ...ghR.records, ...tgR.records, ...fwR.records, ...imR.records, ...txR.records, ...wkR.records, ...alR.records, ...clR.records, ...e8R.records]) {
       const t = r.repo ? trust.get(r.repo) : undefined;
       byId.set(r.id, { ...r, ...(t ? { trust: t } : {}) });
     }

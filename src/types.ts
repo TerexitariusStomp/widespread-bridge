@@ -48,6 +48,12 @@ export interface Env {
   /** Claudelance TaskBoard (Celo mainnet EIP-1967 proxy) feed source. */
   CLAUDELANCE_RPC?: string;
   CLAUDELANCE_CONTRACT?: string;
+  /** Generic ERC-8183 mirror — set RPC+CONTRACT to plug in any conformant
+   *  job contract (Escroue, AgentHire, our own deploy). */
+  EVM8183_RPC?: string;
+  EVM8183_CONTRACT?: string;
+  EVM8183_NAME?: string;
+  EVM8183_URL?: string;
   /** Evaluator panel: comma-separated model roster (diverse families) and
    * seat count — adjudicatePanel draws blind + minority-veto. */
   PANEL_MODELS?: string;
