@@ -14,6 +14,10 @@ export interface Rep8004 {
   endpoint: string;       // where the work was judged
   feedbackURI: string;    // off-chain detail (the review record)
   feedbackHash: string;   // integrity anchor for the payload
+  /** Grounded = feedback binds to a settled job with recomputed evidence —
+   *  the arXiv-2606.26028 defense against the measured 73-90% Sybil noise
+   *  in ungrounded ERC-8004 registries. */
+  grounded: boolean;
 }
 
 export function rep8004For(r: ReviewRecord): Rep8004 {
@@ -28,5 +32,6 @@ export function rep8004For(r: ReviewRecord): Rep8004 {
     endpoint: `repo:${r.repo}`,
     feedbackURI: `${r.repo}/claims/${r.seq}`,
     feedbackHash: r.claim?.hash ?? "",
+    grounded: Boolean(r.claim?.hash),
   };
 }

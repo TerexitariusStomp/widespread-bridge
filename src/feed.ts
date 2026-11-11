@@ -11,6 +11,7 @@
 //   forge watchlists 60m · external boards 60m–6h
 
 import { nearView } from "./near";
+import { readJobs } from "./evmread";
 import { scanMirrorSubmissions } from "./ingest";
 import { listBounties, listRecords } from "./store";
 import {
@@ -515,6 +516,30 @@ async function pollWurk(env: Env): Promise<FeedRecord[]> {
   }).filter((r) => r.title);
 }
 
+// AgentLedger (ERC-8183, Celo Sepolia) — on-chain read, no API. Mirrors
+// Open/Funded jobs at face value; payout settles on the source chain.
+async function pollAgentLedger(env: Env): Promise<FeedRecord[]> {
+  const rpc = env.AGENTLEDGER_RPC ?? "https://forno.celo-sepolia.celo-testnet.org";
+  const contract = env.AGENTLEDGER_CONTRACT ?? "0x6262a72674F824a2c67fEDE85b56e096eD72B543";
+  const jobs = await readJobs(rpc, contract, 50).catch(() => []);
+  return jobs
+    .filter(({ job }) => job.status <= 1) // Open or Funded — earnable
+    .map(({ id, job }) => {
+      const usdc = (Number(job.budget) / 1e6).toFixed(2);
+      return {
+        id: `agentledger:${id}`,
+        source: "agentledger", forge: "generic", kind: "bounty",
+        title: job.description.slice(0, 200) || `AgentLedger job #${id}`,
+        amount: usdc, currency: "USDC", est_usd: Number(usdc),
+        escrow: { state: "external" },
+        payout: { rails: ["usdc"], note: `ERC-8183 job #${id} on Celo Sepolia (status ${job.status}, expires ${new Date(Number(job.expiredAt) * 1000).toISOString().slice(0, 10)}) — source-platform payout is outside this feed` },
+        url: "https://agentledger.paracausal.tech",
+        widespread_offer: mirrorOffer(env, usdc, "USDC"),
+        updated_at: Date.now(),
+      } satisfies FeedRecord;
+    });
+}
+
 // ----------------------------------------------------------------- merge
 
 const SOURCE_INTERVALS: Record<string, number> = {
@@ -523,6 +548,7 @@ const SOURCE_INTERVALS: Record<string, number> = {
   forgejo: 60 * 60 * 1000, codeberg: 60 * 60 * 1000, gitlab: 60 * 60 * 1000,
   radicle: 60 * 60 * 1000, "external:immunefi": 6 * 60 * 60 * 1000,
   termix: 30 * 60 * 1000, wurk: 30 * 60 * 1000,
+  agentledger: 30 * 60 * 1000,
 };
 
 async function runSource(env: Env, name: string, fn: () => Promise<FeedRecord[]>): Promise<{ stamp: SourceStamp; records: FeedRecord[] }> {
@@ -588,7 +614,7 @@ export async function refreshFeed(env: Env, ctx?: ExecutionContext): Promise<Fee
     if (existing) return existing;
   }
   try {
-    const [nearR, kvR, ghR, tgR, fwR, imR, txR, wkR, trust] = await Promise.all([
+    const [nearR, kvR, ghR, tgR, fwR, imR, txR, wkR, alR, trust] = await Promise.all([
       runSource(env, "near-chain", () => pollNearChain(env)),
       runSource(env, "kv-registry", () => pollKvRegistry(env)),
       runSource(env, "github", () => pollGithub(env)),
@@ -597,12 +623,14 @@ export async function refreshFeed(env: Env, ctx?: ExecutionContext): Promise<Fee
       runSource(env, "external:immunefi", () => pollImmunefi(env)),
       runSource(env, "termix", () => pollTermix(env)),
       runSource(env, "wurk", () => pollWurk(env)),
+      runSource(env, "agentledger", () => pollAgentLedger(env)),
       trustIndex(env),
     ]);
     const sources: FeedDoc["sources"] = {};
     for (const [name, r] of Object.entries({
       "near-chain": nearR, "kv-registry": kvR, github: ghR, tangled: tgR,
       forgejo: fwR, "external:immunefi": imR, termix: txR, wurk: wkR,
+      agentledger: alR,
     })) sources[name] = r.stamp;
 
     // Merge: fresh records replace stale ones by id; records from
@@ -610,7 +638,7 @@ export async function refreshFeed(env: Env, ctx?: ExecutionContext): Promise<Fee
     const prior = await getFeedDoc(env);
     const byId = new Map<string, FeedRecord>();
     for (const r of prior?.records ?? []) byId.set(r.id, r);
-    for (const r of [...nearR.records, ...kvR.records, ...ghR.records, ...tgR.records, ...fwR.records, ...imR.records, ...txR.records, ...wkR.records]) {
+    for (const r of [...nearR.records, ...kvR.records, ...ghR.records, ...tgR.records, ...fwR.records, ...imR.records, ...txR.records, ...wkR.records, ...alR.records]) {
       const t = r.repo ? trust.get(r.repo) : undefined;
       byId.set(r.id, { ...r, ...(t ? { trust: t } : {}) });
     }

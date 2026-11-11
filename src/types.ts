@@ -42,6 +42,9 @@ export interface Env {
   /** WURK registered-agent API key + base — activates the wurk feed source. */
   WURK_API_KEY?: string;
   WURK_API?: string;
+  /** AgentLedger (ERC-8183, Celo Sepolia) on-chain feed source. */
+  AGENTLEDGER_RPC?: string;
+  AGENTLEDGER_CONTRACT?: string;
   /** Evaluator panel: comma-separated model roster (diverse families) and
    * seat count — adjudicatePanel draws blind + minority-veto. */
   PANEL_MODELS?: string;

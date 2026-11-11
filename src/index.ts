@@ -25,6 +25,7 @@ import { hatsOrg, hatsHat, hatsStanceCheck, hatsOpportunities,
          earnedStance, delegatedStance, parseIdentityRef, stanceScore,
          ERC8004_REGISTRIES } from "./hats";
 import { nearView } from "./near";
+import { handleEvaluate } from "./evaluator";
 import { deleteBounty, listBounties, listRecords, putBounty } from "./store";
 import {
   feedDoc, queryFeed, feedRss, handleMcp, FEED_MD,
@@ -293,9 +294,30 @@ export default {
     // KV — the bridge is a thin renderer; participant infra holds the state.
     if (pathname === "/api/markets" && req.method === "GET") {
       const onchain = await listOnchainMarkets(env).catch(() => null);
+      if (onchain && url.searchParams.get("format") === "erc8183") {
+        // ERC-8183 repo-variant job descriptors — any conformant client
+        // can read our supply in the standard's vocabulary.
+        const jobs = onchain.map((m: unknown, i: number) => {
+          const r = (m ?? {}) as Record<string, unknown>;
+          return {
+            jobId: i,
+            client: String(r.client ?? r.creator ?? ""),
+            provider: "0x0000000000000000000000000000000000000000",
+            evaluator: "widespread-oracle", // independent, not client-self
+            description: String(r.description ?? r.title ?? ""),
+            budget: String(r.amount ?? "0"),
+            expiredAt: 0,
+            status: "Open",
+          };
+        });
+        return json({ schema: "erc-8183/repo-variant", jobs, total: jobs.length, source: "chain" });
+      }
       if (onchain) return json({ markets: onchain, total: onchain.length, source: "chain" });
       return json({ markets: [], total: 0, source: "chain",
         error: "no NEAR_CONTRACT configured — markets live on-chain, not in KV" });
+    }
+    if (pathname === "/api/evaluate" && req.method === "POST") {
+      return handleEvaluate(req, env);
     }
     if (pathname === "/api/scan" && req.method === "POST") {
       return json({ reviewed: await scan(env) });
