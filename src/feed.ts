@@ -489,8 +489,8 @@ async function pollWurk(env: Env): Promise<FeedRecord[]> {
   // WURK job catalog is account-gated (402 without a registered agent key).
   // Activates once WURK_API_KEY is set — see scripts/wurk-register.mjs.
   if (!env.WURK_API_KEY) return [];
-  const data = await fetchJson(`${env.WURK_API ?? "https://api.wurk.fun"}/api/v1/jobs`,
-    { authorization: `Bearer ${env.WURK_API_KEY}` }).catch(() => null) as Record<string, unknown> | null;
+  const data = await fetchJson(`${env.WURK_API ?? "https://api.wurk.fun"}/api/agent/jobs`,
+    { "x-api-key": env.WURK_API_KEY }).catch(() => null) as Record<string, unknown> | null;
   const items = (Array.isArray(data) ? data
     : (data?.items ?? data?.jobs ?? data?.data)) as Record<string, unknown>[];
   if (!Array.isArray(items)) return [];
