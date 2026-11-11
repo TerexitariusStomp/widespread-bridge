@@ -11,7 +11,7 @@
 //   forge watchlists 60m · external boards 60m–6h
 
 import { nearView } from "./near";
-import { readJobs } from "./evmread";
+import { readJobs, readBounties } from "./evmread";
 import { scanMirrorSubmissions } from "./ingest";
 import { listBounties, listRecords } from "./store";
 import {
@@ -540,6 +540,33 @@ async function pollAgentLedger(env: Env): Promise<FeedRecord[]> {
     });
 }
 
+// Claudelance (Celo mainnet) — EIP-1967 proxy TaskBoard, sequential
+// getBounty scan. Mirrors Open bounties at face value; claimants claim
+// on Claudelance itself (their stakeRequired rule applies there, not here).
+async function pollClaudelance(env: Env): Promise<FeedRecord[]> {
+  const rpc = env.CLAUDELANCE_RPC ?? "https://forno.celo.org";
+  const contract = env.CLAUDELANCE_CONTRACT ?? "0x68c83D75Ee95860E83A893Aa13556AdE8411e3c8";
+  const rows = await readBounties(rpc, contract, 250).catch(() => []);
+  return rows
+    .filter(({ bounty }) => bounty.status === 0)
+    .map(({ id, bounty }) => {
+      const token = bounty.token.toLowerCase();
+      const cur = token === "0x765de816845861e75a25fca122bb6898b8b1282a" ? "cUSD" : `tok:${token.slice(0, 10)}`;
+      const amt = (Number(bounty.amount) / 1e18).toFixed(2);
+      return {
+        id: `claudelance:${id}`,
+        source: "claudelance", forge: "generic", kind: "bounty",
+        title: (bounty.instructionUrl || bounty.targetRepoUrl || `Claudelance bounty #${id}`).slice(0, 200),
+        amount: amt, currency: cur, est_usd: Number(amt),
+        escrow: { state: "external" },
+        payout: { rails: [cur === "cUSD" ? "cusd" : "erc20"], note: `Claudelance bounty #${id} on Celo — ${bounty.claimedSlots}/${bounty.maxSlots} slots filled, deadline ${new Date(Number(bounty.deadline) * 1000).toISOString().slice(0, 10)}; claim on claudelance.xyz (their stake rule applies), payout is outside this feed` },
+        url: bounty.targetRepoUrl || "https://claudelance.xyz/",
+        widespread_offer: mirrorOffer(env, amt, cur === "cUSD" ? "USDC" : cur),
+        updated_at: Date.now(),
+      } satisfies FeedRecord;
+    });
+}
+
 // ----------------------------------------------------------------- merge
 
 const SOURCE_INTERVALS: Record<string, number> = {
@@ -548,7 +575,7 @@ const SOURCE_INTERVALS: Record<string, number> = {
   forgejo: 60 * 60 * 1000, codeberg: 60 * 60 * 1000, gitlab: 60 * 60 * 1000,
   radicle: 60 * 60 * 1000, "external:immunefi": 6 * 60 * 60 * 1000,
   termix: 30 * 60 * 1000, wurk: 30 * 60 * 1000,
-  agentledger: 30 * 60 * 1000,
+  agentledger: 30 * 60 * 1000, claudelance: 30 * 60 * 1000,
 };
 
 async function runSource(env: Env, name: string, fn: () => Promise<FeedRecord[]>): Promise<{ stamp: SourceStamp; records: FeedRecord[] }> {
@@ -614,7 +641,7 @@ export async function refreshFeed(env: Env, ctx?: ExecutionContext): Promise<Fee
     if (existing) return existing;
   }
   try {
-    const [nearR, kvR, ghR, tgR, fwR, imR, txR, wkR, alR, trust] = await Promise.all([
+    const [nearR, kvR, ghR, tgR, fwR, imR, txR, wkR, alR, clR, trust] = await Promise.all([
       runSource(env, "near-chain", () => pollNearChain(env)),
       runSource(env, "kv-registry", () => pollKvRegistry(env)),
       runSource(env, "github", () => pollGithub(env)),
@@ -624,13 +651,14 @@ export async function refreshFeed(env: Env, ctx?: ExecutionContext): Promise<Fee
       runSource(env, "termix", () => pollTermix(env)),
       runSource(env, "wurk", () => pollWurk(env)),
       runSource(env, "agentledger", () => pollAgentLedger(env)),
+      runSource(env, "claudelance", () => pollClaudelance(env)),
       trustIndex(env),
     ]);
     const sources: FeedDoc["sources"] = {};
     for (const [name, r] of Object.entries({
       "near-chain": nearR, "kv-registry": kvR, github: ghR, tangled: tgR,
       forgejo: fwR, "external:immunefi": imR, termix: txR, wurk: wkR,
-      agentledger: alR,
+      agentledger: alR, claudelance: clR,
     })) sources[name] = r.stamp;
 
     // Merge: fresh records replace stale ones by id; records from
@@ -638,7 +666,7 @@ export async function refreshFeed(env: Env, ctx?: ExecutionContext): Promise<Fee
     const prior = await getFeedDoc(env);
     const byId = new Map<string, FeedRecord>();
     for (const r of prior?.records ?? []) byId.set(r.id, r);
-    for (const r of [...nearR.records, ...kvR.records, ...ghR.records, ...tgR.records, ...fwR.records, ...imR.records, ...txR.records, ...wkR.records, ...alR.records]) {
+    for (const r of [...nearR.records, ...kvR.records, ...ghR.records, ...tgR.records, ...fwR.records, ...imR.records, ...txR.records, ...wkR.records, ...alR.records, ...clR.records]) {
       const t = r.repo ? trust.get(r.repo) : undefined;
       byId.set(r.id, { ...r, ...(t ? { trust: t } : {}) });
     }

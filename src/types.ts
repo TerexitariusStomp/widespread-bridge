@@ -45,6 +45,9 @@ export interface Env {
   /** AgentLedger (ERC-8183, Celo Sepolia) on-chain feed source. */
   AGENTLEDGER_RPC?: string;
   AGENTLEDGER_CONTRACT?: string;
+  /** Claudelance TaskBoard (Celo mainnet EIP-1967 proxy) feed source. */
+  CLAUDELANCE_RPC?: string;
+  CLAUDELANCE_CONTRACT?: string;
   /** Evaluator panel: comma-separated model roster (diverse families) and
    * seat count — adjudicatePanel draws blind + minority-veto. */
   PANEL_MODELS?: string;
