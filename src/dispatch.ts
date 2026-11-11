@@ -29,7 +29,8 @@ export function spendAuthCovers(auth: SpendAuth | undefined, platform: string, c
   return auth.platform === platform
     && cost <= auth.ceiling
     && auth.expiry > Date.now() / 1000
-    && !!auth.authorized_by;
+    && !!auth.authorized_by
+    && !!auth.sig; // mandate must be signed — an unsigned ceiling is not authorization
 }
 
 export interface DispatchInput {
@@ -68,7 +69,7 @@ export async function createDispatch(
   const contract = env.NEAR_CONTRACT;
   if (!contract) return { error: "no NEAR_CONTRACT configured", status: 503 };
 
-  let market: { status?: string; spec?: string; specHash?: string } | null;
+  let market: { status?: string; spec?: string; specHash?: string; locked?: string } | null;
   try {
     market = await nearView(env, contract, "getMarket", { marketId: input.market_id }) as typeof market;
   } catch {
@@ -77,6 +78,12 @@ export async function createDispatch(
   if (!market) return { error: "market not found", status: 404 };
   if (market.status !== "open") {
     return { error: `market is not open for claims (status: ${market.status ?? "unknown"})`, status: 409 };
+  }
+  // Escrow-first invariant: the funder's funds are already locked on-chain —
+  // createMarket locks at creation. Nothing below signs, broadcasts, or
+  // advances funds; prepared_tx is for the FUNDER's wallet, never ours.
+  if (!(BigInt(market.locked ?? "0") > 0n)) {
+    return { error: "market has no locked escrow — the funder funds first; we never front money", status: 409 };
   }
   if (!market.spec?.trim()) return { error: "market has no immutable specification", status: 422 };
 
@@ -123,7 +130,7 @@ export async function createDispatch(
                  description, ZERO, 0n],
         }),
         chain: platform === "agentledger" ? "celo-sepolia" : platform,
-        note: "Funder signs createJob → then fund(jobId, expectedToken, expectedBudget, optParams) with the returned id. The platform's escrow is this job's canonical escrow (rail=platform).",
+        note: "FUNDER signs createJob + fund(jobId, expectedToken, expectedBudget, optParams) — the funder's own wallet escrows on the platform rail; this bridge never signs, broadcasts, or advances funds.",
       };
     }
     await env.CLAIMS.put(key, JSON.stringify(record));
