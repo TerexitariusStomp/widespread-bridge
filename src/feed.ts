@@ -495,17 +495,19 @@ async function pollWurk(env: Env): Promise<FeedRecord[]> {
     : (data?.items ?? data?.jobs ?? data?.data)) as Record<string, unknown>[];
   if (!Array.isArray(items)) return [];
   return items.slice(0, 100).map((j) => {
-    const reward = String(j.reward ?? j.amount ?? "");
-    const cur = String(j.currency ?? "USDC");
+    const rw = (j.reward ?? {}) as Record<string, unknown>;
+    const perWinner = rw.amount && rw.winnerCount
+      ? (parseFloat(String(rw.amount)) / Number(rw.winnerCount)).toFixed(4) : "";
+    const cur = String(rw.assetId ?? "USDC");
     return {
-      id: `wurk:${String(j.id ?? j.jobId ?? j.title).slice(0, 40)}`,
+      id: `wurk:${String(j.id ?? j.jobId ?? j.description).slice(0, 40)}`,
       source: "wurk", forge: "generic", kind: "bounty",
-      title: String(j.title ?? j.brief ?? "WURK job").slice(0, 200),
-      ...(reward ? { amount: reward, currency: cur, est_usd: estUsd(reward, cur) } : {}),
+      title: String(j.title ?? j.description ?? "WURK job").slice(0, 200),
+      ...(perWinner ? { amount: perWinner, currency: cur, est_usd: estUsd(perWinner, cur) } : {}),
       escrow: { state: "external" },
-      payout: { rails: ["usdc"], note: "x402 USDC on Solana/Base — source-platform payout is outside this feed" },
-      url: `https://wurk.fun/`,
-      widespread_offer: mirrorOffer(env, reward || undefined, cur),
+      payout: { rails: ["usdc"], note: `${rw.winnerCount ?? "?"} winner draw, ${rw.amount ?? "?"} ${cur} gross pool on ${rw.network ?? "solana"} — source-platform payout is outside this feed` },
+      url: String(j.url ?? "https://wurk.fun/"),
+      widespread_offer: mirrorOffer(env, perWinner || undefined, cur),
       updated_at: Date.now(),
     } satisfies FeedRecord;
   }).filter((r) => r.title);
