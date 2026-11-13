@@ -212,6 +212,15 @@ export function agentCard(base: string) {
         inputModes: ["application/json"],
         outputModes: ["application/json"],
       },
+      {
+        id: "request-metered-resources",
+        name: "Request metered resources",
+        description: "Discover provider-priced signed offers for compute/storage/bandwidth/inference across 20+ DePIN networks, open a funded session (market escrow or x402), and consume via signed metered calls that settle through receipts.",
+        tags: ["resources", "depin", "compute", "storage", "inference", "bandwidth", "x402"],
+        examples: ["Find the cheapest storage offer and store 1GB", "Run inference on a priced node"],
+        inputModes: ["application/json"],
+        outputModes: ["application/json"],
+      },
     ],
     defaultInputModes: ["application/json"],
     defaultOutputModes: ["application/json"],
@@ -222,6 +231,11 @@ export function agentCard(base: string) {
       feed: `${base}/api/feed`,
       rss: `${base}/api/feed.rss`,
       mcp: `${base}/mcp`,
+      offers: `${base}/api/offers`,
+      offerStats: `${base}/api/offers/stats`,
+      requests: `${base}/api/requests`,
+      x402Supported: `${base}/api/x402/supported`,
+      funding1click: `${base}/api/funding/1click/quote`,
     },
   };
 }

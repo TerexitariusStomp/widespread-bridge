@@ -2068,6 +2068,7 @@ export class CoordinatorDO implements DurableObject {
     await this.state.storage.put(`sess:${id}`, session);
 
     const key = `${id}:${seq}`;
+    const callStart = Date.now();
     const reply = await new Promise<{ ok: boolean; result?: unknown; error?: string; units?: Record<string, number>; cumulative?: Record<string, number>; upstream_refs?: string[] }>((resolve) => {
       const timer = setTimeout(() => {
         this.pendingCalls.delete(key);
@@ -2079,6 +2080,9 @@ export class CoordinatorDO implements DurableObject {
         op: body.op, params: body.params ?? {},
       }));
     });
+    // Coordinator-measured call latency feeds offer ranking (bench_rtt_ms)
+    // — a node can't inflate its rank by self-reporting speed.
+    if (reply.ok) await this.recordBench(session.node, Date.now() - callStart);
     if (!reply.ok) return this.json({ ok: false, seq, error: reply.error ?? "call failed" }, 504);
     return this.json({
       ok: true, sessionId: id, seq,
@@ -2324,6 +2328,22 @@ export class CoordinatorDO implements DurableObject {
         await this.finalizeSession(s.id, "deadline");
       }
     }
+  }
+
+  /** Rolling call-latency stats per node — the bench signal in offer
+   *  ranking. Only successful calls count; failures don't reward fast-fail. */
+  private async recordBench(node: string, rttMs: number) {
+    if (!Number.isFinite(rttMs) || rttMs < 0 || rttMs > 600000) return;
+    const b = ((await this.state.storage.get(`bench:${node}`)) ||
+      { count: 0, total_rtt_ms: 0, window_start: Date.now() }) as
+      { count: number; total_rtt_ms: number; window_start: number };
+    // Reset the window daily so stale latencies don't pin the average.
+    if (Date.now() - b.window_start > 24 * 3600 * 1000) {
+      b.count = 0; b.total_rtt_ms = 0; b.window_start = Date.now();
+    }
+    b.count++;
+    b.total_rtt_ms += rttMs;
+    await this.state.storage.put(`bench:${node}`, b);
   }
 
   private sendTo(volunteerId: string, msg: Record<string, unknown>) {

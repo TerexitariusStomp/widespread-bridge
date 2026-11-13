@@ -13,6 +13,7 @@ import { bountyDeclare, bountyBroadcast } from "./declare";
 import { bindStatement, bindInstructions, registerBinding, listBindings, resolveHandle, revokeBinding } from "./identity";
 import { listRunners } from "./feed";
 import { agentChallenge, agentRegister, marketClaim, shipPrepare, shipSubmit, marketsList, bountiesList, agentStatus } from "./mcpearn";
+import { getCoordinator } from "./coordinator";
 
 const json = (v: unknown) => ({
   content: [{ type: "text" as const, text: JSON.stringify(v, null, 1) }],
@@ -186,6 +187,117 @@ export async function handleMcpRequest(req: Request, env: Env, ctx: ExecutionCon
     description: "Revoke a binding — signed by the bound DID's registered Ed25519 key over `widespread-revoke:v1\\n<did>\\n<platform>\\n<handle>`.",
     inputSchema: { did: z.string(), platform: z.string(), handle: z.string(), sig_hex: z.string() },
   }, async (a) => json(await revokeBinding(env, a)));
+
+  // ------------------------------------------- resource requests (write)
+  // These proxy the CoordinatorDO session API — offers are provider-priced
+  // and Ed25519-signed; sessions are funded (market escrow or x402) and
+  // metered in each network's native units.
+
+  const doFetch = async (path: string, init?: RequestInit) => {
+    const stub = getCoordinator(env);
+    if (!stub) return { error: "coordinator not configured", status: 503 };
+    const res = await stub.fetch(new Request(`https://coordinator.internal${path}`, init));
+    const body = await res.json().catch(() => null);
+    return { status: res.status, body };
+  };
+
+  server.registerTool("wide_offers", {
+    annotations: { title: 'List Resource Offers', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    description: "List provider-priced, Ed25519-signed resource offers across compute/storage/bandwidth/inference networks — ranked by price, reputation, and coordinator-measured latency. Filter by kind, network, or node.",
+    inputSchema: {
+      kind: z.enum(["compute", "inference", "storage", "bandwidth"]).optional(),
+      network: z.string().optional(), node: z.string().optional(),
+    },
+  }, async (a) => {
+    const qs = new URLSearchParams();
+    if (a.kind) qs.set("kind", a.kind);
+    if (a.network) qs.set("network", a.network);
+    if (a.node) qs.set("node", a.node);
+    const r = await doFetch(`/api/offers?${qs}`);
+    return json(r.body ?? { error: "offers unavailable", status: r.status });
+  });
+
+  server.registerTool("wide_offer_stats", {
+    annotations: { title: 'Resource Price Index', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    description: "Cross-resource price index: min/max/avg provider price per kind:unit across all live offers — nobody else normalizes compute+storage+bandwidth+inference together.",
+    inputSchema: {},
+  }, async () => {
+    const r = await doFetch("/api/offers/stats");
+    return json(r.body ?? { error: "stats unavailable", status: r.status });
+  });
+
+  server.registerTool("wide_request", {
+    annotations: { title: 'Open Resource Session', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    description: "Open a metered resource session against a signed offer (offer_id) or a routing spec (kind/network/max_price/min_rep). Funding: market_id escrow or x402 payment; admin/testnet may omit. Returns sessionId for wide_request_call. Blocks until a node accepts (raced top-K) or times out.",
+    inputSchema: {
+      offer_id: z.string().optional(),
+      spec: z.object({
+        kind: z.string().optional(), network: z.string().optional(),
+        max_price_near_per_unit: z.string().optional(), min_rep: z.number().optional(),
+        deadline_secs: z.number().optional(),
+      }).optional(),
+      quota: z.number().optional(), market_id: z.string().optional(),
+      requester: z.string().optional(), raced: z.number().optional(),
+      deadline_secs: z.number().optional(), params: z.unknown().optional(),
+      payment: z.unknown().optional(), mandate: z.unknown().optional(),
+      siwx: z.unknown().optional(),
+    },
+  }, async (a) => {
+    const r = await doFetch("/api/requests", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify(a),
+    });
+    return json(r.body ?? { error: "request failed", status: r.status });
+  });
+
+  server.registerTool("wide_request_call", {
+    annotations: { title: 'Session Call', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    description: "Execute one op inside an open resource session (store/fetch/infer/connect/job per the offer's network). Returns result + metered units — each call is a signed tick.",
+    inputSchema: {
+      sessionId: z.string(), op: z.string(), params: z.unknown().optional(),
+    },
+  }, async ({ sessionId, op, params }) => {
+    const r = await doFetch(`/api/requests/${encodeURIComponent(sessionId)}/call`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ op, params }),
+    });
+    return json(r.body ?? { error: "call failed", status: r.status });
+  });
+
+  server.registerTool("wide_request_status", {
+    annotations: { title: 'Session Status', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    description: "Session record: status, accumulated metered units, tick count, upstream refs, HMAC-signed by the coordinator.",
+    inputSchema: { sessionId: z.string() },
+  }, async ({ sessionId }) => {
+    const r = await doFetch(`/api/requests/${encodeURIComponent(sessionId)}`);
+    return json(r.body ?? { error: "not found", status: r.status });
+  });
+
+  server.registerTool("wide_request_close", {
+    annotations: { title: 'Close Session', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    description: "Close a resource session — the node emits its final metered receipt (rcpt://) which settles through the normal claim path.",
+    inputSchema: { sessionId: z.string() },
+  }, async ({ sessionId }) => {
+    const r = await doFetch(`/api/requests/${encodeURIComponent(sessionId)}/close`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+    });
+    return json(r.body ?? { error: "close failed", status: r.status });
+  });
+
+  server.registerTool("wide_request_tick_verdict", {
+    annotations: { title: 'Tick Verdict', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    description: "Requester countersign/dispute on a metered tick — ack accepts the units, dispute flags them for review. Bounded dispute window; ticks default to accepted at settlement.",
+    inputSchema: {
+      sessionId: z.string(), seq: z.number(),
+      verdict: z.enum(["ack", "dispute"]), requester: z.string().optional(),
+    },
+  }, async ({ sessionId, seq, verdict, requester }) => {
+    const r = await doFetch(`/api/requests/${encodeURIComponent(sessionId)}/ticks/${seq}/${verdict}`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ requester }),
+    });
+    return json(r.body ?? { error: "verdict failed", status: r.status });
+  });
 
   const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
   await server.connect(transport);

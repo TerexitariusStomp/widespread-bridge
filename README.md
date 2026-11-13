@@ -173,6 +173,39 @@ ingests open markets as jobs (task types 400–499), and `GET /api/jobs/:id`
 serves the signed public record claims verify against. Nodes are
 [widespread-runner](https://github.com/TerexitariusStomp/widespread-runner).
 
+### Requesting resources (the data plane)
+
+The same fabric serves requests, not just jobs. Nodes publish
+Ed25519-signed, provider-priced **offers** (`GET /api/offers`, price index
+at `/api/offers/stats`); requesters fund a session and consume through it:
+
+```
+POST /api/requests            {offer_id | spec, quota, market_id | payment, siwx?}
+POST /api/requests/:id/call   {op, params}        → result + metered units
+GET  /api/requests/:id                            → signed session record
+POST /api/requests/:id/close                      → final rcpt:// receipt
+POST /api/requests/:id/ticks/:seq/ack|dispute     → requester verdict
+```
+
+- **Offers** are self-priced (`WIDESPREAD_OFFER_<NET>=<price>` on the node)
+  and ranked by price → reputation → coordinator-measured call latency.
+  Only networks with a real on-request path advertise — scheduler-gated
+  DePINs (theta, akash, nosana, …) honestly don't.
+- **Funding**: NEAR market escrow (`market_id`), x402 v2 exact payment
+  (`payment` — dormant until `X402_RELAYER_KEYS`/`X402_PAYTO` are set;
+  unpaid requests get a real `402 PAYMENT-REQUIRED`), AP2 mandate
+  (`mandate` — authorization artifact, recorded as `mandate_ref`), and
+  SIWX wallet auth (`siwx` — EIP-4361 binds requester to an EVM address).
+  Cross-chain funders use `/api/funding/1click/quote` (NEAR Intents).
+- **Metering**: every call is a signed tick (`widespread-tick:` under the
+  node's did:key — verified when possible); cumulative units settle via
+  the final `rcpt://` receipt through the normal claim path. Underdelivery
+  never releases — markets are full-release by design.
+- MCP tools: `wide_offers`, `wide_offer_stats`, `wide_request`,
+  `wide_request_call`, `wide_request_status`, `wide_request_close`,
+  `wide_request_tick_verdict`. A2A card advertises the
+  `request-metered-resources` skill.
+
 ## Deploy your own
 
 ```bash
