@@ -49,10 +49,17 @@ import {
   normalizeTaskTypes, stripGatedClaims, selectVolunteer, validateJobResult,
   WIDESPREAD, RESOURCE_KIND_TASK, DETERMINISTIC_TASKS,
 } from "./registry";
+import type { PaymentRequirements } from "@x402/core/types";
 import { verifyDidKey, decodeSig, didKeyFromPublicKey } from "./didkey";
 import { verifyMessage } from "viem";
 import type { Hex } from "viem";
 import { getMarket } from "./nearview";
+import {
+  sessionRequirements, verifySessionPayment, settleSessionPayment,
+  paymentRequiredBody, supportedKinds,
+} from "../x402";
+import { checkMandate } from "../mandate";
+import { verifySiwx, type SiwxAuth } from "../siwx";
 import type { Env } from "../types";
 
 interface PendingJob {
@@ -184,7 +191,7 @@ interface SessionRecord {
   quota_unit: string | null;
   used: Record<string, number>;
   calls: number;
-  funding: { type: "market" | "x402" | "mandate"; market_id?: string };
+  funding: { type: "market" | "x402" | "mandate"; market_id?: string; ref?: string; payer?: string; mandate_ref?: string };
   status: "opening" | "open" | "closed" | "failed" | "expired";
   opened_at: number;
   closed_at?: number;
@@ -227,6 +234,15 @@ interface RequestPostBody {
   raced?: number;
   deadline_secs?: number;
   params?: unknown;
+  /** x402 v2 PaymentPayload — verified against requirements quoted from the
+   *  chosen offer; becomes funding.type="x402". */
+  payment?: unknown;
+  /** AP2 mandate JWT — recorded as funding.mandate_ref (authorization
+   *  artifact, not a funding source). */
+  mandate?: unknown;
+  /** EIP-4361 SIWX auth {address,message,signature} — binds requester to
+   *  a verified EVM address. */
+  siwx?: unknown;
 }
 
 interface CallPostBody {
@@ -474,6 +490,23 @@ export class CoordinatorDO implements DurableObject {
         return this.handleTickVerdict(id, seq, verdict, req);
       }
       return this.json({ error: "not found" }, 404);
+    }
+
+    // ── x402 facilitator surface ──
+    if ((path === "/x402/supported" || path === "/api/x402/supported") && req.method === "GET") {
+      return this.json(supportedKinds(this.env));
+    }
+    if ((path === "/x402/verify" || path === "/api/x402/verify") && req.method === "POST") {
+      const b = (await req.json().catch(() => null)) as { payload?: unknown; requirements?: PaymentRequirements } | null;
+      if (!b?.payload || !b.requirements) return this.json({ error: "payload + requirements required" }, 400);
+      const v = await verifySessionPayment(this.env, b.payload, b.requirements);
+      return this.json(v, v.ok ? 200 : 402);
+    }
+    if ((path === "/x402/settle" || path === "/api/x402/settle") && req.method === "POST") {
+      const b = (await req.json().catch(() => null)) as { payload?: unknown; requirements?: PaymentRequirements } | null;
+      if (!b?.payload || !b.requirements) return this.json({ error: "payload + requirements required" }, 400);
+      const s = await settleSessionPayment(this.env, b.payload, b.requirements);
+      return this.json(s, s.ok ? 200 : 402);
     }
     return this.json({ error: "not found" }, 404);
   }
@@ -1846,20 +1879,7 @@ export class CoordinatorDO implements DurableObject {
     if (!body) return this.json({ error: "json body required" }, 400);
     const admin = this.bearerOk(req, this.env.COORDINATOR_ADMIN || this.env.ADMIN_TOKEN);
 
-    let funding: SessionRecord["funding"];
-    let marketPayer: string | undefined;
-    const marketId = typeof body.market_id === "string" ? body.market_id.slice(0, 128) : undefined;
-    if (marketId) {
-      const m = await getMarket(this.env, marketId);
-      if (!m || m.status !== "open") return this.json({ error: "market not open" }, 402);
-      funding = { type: "market", market_id: marketId };
-      marketPayer = typeof m.payer === "string" ? m.payer : undefined;
-    } else if (admin) {
-      funding = { type: "market", market_id: marketId };
-    } else {
-      return this.json({ error: "funding required: open market_id escrow (x402/AP2 pending)" }, 401);
-    }
-
+    // Resolve candidates first — x402 requirements quote the chosen offer.
     let candidates: Offer[] = [];
     if (body.offer_id) {
       const o = await this.findOffer(body.offer_id.slice(0, 128));
@@ -1875,6 +1895,76 @@ export class CoordinatorDO implements DurableObject {
     const online = candidates.filter((o) => this.wsFor(o.node));
     if (!online.length) return this.json({ error: "no candidate node online" }, 409);
 
+    const raced = Math.min(Math.max(Math.round(Number(body.raced ?? 1)) || 1, 1), MAX_REPLICAS);
+    const chosen: Offer[] = [];
+    const seenNodes = new Set<string>();
+    for (const o of online) {
+      if (seenNodes.has(o.node)) continue;
+      seenNodes.add(o.node);
+      chosen.push(o);
+      if (chosen.length >= raced) break;
+    }
+    const primary = chosen[0];
+    const quota = Number.isFinite(Number(body.quota)) ? Number(body.quota) : null;
+
+    // ── Funding ── market escrow | x402 exact payment | admin (dev).
+    // An AP2 mandate (body.mandate) is an *authorization artifact* recorded
+    // on any funded session — it is not itself a funding source.
+    let funding: SessionRecord["funding"];
+    let marketPayer: string | undefined;
+    let x402Payer: string | undefined;
+    const marketId = typeof body.market_id === "string" ? body.market_id.slice(0, 128) : undefined;
+    if (marketId) {
+      const m = await getMarket(this.env, marketId);
+      if (!m || m.status !== "open") return this.json({ error: "market not open" }, 402);
+      funding = { type: "market", market_id: marketId };
+      marketPayer = typeof m.payer === "string" ? m.payer : undefined;
+    } else if (body.payment !== undefined && body.payment !== null) {
+      const requirements = sessionRequirements(this.env, primary, quota ?? 1,
+        `${req.url}`);
+      if (!requirements) {
+        return this.json({ error: "x402 rail not configured or unquotable" }, 503);
+      }
+      const verdict = await verifySessionPayment(this.env, body.payment, requirements);
+      if (!verdict.ok) {
+        return this.json({ error: `payment rejected: ${verdict.reason}` }, 402);
+      }
+      const ref = await this.sha256Hex(canonicalJson(body.payment));
+      funding = { type: "x402", ref, payer: verdict.payer };
+      x402Payer = verdict.payer;
+      void this.audit("session.x402.verified", { ref, payer: verdict.payer });
+    } else if (admin) {
+      funding = { type: "market", market_id: marketId };
+    } else {
+      // unpaid → proper x402 PAYMENT-REQUIRED when the rail is live
+      const requirements = sessionRequirements(this.env, primary, quota ?? 1, `${req.url}`);
+      if (requirements) {
+        return this.json(paymentRequiredBody(requirements, `${req.url}`), 402);
+      }
+      return this.json({ error: "funding required: market_id escrow or x402 payment" }, 401);
+    }
+
+    // AP2 mandate — structural check always; signature verification when
+    // AP2_TRUSTED_ISSUERS is configured. Malformed → 400; valid-but-
+    // unverified → advisory ref on the session (never a funding source).
+    if (body.mandate !== undefined && body.mandate !== null) {
+      const m = await checkMandate(this.env, body.mandate,
+        (s) => this.sha256Hex(s));
+      if (!m.ok) return this.json({ error: m.reason ?? "invalid mandate" }, 400);
+      funding.mandate_ref = m.ref;
+      if (m.verified) void this.audit("session.mandate.verified", { ref: m.ref });
+    }
+
+    // SIWX — optional wallet-signed requester auth binds `requester` to a
+    // verified EVM address (overrides the self-declared field).
+    let siwxAddress: string | undefined;
+    if (body.siwx !== undefined && body.siwx !== null) {
+      const domain = new URL(req.url).host;
+      const v = await verifySiwx(body.siwx as SiwxAuth, domain);
+      if (!v.ok) return this.json({ error: `siwx: ${v.reason}` }, 401);
+      siwxAddress = v.address;
+    }
+
     // Budget ledger — one market funds at most MAX_SESSIONS_PER_MARKET
     // concurrent sessions. Amount-unit math is deferred (market amount is
     // not safely NEAR-denominated); the claim path settles actual delivered
@@ -1886,23 +1976,12 @@ export class CoordinatorDO implements DurableObject {
       }
     }
 
-    const raced = Math.min(Math.max(Math.round(Number(body.raced ?? 1)) || 1, 1), MAX_REPLICAS);
-    const chosen: Offer[] = [];
-    const seenNodes = new Set<string>();
-    for (const o of online) {
-      if (seenNodes.has(o.node)) continue;
-      seenNodes.add(o.node);
-      chosen.push(o);
-      if (chosen.length >= raced) break;
-    }
-
     const sessionId = `sess-${crypto.randomUUID()}`;
-    const requester = (typeof body.requester === "string" ? body.requester.slice(0, 128) : "")
-      || marketPayer || "anonymous";
+    const requester = siwxAddress
+      || (typeof body.requester === "string" ? body.requester.slice(0, 128) : "")
+      || marketPayer || x402Payer || "anonymous";
     const deadlineSecs = Number(body.deadline_secs ?? body.spec?.deadline_secs ?? 0);
     const deadline = deadlineSecs > 0 ? Math.floor(Date.now() / 1000) + Math.floor(deadlineSecs) : undefined;
-    const quota = Number.isFinite(Number(body.quota)) ? Number(body.quota) : null;
-    const primary = chosen[0];
     const session: SessionRecord = {
       id: sessionId,
       offer_id: primary.id,

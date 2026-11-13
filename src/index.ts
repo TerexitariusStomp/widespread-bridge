@@ -208,10 +208,43 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
     // endpoints (/status, /leaderboard, /rep, /operator, /earnings, /audit).
     if (pathname === "/api/nodes" || pathname.startsWith("/api/jobs") ||
         pathname.startsWith("/api/offers") || pathname.startsWith("/api/requests") ||
+        pathname.startsWith("/api/x402") ||
         pathname.startsWith("/api/coordinator")) {
       const res = handleCoordinatorRequest(req, env);
       if (res) return res;
       return bad("coordinator not configured", 503);
+    }
+    // 1Click cross-chain funding quotes — real defuse-protocol API calls.
+    if (pathname === "/api/funding/1click/tokens" && req.method === "GET") {
+      try {
+        const { listTokens } = await import("./oneclick");
+        return Response.json({ tokens: await listTokens(url.searchParams.get("ondo") ?? "false") });
+      } catch (e) {
+        return Response.json({ error: `1click tokens: ${e instanceof Error ? e.message.slice(0, 160) : "unavailable"}` }, { status: 502 });
+      }
+    }
+    if (pathname === "/api/funding/1click/quote" && req.method === "POST") {
+      const b = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+      if (!b?.originAsset || !b?.destinationAsset || !b?.amount || !b?.refundTo || !b?.recipient) {
+        return bad("originAsset, destinationAsset, amount, refundTo, recipient required", 400);
+      }
+      try {
+        const { quoteSwap } = await import("./oneclick");
+        const quote = await quoteSwap(b as never);
+        return Response.json(quote);
+      } catch (e) {
+        return Response.json({ error: `1click quote: ${e instanceof Error ? e.message.slice(0, 200) : "unavailable"}` }, { status: 502 });
+      }
+    }
+    if (pathname.startsWith("/api/funding/1click/status/") && req.method === "GET") {
+      const addr = decodeURIComponent(pathname.slice("/api/funding/1click/status/".length));
+      if (!addr) return bad("depositAddress required", 400);
+      try {
+        const { executionStatus } = await import("./oneclick");
+        return Response.json(await executionStatus(addr, url.searchParams.get("memo") ?? undefined));
+      } catch (e) {
+        return Response.json({ error: `1click status: ${e instanceof Error ? e.message.slice(0, 160) : "unavailable"}` }, { status: 502 });
+      }
     }
     if (pathname === "/" || pathname === "/index.html") {
       return cachedPage(url, req, () => homePage(env, ctx));

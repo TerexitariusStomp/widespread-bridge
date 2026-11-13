@@ -620,13 +620,15 @@ describe("resource sessions", () => {
     const sig = await k.sign(`widespread-bind:v1`);
     await doo.webSocketMessage(ws as unknown as WebSocket, JSON.stringify({
       type: "REGISTER", volunteerId: "v1", did: k.did, sig,
-      taskTypes: [412], networks: ["btfs"], offers: [bad],
+      taskTypes: [412], networks: ["btfs"], offers: [bad, good],
     }));
     await flush();
     const list = await doo.fetch(new Request("https://x/api/offers"));
-    expect(((await list.json()) as { offers: unknown[] }).offers).toHaveLength(0);
+    const listed = (await list.json() as { offers: { id: string }[] }).offers;
+    expect(listed.map((o) => o.id)).toEqual([good.id]);
 
-    // No market_id and no admin → 401.
+    // No market_id/payment and no admin → 401 (funding check after offer
+    // resolution, since x402 quotes need the offer).
     const denied = await doo.fetch(new Request("https://x/api/requests", {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ offer_id: good.id }),

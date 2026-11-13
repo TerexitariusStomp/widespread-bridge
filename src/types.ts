@@ -109,6 +109,20 @@ export interface Env {
   MAX_PAYLOAD_BYTES?: string;
   /** Registered-volunteer pool cap (default 5000). */
   MAX_VOLUNTEERS?: string;
+  // ── x402 funding rail (resource sessions) ──
+  /** JSON [{accountId,secretKey}] or "acct:key,…" relayer keys for the
+   *  x402 NEAR facilitator. Unset → x402 funding dormant (never "free"). */
+  X402_RELAYER_KEYS?: string;
+  /** NEAR account receiving session payments (the payTo). */
+  X402_PAYTO?: string;
+  /** CAIP-2 network, e.g. near:mainnet / near:testnet (default testnet). */
+  X402_NETWORK?: string;
+  /** Atomic USDC per 1 NEAR quote rate — operator-set oracle substitute
+   *  until a price feed lands. */
+  X402_USDC_PER_NEAR?: string;
+  /** AP2 trusted issuer keys — JSON {kid: publicJwk}. Unset → mandates are
+   *  structurally checked and recorded advisory-only. */
+  AP2_TRUSTED_ISSUERS?: string;
 }
 
 /** Normalized discovery record — one funded work item from any source.

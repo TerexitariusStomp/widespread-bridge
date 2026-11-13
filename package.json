@@ -21,11 +21,15 @@
     "wrangler": "^4.150.0"
   },
   "dependencies": {
+    "@ar-agents/ap2": "^0.3.1",
     "@atproto/api": "^0.31.2",
+    "@defuse-protocol/one-click-sdk-typescript": "^0.1.26",
     "@modelcontextprotocol/sdk": "^1.32.2",
     "@noble/curves": "^1.9.0",
     "@noble/hashes": "^1.8.0",
     "@resvg/resvg-wasm": "^2.6.2",
+    "@x402/core": "^2.31.0",
+    "@x402/near": "^2.31.0",
     "chainsig.js": "^1.1.16",
     "elo-rank": "^1.0.4",
     "masto": "^8.0.0",
