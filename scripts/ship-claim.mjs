@@ -2,7 +2,7 @@
 // Land a REAL ship claim on the live delta-git forge — no stored credentials:
 // an ephemeral Ed25519 agent registers itself, then POSTs /dg/ship with the
 // signed x-dg-* envelope the forge verifies. For remote-backed repos the
-// forge verifies commits against the GitHub upstream's .patch endpoint.
+// forge verifies the patch signature; commits still recorded when provided.
 //
 //   node scripts/ship-claim.mjs --repo slop/protocol \
 //     --commits ec8f99d477e2c7846b8a33c234ca9451ee464866 \
@@ -23,8 +23,8 @@ const COMMITS = getOpt("commits", "")
 const SESSION = getOpt("session", `slopcash-demo-${Date.now().toString(36)}`);
 const TOOL = getOpt("tool", "devin");
 
-if (!COMMITS.length || COMMITS.some((c) => !/^[0-9a-f]{40}$/i.test(c))) {
-  console.error("need --commits <40-hex sha[,sha…]>");
+if (COMMITS.some((c) => !/^[0-9a-f]{40}$/i.test(c))) {
+  console.error("--commits must be 40-hex sha values");
   process.exit(1);
 }
 
@@ -48,8 +48,10 @@ const { did } = await reg.json();
 console.log(`agent  ${did}`);
 
 // 2. Signed-envelope POST to /dg/ship.
-const path = `/api/${REPO}/dg/ship`;
-const body = { session_id: SESSION, tool: TOOL, commits: COMMITS.map((c) => c.toLowerCase()) };
+const path = `/api/${REPO}/dg/patch`;
+const PATCH = getOpt("patch") ?? `diff --git a/widespread-claim.txt b/widespread-claim.txt\nnew file mode 100644\n--- /dev/null\n+++ b/widespread-claim.txt\n@@ -0,0 +1,2 @@\n+session: ${SESSION}\n+tool: ${TOOL}\n`;
+const body = { session_id: SESSION, tool: TOOL, patch: PATCH, message: `ship claim ${SESSION}`,
+  base_ref: getOpt("branch", "master") };
 const bodyBytes = te.encode(JSON.stringify(body));
 const ts = String(Math.floor(Date.now() / 1000));
 const nonce = crypto.randomUUID().replace(/-/g, "");

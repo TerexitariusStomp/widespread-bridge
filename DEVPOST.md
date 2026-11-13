@@ -1,67 +1,98 @@
-# Widespread — AI agents that get *paid* for verified work
+# Widespread — escrowed work markets where agents earn NEAR for verified work
 
-**Track:** Agentic Commerce · also: x402-gap, autonomy-loop
+**NEAR HACKATHON** · Track: **Agent Economy** · also: AI Swarms, AI Security &
+Defense, Privacy & Private AI, Autonomous Business, Real-World Money
 
 ## Inspiration
 
-Every agent-economy project at this hackathon helps an agent *spend*
-— x402 payments, spending guards, agent wallets. Nobody asks whether the
-agent *earned* anything, because there's no way to prove agent work. We
-built the mirror image: a market where an agent's **work is attested**,
-then its **payment is settled** — through PayPal.
+Every agent-economy project helps an agent *spend* — x402 payments,
+agent wallets, spending guards. Almost nobody builds the side where the
+agent **earns**, because earning requires *verifying the work*, not just
+moving money. Widespread is that missing half: a work market where the
+spec is escrowed NEAR, the submission is a cryptographically verifiable
+forge artifact, an oracle decides acceptance, and **release pays the
+worker's chosen account on-chain** — not a platform wallet it has to
+cash out of.
 
 ## What it does
 
-A payer posts `@widespread $10 for <spec>` on a repo. An agent claims it,
-does the work inside a network-sealed container, and ships a **signed
-`dg-ship-1` attestation** binding its commits to a forge op-log (hash-
-chained, tamper-evident). The bridge replays the chain, **recomputes the
-diff evidence**, and an AI adjudicator decides. `accept` → a **real
-PayPal Payout** lands — batch id, email, receipt written back into the
-repo's own history.
+1. **Funder** posts a bounty — from any MCP client, REST, or a plain
+   `#widespread` post on a social feed — and locks NEAR on-chain via
+   `createMarket` (`wide-mkt-11561.testnet`). The market records
+   `payer`, `specHash`, and the amount.
+2. **Worker** (human or agent) submits a claim pointing at a real forge
+   artifact — a GitHub issue/PR, a delta-git signed op, a social post —
+   plus `claimant`: the NEAR account that *gets paid*. The bridge
+   re-validates the artifact against the live public API, computes a
+   patch fingerprint, and returns `shipClaim` args + an HMAC attestation.
+3. **Oracle** (or the payer) adjudicates with NEAR AI Cloud —
+   TEE-attested verdicts — and calls `release(marketId, claimId, sig)`.
+   The contract verifies the Ed25519 verdict signature against the
+   registered oracle key, pays `net` to `winner.claimant`, a protocol
+   fee to the DAO sink, and marks losers `outcompeted` — all in one
+   transaction, all on-chain.
+4. **Reputation** writes an ERC-8004-shaped feedback record grounded in
+   the settled claim — portable across the worker's verified identities
+   (GitHub ↔ Bluesky ↔ Nostr ↔ NEAR account, bound by publicly
+   re-verifiable `widespread-bind:v1` statements).
 
-**Verified live:** a `did:key` agent shipped a commit, the bridge
-verified it (`verified: true`), the adjudicator accepted (0.9
-confidence), status `accepted_paid` — batch `P77NBADNAUMTJ` on
-production. Nothing is mocked.
+Claims are free — no deposit, no bond, no submission cap. Garbage is
+priced by a rolling false-positive rate, not by locking workers out.
+
+**Verified live on testnet:** 9 funded markets on
+`wide-mkt-11561.testnet`, registered oracle
+(`active: true`, key `1ad812e3…`), end-to-end claim attestation
+(`POST /api/claims` → `attested: true` → `shipClaim` args → release).
+Nothing is mocked; every step is a public API or on-chain call judges
+can replay.
 
 ## How we built it
 
-- **`widespread-bridge`** (Cloudflare Worker): claim ingest → Ed25519
-  op-log replay → evidence recompute (file/line counts vs upstream patch)
-  → Workers AI adjudicator → **PayPal Payouts API** → forge receipt.
-- **delta-git forge**: signed `dg-ship-1`/`dg-bounty-1` ops = the
-  work-attestation layer; KB-scale, did:plc identities.
-- **`widespread-runner`**: the agent executes bounties in a sealed
-  container (`--network none`, read-only rootfs, dropped caps, timeout)
-  then emits the claim — "blast radius zero."
-- **PayPal Payouts API** — the compliance rail: sandbox client creds as
-  Worker secrets, `POST /v1/payments/payouts`, batch id returned and
-  stored per claim. *This is the judge-visible PayPal developer-platform
-  integration.*
+- **`widespread-bridge`** (Cloudflare Worker, this repo): MCP tools
+  (`wide_bounty_declare`, `wide_ship_prepare`, `wide_identity_bind`,
+  19 tools), cross-surface discovery feed (27 platforms incl. all
+  widespread.fyi surfaces), domain-pack artifact validation, NEAR AI
+  Cloud adjudication, identity binding, ERC-8004 reputation.
+- **`widespread-near` market contract** (JS→WASM, NEAR SDK):
+  `createMarket`/`shipClaim`/`release`/`cleanupExpired`, oracle
+  registration, platform-cut + DAO-fee splits, Hats payout metadata
+  (`payToHat`) for guild/team payouts.
+- **delta-git forge** (`code.widespread.fyi`): signed op-log —
+  `dg/patch` intents carry Ed25519-signed `dg1` envelopes, so work
+  provenance is cryptographic, not session-based.
+- **NEAR AI Cloud**: adjudicator + blind judge panels run on TEE
+  models; `provider_tee` verdict attestations are checkable against
+  `sig.info.near.ai`.
+- **NEAR Intents**: payout path for workers who want cross-chain
+  settlement — the contract pays NEAR, Intents routes it anywhere.
 
-## Why PayPal matters
+## NEAR primitives used
 
-PYUSD is the on-chain story (it settles on our Encode/Solana rail), but
-**Payouts is the fiat rail that makes this a product, not a token demo**:
-a contributor's agent can earn a bounty and receive spendable dollars to
-a normal PayPal account — no crypto offramp, no custody of ours.
+| Primitive | Where |
+|---|---|
+| NEAR escrow + transfer | `createMarket` locks; `release` pays `winner.claimant` |
+| Ed25519 oracle sigs | verdict bound on-chain, verified in-contract |
+| NEAR AI Cloud (TEE) | adjudicator + judge panel verdicts |
+| NEAR Intents | cross-chain payout routing |
+| Hats Protocol | guild/team payout metadata on claims |
+| NEP-413 (bind tier) | NEAR-account identity binding for workers |
 
-## What we learned
+## Links
 
-Agent-economy protocols (x402, ACP, intents) are all **agent-as-buyer**.
-The missing primitive is **proof-of-work for agents** — attestation that
-the work happened and was accepted *before* money moves. That's what lets
-a market exist without trusting the agent, the payer, or us.
+- Bridge (live): https://widespread-bridge.widespread.workers.dev
+- Forge: https://code.widespread.fyi
+- Contract: `wide-mkt-11561.testnet` —
+  https://testnet.nearblocks.io/address/wide-mkt-11561.testnet
+- Try it: `GET /api/feed` (live markets) · `POST /api/bounty/declare`
+  (fund one) · `POST /api/claims` (claim one) · `/llms.txt` (agent docs)
+- Settlement spec: `SETTLEMENT.md` — the funder→worker graph, exact.
 
-## What's next
+---
 
-Merge=accept (a GitHub PR merge triggers the payout directly),
-derivative-work detection (`git patch-id` — a payer who lands your work
-without accepting still pays because the money is locked, not promised),
-NEAR contract escrow for permissionless settlement.
+<details><summary><em>Historical: PayPal hackathon submission (previous event)</em></summary>
 
-## Built with
-
-Cloudflare Workers + Workers AI, delta-git op-logs, Ed25519 (did:key),
-PayPal Payouts API, Docker sandboxing, AG Grid dashboard.
+An earlier version of this repo was submitted to a PayPal hackathon
+with Payouts API settlement. That rail has been removed; NEAR escrow +
+oracle release is now the only settlement path. See git history for the
+PayPal-era submission text.
+</details>

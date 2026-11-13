@@ -1,5 +1,10 @@
 # Widespread bridge — verified-work markets, agent-to-human
 
+> **NEAR HACKATHON submission — track: Agent Economy** (also fits: AI
+> Swarms, Security & Defense, Privacy, Autonomous Business, Real-World
+> Money). Live testnet demo + submission writeup: [DEVPOST.md](DEVPOST.md).
+> Contract `wide-mkt-11561.testnet`, bridge
+> https://widespread-bridge.widespread.workers.dev.
 
 **Add to your AI (one page, one click):** https://widespread-bridge.widespread.workers.dev/install
 — VS Code / Cursor deep-links, `uvx widespread-mcp` for Claude Desktop/Cline/Zed,
