@@ -26,7 +26,7 @@ function recordCard(rec: FeedRecord | MirrorListing): string {
   const usd = m.claimant_share?.est_usd ?? r.est_usd ?? -1;
   const ts = r.updated_at ?? m.updated_at ?? 0;
   const rail = m.id
-    ? "paypal,paxos,near"
+    ? "near"
     : (r.payout?.rails ?? []).join(",");
   return `<a class="card bounty-card" href="${bountyHref(rec)}"
     data-usd="${usd}" data-ts="${ts}" data-rail="${esc(rail)}" data-forge="${esc(forgeLabel(rec))}">
@@ -124,14 +124,12 @@ export async function bountiesPage(env: Env, ctx?: ExecutionContext): Promise<Re
   <select id="escrow" onchange="filterBounties()">
     <option value="">all escrow states</option>
     <option value="funded">funded / locked</option>
-    <option value="fiat-funded">fiat-funded</option>
     <option value="seeking-funder">seeking funder</option>
     <option value="external">external</option>
   </select>
   <select id="rail" onchange="filterBounties()">
     <option value="">all payout rails</option>
-    <option value="paypal">PayPal USD</option>
-    <option value="paxos">PYUSD (Paxos)</option>
+    <option value="near">NEAR</option>
     <option value="near">NEAR</option>
   </select>
   <select id="sort" onchange="filterBounties()">
@@ -164,7 +162,6 @@ function filterBounties() {
     const show = (!q || txt.includes(q)) && (!f || c.dataset.forge === f)
       && (!rail || rails.includes(rail))
       && (!e || (e === "funded" ? pills.some(p=>p.includes("funded · escrowed"))
-                : e === "fiat-funded" ? pills.some(p=>p.includes("fiat-funded"))
                 : e === "seeking-funder" ? pills.some(p=>p.includes("seeking funder"))
                 : pills.some(p=>p.includes(e))));
     c.style.display = show ? "" : "none";
@@ -224,12 +221,12 @@ export async function bountyPage(env: Env, ctx: ExecutionContext | undefined, id
   const fundSection = mirror
     ? `<div class="card" style="border-color:rgba(227,179,65,.4)">
         <h3 style="color:var(--gold)">Fund this bounty</h3>
-        <p class="mut small">Payer escrows the face value in USD via PayPal Checkout; on capture the ops account converts to NEAR and locks it in the market contract — platform cut taken at release.</p>
+        <p class="mut small">The face value converts to NEAR at the Intents price and locks in the market contract — the platform cut is taken at release, all on-chain.</p>
         <div class="spread"><span class="k">Face value</span><span class="v">${fmtAmount(mirror.original?.amount, mirror.original?.currency)}</span></div>
         <div class="spread"><span class="k">Winner receives</span><span class="v">${fmtUsd(mirror.claimant_share?.est_usd)}</span></div>
         <div class="spread"><span class="k">Platform cut</span><span class="v">${(mirror.cut_bps / 100).toFixed(0)}% at settlement</span></div>
         <div class="row" style="margin-top:12px">
-          <button class="btn gold" onclick="fundMirror()">Fund with PayPal</button>
+          <button class="btn gold" onclick="fundMirror()">Escrow on NEAR</button>
           <span class="mut small" id="fund-out"></span>
         </div>
         <p class="faint small" style="margin-top:10px">Mirror id <code class="mono">${esc(mirror.id)}</code> · spec <code class="mono">${shortHash(specHash)}</code></p>
@@ -237,13 +234,14 @@ export async function bountyPage(env: Env, ctx: ExecutionContext | undefined, id
       <script>
       async function fundMirror() {
         const out = document.getElementById("fund-out");
-        out.textContent = " creating order…";
-        const r = await fetch("/api/mirrors/fund", { method: "POST",
+        out.textContent = " escrowing…";
+        const r = await fetch("/api/mirrors/escrow", { method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ mirror_id: ${JSON.stringify(mirror.id)} }) });
         const j = await r.json();
-        if (j.ok && j.approve_url) location.href = j.approve_url;
-        else out.textContent = " " + (j.error || r.status);
+        out.textContent = j.escrow && j.escrow.market_id
+          ? " market #" + j.escrow.market_id + " locked"
+          : " " + (j.error || (j.escrow && (j.escrow.error || j.escrow.skipped || j.escrow.pending)) || r.status);
       }
       </script>`
     : "";
@@ -254,7 +252,7 @@ export async function bountyPage(env: Env, ctx: ExecutionContext | undefined, id
         <pre class="sig-block">POST /api/mirrors/claims
 {"mirror_id": ${JSON.stringify(mirror.id)},
  "forgeRef": "github:owner/repo#123",
- "payout": {"pyusd_solana_address": "…"} or {"paypal_email": "…"}}</pre>
+ "payout": {"near_account": "you.near"}}</pre>
         <p class="faint small">Only accepted once the mirror is funded. Unlimited competing claims — best verified work wins.</p></div>`
     : record
       ? `<div class="card"><h3>Claim</h3>
@@ -267,7 +265,7 @@ export async function bountyPage(env: Env, ctx: ExecutionContext | undefined, id
   const escrowBlock = mirror
     ? `<div class="spread"><span class="k">Mirror status</span><span class="v">${esc(mirror.status)}</span></div>
        ${mirror.funded_market_id ? `<div class="spread"><span class="k">Market</span><span class="v mono">#${esc(mirror.funded_market_id)}</span></div>` : ""}
-       ${mirror.fiat ? `<div class="spread"><span class="k">Fiat captured</span><span class="v">${esc(mirror.fiat.amount)} ${esc(mirror.fiat.currency)}${mirror.fiat.payer_email ? ` · ${esc(mirror.fiat.payer_email)}` : ""}</span></div>` : ""}`
+       ${mirror.fiat ? `<div class="spread"><span class="k">Escrowed</span><span class="v">${esc(mirror.fiat.amount)} ${esc(mirror.fiat.currency)}</span></div>` : ""}`
     : escrow
       ? `<div class="spread"><span class="k">Escrow state</span><span class="v">${esc(escrow.state)}</span></div>
          ${escrow.locked ? `<div class="spread"><span class="k">Locked</span><span class="v mono">${esc(escrow.locked)}</span></div>` : ""}
@@ -324,8 +322,8 @@ ${record?.claim?.how ? "" : ""}`;
 // ------------------------------------------------------------- fund status
 
 export async function fundPage(env: Env, ctx: ExecutionContext | undefined, id: string): Promise<Response> {
-  const funding = await env.CLAIMS.get(`fiatfund:${id}`, "json") as
-    { order_id?: string; status?: string; amount?: string; payer_email?: string; captured_at?: number } | null;
+  const funding = await env.CLAIMS.get(`escrowstate:${id}`, "json") as
+    { status?: string; usd?: string; marketId?: string } | null;
   const escrow = await env.CLAIMS.get(`escrowstate:${id}`, "json") as
     { status?: string; txHash?: string; marketId?: string; near_amount?: string; usd?: string; error?: string } | null;
   const doc = await feedDoc(env, ctx);
@@ -336,10 +334,8 @@ export async function fundPage(env: Env, ctx: ExecutionContext | undefined, id: 
   <h1 style="font-size:1.3rem">Funding status</h1>
   <p class="mut small">${esc(mirror?.title ?? id)}</p>
   <div class="timeline" style="margin-top:18px">
-    <div class="ev"><div class="t">order</div><div class="d">${funding ? pill(funding.status === "captured" ? "ok" : "info", funding.status ?? "created") : pill("mut", "not created")}
-      ${funding?.order_id ? `<span class="mono faint small"> ${shortHash(funding.order_id, 8)}</span>` : ""}</div></div>
-    <div class="ev"><div class="t">payer approval</div><div class="d">${funding?.status === "captured" || funding?.status === "approved" ? pill("ok", "approved") : pill("mut", "waiting")}</div></div>
-    <div class="ev"><div class="t">capture</div><div class="d">${funding?.captured_at ? pill("ok", `captured ${fmtAmount(funding.amount, "USD")}`) : pill("mut", "pending")}</div></div>
+    <div class="ev"><div class="t">escrow</div><div class="d">${funding ? pill(funding.status === "confirmed" ? "ok" : "info", funding.status ?? "pending") : pill("mut", "not created")}
+      ${funding?.usd ? `<span class="mono faint small"> ≈${esc(funding.usd)} USD</span>` : ""}</div></div>
     <div class="ev"><div class="t">NEAR escrow</div><div class="d">
       ${escrow?.status === "confirmed" ? pill("ok", `market #${escrow.marketId} locked`) + (escrow.near_amount ? ` <span class="mono faint small">${esc(escrow.near_amount)} NEAR (≈${esc(escrow.usd)} USD)</span>` : "")
         : escrow?.status === "failed" ? pill("bad", "failed") + ` <span class="mut small">${esc(escrow.error ?? "")}</span>`
@@ -348,7 +344,7 @@ export async function fundPage(env: Env, ctx: ExecutionContext | undefined, id: 
       ${escrow?.txHash ? `<div class="mono faint small" style="margin-top:4px"><a href="https://testnet.nearblocks.io/tx/${esc(escrow.txHash)}" target="_blank" rel="noopener">${shortHash(escrow.txHash, 12)} ↗</a></div>` : ""}
     </div></div>
   </div>
-  <p class="faint small" style="margin-top:14px">This page refreshes itself — money state is read live from PayPal + the NEAR contract.</p>
+  <p class="faint small" style="margin-top:14px">This page refreshes itself — money state is read live from the NEAR contract.</p>
 </div>
 <script>setTimeout(() => location.reload(), 15000);</script>`;
   return html(pageShell({
@@ -473,7 +469,7 @@ You never have to visit this site; everything below is also machine-readable.</p
 <div class="card"><p class="mut small">Every record carries <code>escrow.state</code> (<code>locked</code>/<code>external</code>/<code>label-only</code>/<code>none</code>), reward + USD estimate, <code>trust</code> (repo claims/paid/pass-rate), <code>competition</code> (pending claims, unique claimants), <code>verification</code> requirements, and <code>widespread_offer</code> for mirrorable externals.</p></div>
 
 <h2>Mirrors (third-party bounties)</h2>
-<div class="card"><p class="mut small">External bounties are <b>mirror-only</b>: they list at face value; the platform cut is skimmed from locked funds at release. Payers fund via <code>POST /api/mirrors/fund</code> (PayPal Checkout) → <code>/api/mirrors/capture</code> → ops escrow on NEAR. Claims arrive automatically — submit a normal PR/issue on the source thread; we ingest cross-referenced submissions on funded mirrors. Verdicts via <code>POST /api/mirrors/verdict</code>; payouts in PYUSD (Solana, via Paxos — licensed transmitter) or USD (PayPal Payouts).</p></div>
+<div class="card"><p class="mut small">External bounties are <b>mirror-only</b>: they list at face value; the platform cut is skimmed from locked funds at release. Funding escrows the NEAR face value via <code>POST /api/mirrors/escrow</code>. Claims arrive automatically — submit a normal PR/issue on the source thread; we ingest cross-referenced submissions on funded mirrors. Verdicts via <code>POST /api/mirrors/verdict</code>; payouts release NEAR to the winner's claimant account.</p></div>
 
 <h2>Claiming natively</h2>
 <div class="card"><p class="mut small">NEAR-market bounties: <code>POST /api/claims</code> validates the forge artifact (immutable account ID, real diff, patch fingerprint) and returns an HMAC attestation + ready-to-broadcast <code>shipClaim</code> args. Verify any token at <code>GET /api/claims/verify?token=…</code>. Submissions are unlimited — adjudication picks the best verified claim.</p></div>
@@ -551,7 +547,7 @@ export async function bountyMarkdown(env: Env, ctx: ExecutionContext | undefined
     lines.push(`POST /api/mirrors/claims`);
     lines.push(`{"mirror_id": ${JSON.stringify(m.id)},`);
     lines.push(` "forgeRef": "github:owner/repo#123",`);
-    lines.push(` "payout": {"pyusd_solana_address": "…"} or {"paypal_email": "…"}}`);
+    lines.push(` "payout": {"near_account": "you.near"}}`);
     lines.push("```");
   } else if (r?.claim?.how) {
     lines.push("");

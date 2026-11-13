@@ -13,7 +13,6 @@
 
 import { OPS_HTML } from "./ops";
 import { homePage, bountiesPage, bountyPage, fundPage, receiptPage, docsPage, bountyMarkdown } from "./web/pages";
-import { handlePremiumExport } from "./premium";
 import { reviewOutstanding, runReview } from "./review";
 import { handleBotVerdict, type BotVerdictBody } from "./botverdict";
 import { attestClaim, ecosystem, openDispute } from "./ecosystem";
@@ -39,7 +38,7 @@ import { bindStatement, bindInstructions, registerBinding, listBindings, resolve
 import { putFeedDoc } from "./feedstore";
 import { bountiesList, marketsList } from "./mcpearn";
 import { handleClaimPost, handleClaimVerify } from "./claims";
-import { createFiatOrder, captureFiatOrder, tryOpsEscrow } from "./fiat";
+import { tryOpsEscrow } from "./escrow";
 import { handleMirrorClaimPost, handleMirrorClaimsList, handleMirrorClaimTimeout, handleMirrorRequestChanges, handleMirrorVerdict, handleMirrorPayout } from "./mirrorclaims";
 import { scanMirrorSubmissions } from "./ingest";
 import { agentCard, createDispatch, handleA2a, listDispatches, markDispatch, settleCalldata } from "./dispatch";
@@ -145,7 +144,7 @@ interface BountyBody {
   repo?: string;
   amount?: string;
   currency?: string;
-  receiver_email?: string;
+  receiver_account?: string;    // NEAR claimant account
   recipients?: Record<string, string>;
   spec?: string;
   upstream?: string;
@@ -159,14 +158,14 @@ async function handleBountyPost(req: Request, env: Env): Promise<Response> {
   if (!body?.repo || !/^[a-z0-9-]+\/[a-z0-9-]+$/i.test(body.repo)) {
     return bad("repo must look like owner/repo");
   }
-  if (!body.receiver_email && !body.recipients) {
-    return bad("receiver_email (or recipients map) required — a PayPal-linked email");
+  if (!body.receiver_account && !body.recipients) {
+    return bad("receiver_account (or recipients map) required — a NEAR claimant account");
   }
   const bounty: Bounty = {
     repo: body.repo,
     amount: body.amount ?? "1.00",
     currency: (body.currency ?? "USD").toUpperCase(),
-    receiver_email: body.receiver_email ?? "",
+    receiver_account: body.receiver_account ?? "",
     ...(body.recipients ? { recipients: body.recipients } : {}),
     spec: body.spec ?? "",
     ...(body.upstream ? { upstream: body.upstream } : {}),
@@ -407,9 +406,6 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
     if (pathname === "/api/scan" && req.method === "POST") {
       if (!isAuthorized(req, env)) return bad("unauthorized", 401);
       return json({ reviewed: await scan(env) });
-    }
-    if (pathname === "/api/premium/oplog-export" && req.method === "GET") {
-      return handlePremiumExport(req, env);
     }
     if (pathname === "/review" && (req.method === "POST" || req.method === "GET")) {
       return handleReview(req, env);
@@ -756,45 +752,24 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
       let mirrors = doc.mirrors ?? [];
       // Overlay fiat pay-in state — funding records live in KV, mirrors
       // are rebuilt each refresh so state can't live on the listing.
-      const fiatKeys = await env.CLAIMS.list({ prefix: "fiatfund:", limit: 100 }).catch(() => null);
-      const fiatByMirror = new Map<string, { status: string; amount: string; payer_email?: string }>();
-      for (const k of fiatKeys?.keys ?? []) {
-        const f = await env.CLAIMS.get<{ mirror_id: string; status: string; amount: string; payer_email?: string }>(k.name, "json").catch(() => null);
-        if (f?.status === "captured") fiatByMirror.set(f.mirror_id, f);
+      const escrowKeys = await env.CLAIMS.list({ prefix: "escrowstate:", limit: 100 }).catch(() => null);
+      const escrowByMirror = new Map<string, { status: string; usd: string; marketId?: string }>();
+      for (const k of escrowKeys?.keys ?? []) {
+        const f = await env.CLAIMS.get<{ mirror_id: string; status: string; usd: string; marketId?: string }>(k.name, "json").catch(() => null);
+        if (f?.status === "confirmed") escrowByMirror.set(f.mirror_id, f);
       }
       mirrors = mirrors.map((m) => {
-        const f = fiatByMirror.get(m.id);
+        const f = escrowByMirror.get(m.id);
         if (f && m.status === "seeking-funder") {
-          return { ...m, status: "fiat-funded" as const, fiat: { amount: f.amount, currency: "USD", payer_email: f.payer_email } };
+          return { ...m, status: "funded" as const, funded_market_id: f.marketId ?? m.funded_market_id,
+                   fiat: { amount: f.usd, currency: "USD" } };
         }
         return m;
       });
       if (status) mirrors = mirrors.filter((m) => m.status === status);
       return json({ total: mirrors.length, mirrors });
     }
-    // Fiat pay-in for a mirror: PayPal order → approve link → capture.
-    // Body-param routes — mirror ids contain '/', '#', ':' which don't
-    // survive path encoding cleanly.
-    if ((pathname === "/api/mirrors/fund" || pathname === "/api/mirrors/capture") && req.method === "POST") {
-      const b = (await req.json().catch(() => ({}))) as Record<string, string>;
-      const mirrorId = b.mirror_id ?? "";
-      const doc = await feedDoc(env, ctx);
-      const mirror = (doc.mirrors ?? []).find((m) => m.id === mirrorId);
-      if (!mirror) return bad("mirror not found", 404);
-      if (pathname.endsWith("/fund")) {
-        // Payer pays the bounty at FACE VALUE — our cut comes out of the
-        // escrow at release, never added to the price.
-        const usd = mirror.original?.est_usd;
-        if (!usd) return bad("mirror has no USD price — fiat funding needs a priced bounty", 422);
-        const base = env.PUBLIC_BASE ?? url.origin;
-        return createFiatOrder(env, mirrorId,
-          usd.toFixed(2), `Widespread mirror: ${mirror.title.slice(0, 80)}`,
-          `${base}/api/mirrors`, `${base}/api/mirrors`);
-      }
-      if (!b.order_id) return bad("order_id required", 400);
-      return captureFiatOrder(env, mirrorId, b.order_id, mirror);
-    }
-    // Fiat-mirror claim lifecycle: claims → verdict → PYUSD/USD payout.
+    // Mirror claim lifecycle: claims → verdict → NEAR payout.
     if (pathname === "/api/mirrors/claims" && req.method === "POST") {
       return handleMirrorClaimPost(req, env, ctx);
     }

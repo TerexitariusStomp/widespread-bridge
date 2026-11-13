@@ -14,7 +14,7 @@ export async function sponsorPage(env: Env): Promise<Response> {
     status: r.status,
     verdict: r.adjudication?.verdict ?? "—",
     confidence: r.adjudication?.confidence ?? "—",
-    payout: r.payout?.batch_id ?? r.payout?.skipped_reason ?? "—",
+    payout: r.payout?.tx_hash ?? r.payout?.receiver ?? r.payout?.skipped_reason ?? "—",
     amount: r.bounty ? `${r.bounty.amount} ${r.bounty.currency}` : "—",
     reviewed_at: new Date(r.reviewed_at).toISOString(),
   }));

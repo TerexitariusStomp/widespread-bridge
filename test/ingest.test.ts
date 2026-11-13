@@ -13,7 +13,7 @@ const mirror = (over: Partial<MirrorListing> = {}): MirrorListing => ({
   title: "bounty", url: "https://x", repo: "o/r",
   original: { amount: "50", currency: "USD", est_usd: 50 },
   cut_bps: 1000, spec: "s", spec_hash: "h",
-  createMarketArgs: {}, status: "fiat-funded",
+  createMarketArgs: {}, status: "funded",
   created_at: 0, updated_at: 0,
   ...over,
 });
@@ -45,8 +45,8 @@ describe("scanMirrorSubmissions", () => {
   it("files an attested auto-ingested claim for a cross-referenced PR", async () => {
     feedDocMock.mockResolvedValue({ mirrors: [mirror()] });
     const kv = fakeKV({
-      "fiatfund:mirror:github-thirdparty:generic:o/r#1":
-        JSON.stringify({ status: "captured" }),
+      "escrowstate:mirror:github-thirdparty:generic:o/r#1":
+        JSON.stringify({ status: "confirmed" }),
     });
     vi.stubGlobal("fetch", ghFetch());
     const r = await scanMirrorSubmissions(env(kv));
@@ -64,7 +64,7 @@ describe("scanMirrorSubmissions", () => {
   it("skips unfunded mirrors entirely", async () => {
     feedDocMock.mockResolvedValue({ mirrors: [mirror()] });
     vi.stubGlobal("fetch", ghFetch());
-    const r = await scanMirrorSubmissions(env(fakeKV())); // no fiatfund record
+    const r = await scanMirrorSubmissions(env(fakeKV())); // no escrowstate record
     expect(r.scanned).toBe(0);
     expect(r.claims_filed).toBe(0);
   });
@@ -72,8 +72,8 @@ describe("scanMirrorSubmissions", () => {
   it("dedupes: second scan files nothing", async () => {
     feedDocMock.mockResolvedValue({ mirrors: [mirror()] });
     const kv = fakeKV({
-      "fiatfund:mirror:github-thirdparty:generic:o/r#1":
-        JSON.stringify({ status: "captured" }),
+      "escrowstate:mirror:github-thirdparty:generic:o/r#1":
+        JSON.stringify({ status: "confirmed" }),
     });
     vi.stubGlobal("fetch", ghFetch());
     const e = env(kv);
@@ -85,8 +85,8 @@ describe("scanMirrorSubmissions", () => {
   it("backs off on github rate limit", async () => {
     feedDocMock.mockResolvedValue({ mirrors: [mirror()] });
     const kv = fakeKV({
-      "fiatfund:mirror:github-thirdparty:generic:o/r#1":
-        JSON.stringify({ status: "captured" }),
+      "escrowstate:mirror:github-thirdparty:generic:o/r#1":
+        JSON.stringify({ status: "confirmed" }),
     });
     vi.stubGlobal("fetch", fetchRouter([
       ["api.github.com", () => new Response("limited", { status: 429 })],

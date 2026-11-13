@@ -13,7 +13,7 @@ unmocked third parties. Live coverage is opt-in via `E2E_LIVE=1`.
 | `E2E_LIVE=1 npm test` | additionally runs `test/e2e.live.test.ts` against the deployed worker | yes (read-only probes) |
 | `node scripts/e2e-lifecycle.mjs` | flagship demo: fund → claim → verdict → payout → receipt against live sandbox rails | yes |
 
-Notes: KV/NEAR-RPC/PayPal are stubbed in unit tests via `test/mock.ts`.
+Notes: KV/NEAR-RPC are stubbed in unit tests via `test/mock.ts`.
 Live tests reuse KV dedupe keys — safe to re-run.
 
 ## widespread-near (NEAR contracts)

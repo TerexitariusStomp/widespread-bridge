@@ -7,13 +7,10 @@ export interface Env {
   ASSETS?: Fetcher;
   FORGE_BASE: string;
   WATCH_REPOS: string;
-  PAYPAL_API_BASE: string;
   LLM_MODEL: string;
   MIN_CONFIDENCE: string;
   PUBLIC_BASE: string;
   // secrets (wrangler secret put / .dev.vars)
-  PAYPAL_CLIENT_ID?: string;
-  PAYPAL_CLIENT_SECRET?: string;
   ADMIN_TOKEN?: string;
   DG_AGENT_DID?: string;
   DG_AGENT_KEY_PKCS8_B64?: string;
@@ -81,12 +78,6 @@ export interface Env {
   /** Optional X API bearer — upgrades x-post verification + timelines to
    * proof tier (oembed fallback stays weak without it). */
   X_BEARER_TOKEN?: string;
-  /** Paxos — licensed transmitter of record for PYUSD payouts. */
-  PAXOS_CLIENT_ID?: string;
-  PAXOS_CLIENT_SECRET?: string;
-  PAXOS_PROFILE_ID?: string;
-  PAXOS_IDENTITY_ID?: string;
-  PAXOS_API_BASE?: string;   // default sandbox; https://api.paxos.com prod
 }
 
 /** Normalized discovery record — one funded work item from any source.
@@ -163,10 +154,10 @@ export interface MirrorListing {
   spec: string;
   spec_hash: string;
   createMarketArgs: Record<string, unknown>;
-  status: "seeking-funder" | "fiat-funded" | "funded";
+  status: "seeking-funder" | "funded";
   funded_market_id?: string;
-  /** Present when a fiat pay-in was captured (PayPal order). */
-  fiat?: { amount: string; currency: string; payer_email?: string };
+  /** Present once face value is escrowed (escrowstate confirmed). */
+  fiat?: { amount: string; currency: string };
   created_at: number;
   updated_at: number;
 }
@@ -265,7 +256,8 @@ export interface ShipClaim {
     lines_removed?: number;
     files_touched?: number;
   };
-  paypal_email?: string;
+  /** Worker's NEAR claimant account — where the market release pays. */
+  claimant?: string;
   work_id?: string;
 }
 
@@ -304,8 +296,9 @@ export interface Bounty {
   repo: string;
   amount: string;
   currency: string;
-  receiver_email: string;
-  /** actor/did → email overrides for pools paying distinct contributors. */
+  /** Default NEAR claimant account for pools paying one receiver. */
+  receiver_account: string;
+  /** actor/did → NEAR account overrides for pools paying distinct contributors. */
   recipients?: Record<string, string>;
   /** Acceptance spec the adjudicator scores the evidence against. */
   spec: string;
@@ -357,19 +350,18 @@ export interface ProofRequirement {
   note?: string;
 }
 
+/** Settlement record — the NEAR release (executed or queued) that pays
+ * the winner's claimant account. tx_hash present = on-chain confirmed. */
 export interface PayoutReceipt {
   attempted: boolean;
   skipped_reason?: string;
-  sandbox: boolean;
-  sender_batch_id?: string;
-  batch_id?: string;
-  batch_status?: string;
-  transaction_id?: string;
-  transaction_status?: string;
-  receiver?: string;
+  rail?: string;              // "near-release"
+  tx_hash?: string;
+  receiver?: string;          // claimant NEAR account
   amount?: string;
   currency?: string;
-  links?: { rel: string; href: string }[];
+  market_id?: string;
+  note?: string;
   error?: string;
 }
 

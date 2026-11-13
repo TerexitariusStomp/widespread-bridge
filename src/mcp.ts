@@ -72,7 +72,7 @@ export async function handleMcpRequest(req: Request, env: Env, ctx: ExecutionCon
 
   server.registerTool("wide_bounties", {
     annotations: { title: 'List Bounties', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
-    description: "List the bridge's fiat-mirror bounty board (PayPal/PYUSD-settled pools).",
+    description: "List the bridge's bounty board (NEAR-escrowed markets and mirrored pools).",
     inputSchema: {},
   }, async () => json(await bountiesList(env)));
 

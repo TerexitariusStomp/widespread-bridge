@@ -3,10 +3,6 @@ import type { Env, MirrorListing } from "../src/types";
 
 const feedDocMock = vi.fn();
 vi.mock("../src/feed", () => ({ feedDoc: (...a: unknown[]) => feedDocMock(...a) }));
-const sendPayoutMock = vi.fn();
-vi.mock("../src/payouts", () => ({ sendPayout: (...a: unknown[]) => sendPayoutMock(...a) }));
-const paxosMock = vi.fn();
-vi.mock("../src/paxos", () => ({ paxosPyusdWithdraw: (...a: unknown[]) => paxosMock(...a) }));
 
 import {
   handleMirrorClaimPost,
@@ -20,14 +16,15 @@ const MIRROR: MirrorListing = {
   original: { amount: "100", currency: "USD", est_usd: 100 },
   cut_bps: 1000, claimant_share: { est_usd: 90 },
   spec: "s", spec_hash: "sha256:spec",
-  createMarketArgs: {}, status: "fiat-funded",
+  createMarketArgs: {}, status: "funded",
+  funded_market_id: "7",
   created_at: 0, updated_at: 0,
 };
 
-function envWithFunding(status = "captured") {
+function envWithEscrow(status = "confirmed") {
   const kv = fakeKV({
-    [`fiatfund:${MIRROR.id}`]: JSON.stringify({ mirror_id: MIRROR.id, order_id: "O1",
-      amount: "100", currency: "USD", status, created_at: 0 }),
+    [`escrowstate:${MIRROR.id}`]: JSON.stringify({ mirror_id: MIRROR.id,
+      status, usd: "100", marketId: "7", attempts: 1, updated_at: 0 }),
   });
   return fakeEnv({ CLAIMS: kv as unknown as Env["CLAIMS"] });
 }
@@ -50,19 +47,21 @@ beforeEach(() => {
 });
 
 describe("handleMirrorClaimPost", () => {
-  it("409s when mirror is not fiat-funded", async () => {
-    const env = envWithFunding("created"); // order created, not captured
+  it("409s when mirror is not escrowed", async () => {
+    feedDocMock.mockResolvedValue({ mirrors: [{ ...MIRROR, status: "seeking-funder" as const,
+      funded_market_id: undefined }], records: [] });
+    const env = envWithEscrow("pending");
     const res = await handleMirrorClaimPost(post({ mirror_id: MIRROR.id, forgeRef: "o/r#12" }), env);
     expect(res.status).toBe(409);
-    expect((await res.json()).error).toMatch(/not fiat-funded/);
+    expect((await res.json()).error).toMatch(/not escrowed/);
   });
 
-  it("201s an attested claim on a funded mirror", async () => {
+  it("201s an attested claim on an escrowed mirror", async () => {
     vi.stubGlobal("fetch", ghOk());
-    const env = envWithFunding();
+    const env = envWithEscrow();
     const res = await handleMirrorClaimPost(post({
       mirror_id: MIRROR.id, forgeRef: "https://github.com/o/r/pull/12",
-      payout: { paypal_email: "w@example.com" },
+      payout: { near_account: "w.near" },
     }), env);
     expect(res.status).toBe(201);
     const j = await res.json();
@@ -75,7 +74,7 @@ describe("handleMirrorClaimPost", () => {
     vi.stubGlobal("fetch", fetchRouter([
       ["api.github.com", () => new Response("nf", { status: 404 })],
     ]));
-    const env = envWithFunding();
+    const env = envWithEscrow();
     const res = await handleMirrorClaimPost(post({ mirror_id: MIRROR.id, forgeRef: "o/r#99" }), env);
     expect(res.status).toBe(422);
   });
@@ -85,31 +84,32 @@ async function fileClaim(env: Env) {
   vi.stubGlobal("fetch", ghOk());
   const res = await handleMirrorClaimPost(post({
     mirror_id: MIRROR.id, forgeRef: "https://github.com/o/r/pull/12",
-    payout: { paypal_email: "w@example.com" },
+    payout: { near_account: "w.near" },
   }), env);
   const j = await res.json();
   return j.claim.claim_hash as string;
 }
 
 describe("handleMirrorVerdict", () => {
-  it("computes face/cut/net and records settlement", async () => {
-    const env = envWithFunding();
+  it("computes face/cut/net and records NEAR settlement", async () => {
+    const env = envWithEscrow();
     const hash = await fileClaim(env);
     const res = await handleMirrorVerdict(new Request("https://x", {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ mirror_id: MIRROR.id, claim_hash: hash, accept: true,
-        payout: { paypal_email: "w@example.com" } }),
+        payout: { near_account: "w.near" } }),
     }), env);
     const j = await res.json();
     expect(j.settlement.face_usd).toBe(100);
     expect(j.settlement.platform_cut_usd).toBe(10);
     expect(j.settlement.net_usd).toBe(90);
-    expect(j.settlement.paypal_usd.to).toBe("w@example.com");
+    expect(j.settlement.near.to).toBe("w.near");
+    expect(j.settlement.near.market_id).toBe("7");
     expect(j.settlement.status).toBe("won");
   });
 
   it("is one-shot: second verdict returns already_decided", async () => {
-    const env = envWithFunding();
+    const env = envWithEscrow();
     const hash = await fileClaim(env);
     const mkReq = () => new Request("https://x", {
       method: "POST", headers: { "content-type": "application/json" },
@@ -122,8 +122,7 @@ describe("handleMirrorVerdict", () => {
   });
 
   it("rejects unattested claims", async () => {
-    const env = envWithFunding();
-    // plant an unattested claim directly
+    const env = envWithEscrow();
     await env.CLAIMS.put(`mclaim:${MIRROR.id}:h1`, JSON.stringify({
       mirror_id: MIRROR.id, claim_hash: "h1", attested: false, status: "pending",
     }));
@@ -140,90 +139,60 @@ describe("handleMirrorPayout", () => {
     const res = await handleMirrorPayout(new Request("https://x", {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ mirror_id: MIRROR.id }),
-    }), envWithFunding());
+    }), envWithEscrow());
     expect(res.status).toBe(409);
   });
 
-  it("pays via PayPal Payouts when winner gave email", async () => {
-    const env = envWithFunding();
+  it("queues a NEAR release to the winner's claimant", async () => {
+    const env = envWithEscrow();
     const hash = await fileClaim(env);
     await handleMirrorVerdict(new Request("https://x", {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ mirror_id: MIRROR.id, claim_hash: hash, accept: true,
-        payout: { paypal_email: "w@example.com" } }),
+        payout: { near_account: "w.near" } }),
     }), env);
-    sendPayoutMock.mockResolvedValue({ attempted: true, batch_id: "B1",
-      transaction_id: "T1", sandbox: true });
     const res = await handleMirrorPayout(new Request("https://x", {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ mirror_id: MIRROR.id }),
     }), env);
     const j = await res.json();
-    expect(j.settlement.payout.rail).toBe("paypal-payouts");
-    expect(j.settlement.payout.batch_id).toBe("B1");
-    expect(sendPayoutMock).toHaveBeenCalledOnce();
+    expect(j.settlement.payout.rail).toBe("near-release");
+    expect(j.settlement.payout.status).toBe("pending_ops");
+    expect(j.settlement.payout.note).toContain("w.near");
   });
 
-  it("dedupes: second payout returns already_paid", async () => {
-    const env = envWithFunding();
+  it("dedupes: second payout while queued returns already_queued", async () => {
+    const env = envWithEscrow();
     const hash = await fileClaim(env);
     await handleMirrorVerdict(new Request("https://x", {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ mirror_id: MIRROR.id, claim_hash: hash, accept: true,
-        payout: { paypal_email: "w@example.com" } }),
+        payout: { near_account: "w.near" } }),
     }), env);
-    sendPayoutMock.mockResolvedValue({ attempted: true, batch_id: "B1" });
     const mkReq = () => new Request("https://x", {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ mirror_id: MIRROR.id }),
     });
     await handleMirrorPayout(mkReq(), env);
-    sendPayoutMock.mockClear();
     const res2 = await handleMirrorPayout(mkReq(), env);
     const j2 = await res2.json();
-    expect(j2.status).toBe("already_paid");
-    expect(sendPayoutMock).not.toHaveBeenCalled();
+    expect(j2.status).toBe("already_queued");
+    expect(j2.settlement.payout.status).toBe("pending_ops");
   });
 
-  it("PYUSD without Paxos creds → pending_ops (nothing lost)", async () => {
-    const env = envWithFunding(); // no PAXOS_* in fakeEnv
+  it("409s when the winner gave no NEAR claimant", async () => {
+    const env = envWithEscrow();
     const hash = await fileClaim(env);
     await handleMirrorVerdict(new Request("https://x", {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ mirror_id: MIRROR.id, claim_hash: hash, accept: true,
-        payout: { pyusd_solana_address: "So1anaAddr" } }),
+        payout: {} }),
     }), env);
     const res = await handleMirrorPayout(new Request("https://x", {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ mirror_id: MIRROR.id }),
     }), env);
-    const j = await res.json();
-    expect(j.settlement.payout.status).toBe("pending_ops");
-    expect(j.settlement.payout.note).toContain("PYUSD");
-    expect(j.settlement.payout.note).toContain("So1anaAddr");
-  });
-
-  it("PYUSD with Paxos creds → paxos withdrawal", async () => {
-    const env = fakeEnv({
-      CLAIMS: (() => { const kv = fakeKV({
-        [`fiatfund:${MIRROR.id}`]: JSON.stringify({ mirror_id: MIRROR.id, order_id: "O1",
-          amount: "100", currency: "USD", status: "captured", created_at: 0 }),
-      }); return kv; })() as unknown as Env["CLAIMS"],
-      PAXOS_CLIENT_ID: "id", PAXOS_CLIENT_SECRET: "sec", PAXOS_PROFILE_ID: "prof",
-    });
-    const hash = await fileClaim(env);
-    await handleMirrorVerdict(new Request("https://x", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ mirror_id: MIRROR.id, claim_hash: hash, accept: true,
-        payout: { pyusd_solana_address: "So1anaAddr" } }),
-    }), env);
-    paxosMock.mockResolvedValue({ ok: true, status: "completed", transfer_id: "TR1" });
-    const res = await handleMirrorPayout(new Request("https://x", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ mirror_id: MIRROR.id }),
-    }), env);
-    const j = await res.json();
-    expect(j.settlement.payout.provider).toBe("paxos");
-    expect(j.settlement.payout.transfer_id).toBe("TR1");
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toMatch(/no payout destination/);
   });
 });

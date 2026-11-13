@@ -1,11 +1,10 @@
-// The pipeline: claim → evidence → AI verdict → PayPal payout → receipt.
+// The pipeline: claim → evidence → AI verdict → NEAR release → receipt.
 
 import { adjudicate, adjudicatePanel } from "./adjudicator";
 import { rep8004For } from "./rep8004";
 import { crosscheck, findDerivative, gatherCommitEvidence, laterUpstreamFingerprints, upstreamFor } from "./evidence";
 import { oracleEnv, signVerdict } from "./oracle";
 import { fetchOpLog, verifyChain } from "./oplog";
-import { refreshBatch, sendPayout } from "./payouts";
 import { attestClaim } from "./ecosystem";
 import { getBounty, getRecord, putRecord } from "./store";
 import { getDeclared } from "./declare";
@@ -18,10 +17,12 @@ import type {
   ShipClaim,
 } from "./types";
 
-function receiverFor(claim: ShipClaim, bounty: Bounty | null, actor: string): string | null {
+function claimantFor(claim: ShipClaim, bounty: Bounty | null, actor: string): string | null {
+  // Worker's own signed instruction wins — then a funder-named recipient
+  // for this actor, then the bounty default.
+  if (claim.claimant) return claim.claimant;
   if (bounty?.recipients?.[actor]) return bounty.recipients[actor];
-  if (bounty?.receiver_email) return bounty.receiver_email;
-  if (claim.paypal_email) return claim.paypal_email;
+  if (bounty?.receiver_account) return bounty.receiver_account;
   return null;
 }
 
@@ -49,9 +50,9 @@ export async function runReview(
   // different hash is a new claim and earns a fresh review + payout.
   const stored = await getRecord(env, repo, seq);
   if (stored && !opts.force && stored.claim.hash === entry.hash) return stored;
-  // Same-claim prior → refresh its batch rather than re-POST (PayPal rejects
-  // a second send under the same sender_batch_id). Different-hash prior →
-  // a new claim; its payout gets a hash-keyed batch id.
+  // Same-claim prior → reuse its settlement record rather than re-queue
+  // (idempotent release). Different-hash prior → a new claim; its payout
+  // record is keyed to the new entry hash.
   const prior = stored?.claim.hash === entry.hash ? stored : null;
 
   const claim = entry.payload as unknown as ShipClaim;
@@ -185,30 +186,18 @@ export async function runReview(
         .catch(() => null)
     : null;
 
+  // Settlement is on-chain: the market contract releases locked funds to
+  // the winner's claimant account. For label-only bounties (no escrow
+  // yet) the payout record carries the claimant + exact release args so
+  // ops can execute or the payer can release directly.
   let payout: PayoutReceipt | null = null;
   if (accepted) {
-    const receiver = receiverFor(claim, bounty, entry.actor);
-    if (!env.PAYPAL_CLIENT_ID || !env.PAYPAL_CLIENT_SECRET) {
-      payout = { attempted: false, skipped_reason: "PAYPAL_CLIENT_ID/SECRET not set", sandbox: true };
-    } else if (!receiver) {
-      payout = {
-        attempted: false,
-        skipped_reason: "no recipient — seed a bounty for this repo or set claim.paypal_email",
-        sandbox: true,
-      };
-    } else if (prior?.payout?.batch_id) {
-      payout = await refreshBatch(env, prior.payout);
-    } else {
-      payout = await sendPayout(env, {
-        repo,
-        seq,
-        claimHash: entry.hash,
-        receiver,
-        amount: bounty?.amount ?? "1.00",
-        currency: bounty?.currency ?? "USD",
-        note: `Slop.cash bounty for ${repo} ship claim #${seq}`,
-      });
-    }
+    const claimant = claimantFor(claim, bounty, entry.actor);
+    payout = claimant
+      ? { attempted: true, rail: "near-release", receiver: claimant,
+          amount: bounty?.amount, currency: bounty?.currency ?? "NEAR",
+          note: `release locked market funds to claimant ${claimant} — marketId from work_id ${claim.work_id ?? repo}` }
+      : { attempted: false, skipped_reason: "no claimant — the winner needs a NEAR account (claim.claimant or a bound near: handle)" };
   }
 
   // Receipt back to the forge as a signed commit status (bidirectional audit).
@@ -218,8 +207,8 @@ export async function runReview(
         repo,
         sha: firstSha,
         accepted,
-        description: payout?.batch_id
-          ? `PayPal Payouts batch ${payout.batch_id} (${payout.transaction_status ?? payout.batch_status ?? "sent"})`
+        description: payout?.receiver
+          ? `NEAR release → claimant ${payout.receiver} (${payout.tx_hash ?? "queued"})`
           : `adjudicated ${adjudication.verdict} (confidence ${adjudication.confidence})`,
         claimId: id,
       })
@@ -233,7 +222,7 @@ export async function runReview(
       ? "error"
       : !accepted
         ? "rejected"
-        : payout?.batch_id
+        : payout?.tx_hash
           ? "accepted_paid"
           : "accepted_unpaid",
     claim: entry,

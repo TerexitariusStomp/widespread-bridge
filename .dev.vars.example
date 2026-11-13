@@ -1,8 +1,5 @@
 # Copy to .dev.vars for `wrangler dev`, or set each with `wrangler secret put`.
 
-# PayPal Developer app credentials (https://developer.paypal.com) — sandbox app.
-PAYPAL_CLIENT_ID=
-PAYPAL_CLIENT_SECRET=
 
 # Optional: restrict bounty-registry writes (POST /api/bounties) with a bearer.
 # When unset, the route is open (fine for a sandbox demo).

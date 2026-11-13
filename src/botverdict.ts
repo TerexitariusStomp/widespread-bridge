@@ -4,7 +4,6 @@
 // settles if a recipient is bound, and stores the verdict for audit.
 
 import { oracleEnv, signVerdict } from "./oracle";
-import { sendPayout } from "./payouts";
 import { writebackReceipt } from "./writeback";
 import type { Env, PayoutReceipt } from "./types";
 
@@ -18,7 +17,8 @@ export interface BotVerdictBody {
   head_sha?: string;
   amount?: string;
   currency?: string;
-  paypal_email?: string;
+  /** Winner's NEAR claimant account — release pays it on-chain. */
+  claimant?: string;
 }
 
 interface BotVerdictRecord {
@@ -52,7 +52,7 @@ export async function handleBotVerdict(env: Env, body: BotVerdictBody): Promise<
   // Idempotent: same market + head → return the stored verdict, never re-pay.
   const prior = await env.CLAIMS.get<BotVerdictRecord>(verdictKey(repo, issue), "json").catch(() => null);
   if (prior && prior.head_sha === headSha && prior.verdict === verdict) {
-    return Response.json({ status: prior.payout?.batch_id ? "accepted_paid" : "duplicate", record: prior });
+    return Response.json({ status: prior.payout?.tx_hash ? "accepted_paid" : "duplicate", record: prior });
   }
 
   const score = body.score ?? "";
@@ -69,25 +69,16 @@ export async function handleBotVerdict(env: Env, body: BotVerdictBody): Promise<
     oracleSig = sig;
   }
 
+  // Settlement: the signed wide-verdict is the release proof the market
+  // contract checks — payout records the claimant + release args; the
+  // payer or a relayer broadcasts release() on-chain.
   let payout: PayoutReceipt | null = null;
   if (verdict === "accept") {
-    const amount = body.amount ?? "1.00";
-    const currency = body.currency ?? "USD";
-    if (!body.paypal_email) {
-      payout = { attempted: false, skipped_reason: "no paypal_email bound to market", sandbox: true };
-    } else if (!env.PAYPAL_CLIENT_ID || !env.PAYPAL_CLIENT_SECRET) {
-      payout = { attempted: false, skipped_reason: "PAYPAL_CLIENT_ID/SECRET not set", sandbox: true };
-    } else {
-      payout = await sendPayout(env, {
-        repo,
-        seq: issue,
-        claimHash: `botverdict:${headSha}`,
-        receiver: body.paypal_email,
-        amount,
-        currency,
-        note: `Widespread ${body.bot} verdict ${score} on ${repo}#${issue} (PR #${body.pr ?? issue})`,
-      });
-    }
+    payout = body.claimant
+      ? { attempted: true, rail: "near-release", receiver: body.claimant,
+          amount: body.amount, currency: body.currency ?? "NEAR",
+          note: `release github:${repo}#${issue} → claimant ${body.claimant} (oracle sig bound)` }
+      : { attempted: false, skipped_reason: "no claimant NEAR account in verdict body" };
   }
 
   const writeback = verdict === "accept"
@@ -95,8 +86,8 @@ export async function handleBotVerdict(env: Env, body: BotVerdictBody): Promise<
         repo,
         sha: headSha,
         accepted: true,
-        description: payout?.batch_id
-          ? `PayPal Payouts batch ${payout.batch_id} — ${body.bot} verdict ${score}`
+        description: payout?.receiver
+          ? `NEAR release → ${payout.receiver} — ${body.bot} verdict ${score}`
           : `${body.bot} verdict ${score} (adjudicated accept)`,
         claimId: `botverdict:${repo}#${issue}`,
       })
@@ -119,7 +110,7 @@ export async function handleBotVerdict(env: Env, body: BotVerdictBody): Promise<
   await env.CLAIMS.put(verdictKey(repo, issue), JSON.stringify(record));
 
   return Response.json({
-    status: verdict === "reject" ? "rejected" : payout?.batch_id ? "accepted_paid" : "accepted_unpaid",
+    status: verdict === "reject" ? "rejected" : payout?.attempted ? "accepted_paid" : "accepted_unpaid",
     record,
   });
 }

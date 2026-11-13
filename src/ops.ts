@@ -17,7 +17,7 @@ export const OPS_HTML = `<!doctype html>
   header { padding:18px 24px; border-bottom:1px solid var(--border);
     display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
   header h1 { font-size:18px; margin:0; }
-  .paypal { background:var(--pp-dark); color:#fff; border-radius:6px;
+  .near { background:#00ec97; color:#04141c; border-radius:6px;
     padding:3px 10px; font-weight:700; font-size:12px; letter-spacing:.3px; }
   .ai { border:1px solid var(--pp-blue); color:var(--pp-blue); border-radius:6px;
     padding:3px 10px; font-weight:600; font-size:12px; }
@@ -72,15 +72,16 @@ export const OPS_HTML = `<!doctype html>
 <header>
   <div id="oplog-warn" style="display:none;padding:8px 12px;margin-bottom:12px;border:1px solid #d29922;border-radius:8px;color:#d29922;font-size:13px">⚠ forge op-log is empty — entries wipe periodically; run <code>node scripts/reseed-demo.mjs</code></div>
   <h1>Widespread <span class="mut">verified-work payouts</span></h1>
-  <span class="paypal">PayPal Payouts</span>
+  <span class="near">NEAR escrow</span>
   <span class="ai">AI adjudicator</span>
   <span class="ai">AG Grid</span>
   <span class="mut" id="stamp"></span>
 </header>
 <main>
   <div class="mut">
-    delta-git op-log claim → independent evidence → LLM verdict → PayPal Payouts
-    (sandbox). Every row below is a live record — nothing is mocked.
+    delta-git op-log claim → independent evidence → LLM verdict → NEAR
+    market release to the winner's claimant account. Every row below is a
+    live record — nothing is mocked.
   </div>
 
   <h2>Run a review</h2>
@@ -122,7 +123,7 @@ function claimCard(r) {
     \`  \${c.sha.slice(0,10)}  +\${c.lines_added}/-\${c.lines_removed}  \${(c.files||[]).length} files  [\${c.source}]\`).join("\\n");
   const firstSha = (p.commits||[])[0]||"";
   const payLine = pay.attempted
-    ? \`batch \${pay.batch_id}\\ntxn   \${pay.transaction_id || "—"} (\${pay.transaction_status || pay.batch_status || "?"})\\n→ \${pay.receiver}  \${pay.amount} \${pay.currency}  [\${pay.sandbox ? "sandbox" : "LIVE"}]\`
+    ? \`release \${pay.tx_hash || "queued"}\\n→ claimant \${pay.receiver}  \${pay.amount || "—"} \${pay.currency || "NEAR"}\`
     : \`not sent — \${pay.skipped_reason || "rejected"}\${pay.error ? "\\n" + pay.error : ""}\`;
   return \`<div class="card" id="claim-\${esc(r.id)}">
     <div class="row">
@@ -145,14 +146,14 @@ crosscheck files \${r.crosscheck.recomputed_files} vs claimed \${r.crosscheck.cl
         <span class="mut mono">\${esc(adj.model||"")}</span>
         <div class="conf"><i style="width:\${Math.round((adj.confidence||0)*100)}%"></i></div>
         <pre style="margin-top:8px">\${esc(adj.reasoning||"")}</pre></div>
-      <div class="step"><h3>4 · PayPal payout</h3>
-        \${pay.batch_id ? badge("PayPal","b-pp") : ""}
+      <div class="step"><h3>4 · NEAR release</h3>
+        \${pay.tx_hash ? badge("NEAR","b-pp") : ""}
         <pre>\${esc(payLine)}</pre></div>
     </div>
     <div class="links" style="margin-top:8px;font-size:12px">
       \${'<a href="https://code.widespread.fyi/api/'+r.repo+'/dg/oplog" target="_blank" rel="noopener">op-log ↗</a>'}
       \${firstSha ? '<a href="https://code.widespread.fyi/api/'+r.repo+'/dg/status/'+firstSha+'" target="_blank" rel="noopener">forge receipt ↗</a>' : ""}
-      \${pay.batch_id ? '<a href="https://api-m.sandbox.paypal.com/v1/payments/payouts/'+pay.batch_id+'" target="_blank" rel="noopener">paypal batch ↗</a>' : ""}
+      \${pay.tx_hash ? '<a href="https://testnet.nearblocks.io/txns/'+pay.tx_hash+'" target="_blank" rel="noopener">near tx ↗</a>' : ""}
     </div>
   </div>\`;
 }
@@ -195,8 +196,8 @@ function renderClaimsGrid(claims) {
     repo: r.repo, seq: r.seq,
     verdict: r.adjudication ? r.adjudication.verdict : "—",
     confidence: r.adjudication ? r.adjudication.confidence : null,
-    payout: r.payout && r.payout.batch_id ? r.payout.batch_id : "—",
-    txn: r.payout && r.payout.transaction_id ? r.payout.transaction_id : "—",
+    payout: r.payout && r.payout.receiver ? r.payout.receiver : "—",
+    txn: r.payout && r.payout.tx_hash ? r.payout.tx_hash : "—",
     status: r.status, id: r.id,
   }));
   const statusColor = (v) => v === "accept" || v === "accepted_paid" ? "#2ea043"
@@ -209,8 +210,8 @@ function renderClaimsGrid(claims) {
     { field: "confidence", width: 100, valueFormatter: p =>
         p.value == null ? "—" : (p.value * 100).toFixed(0) + "%",
       cellStyle: p => ({ color: p.value >= 0.6 ? "#2ea043" : "#f85149" }) },
-    { field: "payout", flex: 1, headerName: "PayPal batch" },
-    { field: "txn", flex: 1, headerName: "transaction id",
+    { field: "payout", flex: 1, headerName: "claimant" },
+    { field: "txn", flex: 1, headerName: "release tx",
       cellStyle: { fontFamily: "ui-monospace,monospace", color: "#0070e0" } },
     { field: "status", width: 140,
       cellStyle: p => ({ color: statusColor(p.value), fontWeight: 700 }) },

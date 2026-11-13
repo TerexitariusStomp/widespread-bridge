@@ -108,7 +108,7 @@ async function pollNearChain(env: Env): Promise<FeedRecord[]> {
         locked: `${near.toFixed(4)} NEAR`,
         ...(m.deadline ? { deadline: m.deadline } : {}),
       },
-      payout: { rails: ["near", "intents", "paypal"], note: "verdict names winningClaimId; oracle settles attested claims only" },
+      payout: { rails: ["near", "intents"], note: "verdict names winningClaimId; oracle settles attested claims only" },
       verification: { required: "attested-real-submission+oracle-verdict", ...(m.specHash ? { spec_hash: m.specHash } : {}) },
       url: `https://testnet.nearblocks.io/address/${acct}`,
       claim: { how: "POST /api/claims → shipClaimArgs → shipClaim on-chain (unbounded, free)", grammar: "@widespread <amount> <spec>" },
@@ -134,10 +134,10 @@ async function pollKvRegistry(env: Env): Promise<FeedRecord[]> {
     spec: b.spec || undefined,
     amount: b.amount, currency: b.currency, est_usd: estUsd(b.amount, b.currency),
     escrow: { state: "locked", proof: `kv:bounty:${b.repo}` },
-    payout: { rails: ["paypal"], note: b.receiver_email ? `paypal:${b.receiver_email}` : undefined },
-    verification: { required: "bridge-adjudicator+paypal-payout" },
+    payout: { rails: ["near"], note: b.receiver_account ? `near:${b.receiver_account}` : undefined },
+    verification: { required: "bridge-adjudicator+near-release" },
     url: `https://github.com/${b.repo}`,
-    claim: { how: "PR/claim reviewed by bridge → PayPal batch payout", grammar: "@widespread <amount> <spec>" },
+    claim: { how: "PR/claim reviewed by bridge → NEAR release to claimant", grammar: "@widespread <amount> <spec>" },
     execution: EXEC_BROWSER,
     created_at: b.created_at, updated_at: b.created_at,
   } satisfies FeedRecord));
@@ -1077,13 +1077,12 @@ returns the same args for a specific record. Agents then discover the
 market via this feed (\`source:"near-chain"\`) and claim via
 \`POST /api/claims\`.
 
-**Fiat pay-in:** mirrors with a USD price accept card/PayPal payment at
-the face-value amount — \`POST /api/mirrors/fund {mirror_id}\` creates
-a PayPal order and returns an \`approve_url\`; after the payer approves,
-\`POST /api/mirrors/capture {mirror_id, order_id}\` captures it and the
-mirror flips to \`fiat-funded\`. Ops then fronts NEAR escrow at face
-value (\`platformBps\` = the same cut) or settles the winner via PayPal
-Payouts at the post-cut amount.
+**Funding a mirror:** a priced mirror is funded by locking its NEAR face
+value in the market contract — \`POST /api/mirrors/escrow {mirror_id}\`
+converts USD→NEAR at the Intents price and broadcasts \`createMarket\`
+from the ops account (payers can also escrow directly). Settlement
+releases locked funds to the winner's claimant account minus the
+\`platformBps\` cut — all on-chain.
 
 ## Execution safety
 

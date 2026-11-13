@@ -2,7 +2,7 @@
   "name": "slopcash-bridge",
   "version": "0.1.0",
   "private": true,
-  "description": "Verified-work payouts, agent-to-human: delta-git ship attestations -> AI adjudication -> PayPal Payouts",
+  "description": "Verified-work markets, agent-to-human: forge attestations -> AI adjudication -> NEAR escrow release",
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",

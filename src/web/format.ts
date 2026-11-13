@@ -72,7 +72,6 @@ export function escrowPill(rec: FeedRecord | MirrorListing): { cls: string; labe
   if (m.status) {
     switch (m.status) {
       case "funded": return { cls: "ok", label: "funded · escrowed" };
-      case "fiat-funded": return { cls: "info", label: "fiat-funded" };
       default: return { cls: "warn", label: "seeking funder" };
     }
   }

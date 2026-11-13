@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { entryHash, findShipEntry, verifyChain } from "../src/oplog";
-import { handlePremiumExport } from "../src/premium";
 import type { Env, OpLogEntry } from "../src/types";
 
 const mk = (seq: number, payload: Record<string, unknown>): OpLogEntry => ({
@@ -56,28 +55,5 @@ describe("findShipEntry", () => {
     const e = mk(0, { ship: true });
     expect(findShipEntry([e], 0)).toBe(e);
     expect(findShipEntry([e], 1)).toBeUndefined();
-  });
-});
-
-describe("premium 402", () => {
-  const env = { PAYPAL_API_BASE: "https://api-m.sandbox.paypal.com" } as Env;
-  it("returns 402 + invoice headers when no order id", async () => {
-    const res = await handlePremiumExport(
-      new Request("https://x/api/premium/oplog-export?repo=slop/slopdotcash"),
-      env
-    );
-    expect(res.status).toBe(402);
-    expect(res.headers.get("X-Payment-Required")).toBe("paypal");
-    const body = await res.json() as { invoice: { amount: string; currency: string; receiver: string } };
-    expect(body.invoice.amount).toBe("0.01");
-    expect(body.invoice.currency).toBe("USD");
-  });
-
-  it("rejects malformed repo slugs before invoicing", async () => {
-    const res = await handlePremiumExport(
-      new Request("https://x/api/premium/oplog-export?repo=../../etc"),
-      env
-    );
-    expect(res.status).toBe(400);
   });
 });

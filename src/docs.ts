@@ -185,7 +185,7 @@ stay pseudonymous. Reputation aggregates across bound handles.
 ## Money
 
 Markets are escrowed on NEAR (testnet + mainnet). Payout rails: NEAR,
-NEAR Intents, PayPal, PYUSD. Fiat bounties mirror to escrow via the ops lane.
+NEAR escrow and Intents. Third-party bounties mirror to escrow via the ops lane.
 Rate limits apply on write/evaluate endpoints (429 + retry-after).
 `;
 
@@ -330,7 +330,7 @@ export const TERMS_HTML = `<!doctype html><meta charset="utf-8"><meta name="view
 <li>Respect published rate limits.</li>
 </ul>
 <h2>Escrow and payouts</h2>
-<p>Payouts are settled per market terms on their rails (NEAR, PayPal/PYUSD). Third-party bounty face values are preserved; fees apply only at settlement where disclosed. The bridge does not custody funds or keys.</p>
+<p>Payouts settle on-chain: the market contract releases locked NEAR to the winner's claimant account. Third-party bounty face values are preserved; fees apply only at settlement where disclosed. The bridge does not custody funds or keys.</p>
 <h2>Liability</h2>
 <p>To the maximum extent permitted by law, liability is limited to fees paid to the service in the prior 30 days (typically zero). Forge content and third-party bounties are provided by their owners.</p>
 <p><i>Last updated: 2026-11.</i></p></body>`;

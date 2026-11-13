@@ -1,0 +1,167 @@
+// escrow.ts — ops-account NEAR escrow for mirror markets.
+//
+// A mirror market's USD face value is converted to NEAR at the Intents
+// price and locked by broadcasting createMarket from NEAR_OPS_ACCOUNT —
+// the platform cut is taken on-chain at release. Crypto payers escrow
+// directly; this lane exists so ops (or a settled fiat leg upstream) can
+// front escrow for a priced third-party bounty.
+//
+// Idempotent: every attempt is recorded in KV and reconciled against the
+// contract by specHash before rebroadcasting, so a retry can never
+// double-fund a market.
+
+import type { Env, MirrorListing } from "./types";
+import { nearFunctionCall, nearPriceUsd, nearViewCall } from "./nearops";
+
+/** Escrow reconciliation state — one record per mirror. The chain is the
+ * source of truth; this record only remembers what we attempted so a
+ * retry can tell "already landed" from "safe to rebroadcast". */
+interface EscrowState {
+  mirror_id: string;
+  status: "pending" | "confirmed" | "failed";
+  usd: string;
+  near_price: number;
+  near_amount: string;
+  deposit_yocto: string;
+  txHash?: string;
+  marketId?: string;
+  error?: string;
+  attempts: number;
+  updated_at: number;
+}
+
+const escrowKey = (mirrorId: string) => `escrowstate:${mirrorId}`;
+const PENDING_RETRY_MS = 10 * 60 * 1000;
+
+async function getEscrowState(env: Env, mirrorId: string): Promise<EscrowState | null> {
+  return env.CLAIMS.get<EscrowState>(escrowKey(mirrorId), "json");
+}
+
+async function putEscrowState(env: Env, s: EscrowState): Promise<void> {
+  s.updated_at = Date.now();
+  await env.CLAIMS.put(escrowKey(s.mirror_id), JSON.stringify(s));
+}
+
+/** Locate the market this mirror's specHash created, if any. listAll is
+ * fine at current scale (tens of markets); revisit if it grows. */
+async function findMarketBySpecHash(env: Env, contract: string, specHash: string): Promise<string | null> {
+  try {
+    const markets = (await nearViewCall(env, contract, "listAll", {})) as
+      { marketId?: string; specHash?: string }[] | null;
+    const hit = Array.isArray(markets) ? markets.find((m) => m?.specHash === specHash) : null;
+    return hit?.marketId ?? null;
+  } catch { return null; }
+}
+
+/** True when the broadcast receipts show a contract/runtime failure —
+ * absence of failure markers is treated as ambiguous, not success; the
+ * chain lookup above is what actually confirms escrow. */
+function nearTxFailed(status: unknown): boolean {
+  const s = JSON.stringify(status ?? "");
+  return /EXECUTED_FAILURE|"Failure"|FunctionCallError|ActionError/.test(s);
+}
+
+/** Ops-account escrow: convert the mirror's USD face value to NEAR at the
+ * Intents price and broadcast createMarket from NEAR_OPS_ACCOUNT —
+ * contract escrow in, platform cut taken on-chain at release.
+ *
+ * Idempotent: every attempt is recorded in KV and reconciled against the
+ * contract by specHash before rebroadcasting, so a retry can never
+ * double-fund a market. */
+export async function tryOpsEscrow(env: Env, mirror: MirrorListing): Promise<unknown> {
+  const acct = env.NEAR_OPS_ACCOUNT, key = env.NEAR_OPS_SECRET_KEY, contract = env.NEAR_CONTRACT;
+  if (!acct || !key || !contract) return { skipped: "NEAR_OPS_ACCOUNT/SECRET_KEY or NEAR_CONTRACT not configured" };
+  const usd = mirror.original?.est_usd;
+  if (!usd) return { skipped: "mirror has no USD price" };
+  const args = mirror.createMarketArgs as Record<string, unknown>;
+  const specHash = String(args.specHash ?? "");
+  if (!specHash) return { skipped: "mirror has no specHash" };
+
+  const prior = await getEscrowState(env, mirror.id);
+  if (prior?.status === "confirmed" && prior.marketId) {
+    return { escrowed: true, already: true, market_id: prior.marketId,
+             txHash: prior.txHash, near_amount: prior.near_amount, usd: prior.usd };
+  }
+
+  // Reconcile any prior attempt against the chain first — a tx that
+  // landed but whose response we lost must never be rebroadcast.
+  const existing = await findMarketBySpecHash(env, contract, specHash);
+  if (existing) {
+    const s: EscrowState = {
+      mirror_id: mirror.id, status: "confirmed",
+      usd: String(prior?.usd ?? usd), near_price: prior?.near_price ?? 0,
+      near_amount: prior?.near_amount ?? "", deposit_yocto: prior?.deposit_yocto ?? "",
+      txHash: prior?.txHash, marketId: existing,
+      attempts: prior?.attempts ?? 1, updated_at: 0,
+    };
+    await putEscrowState(env, s);
+    return { escrowed: true, reconciled: true, market_id: existing, txHash: prior?.txHash };
+  }
+
+  // A recent unresolved attempt means the tx may still be propagating —
+  // don't stack a second broadcast on top of it.
+  if (prior && prior.attempts > 0 && Date.now() - prior.updated_at < PENDING_RETRY_MS) {
+    return { pending: "prior escrow attempt unresolved — retry after confirmation window",
+             txHash: prior.txHash, market_id: null, attempts: prior.attempts };
+  }
+
+  const price = await nearPriceUsd();
+  if (!price || !Number.isFinite(price) || price <= 0) {
+    return { skipped: "NEAR price unavailable or invalid (intents /tokens)" };
+  }
+  const nearAmount = usd / price;
+  if (nearAmount <= 0.001) return { skipped: `converted ${nearAmount.toFixed(4)} NEAR below minimum` };
+  const deposit = BigInt(Math.round(nearAmount * 1e24));
+
+  const state: EscrowState = {
+    mirror_id: mirror.id, status: "pending",
+    usd: String(usd), near_price: price, near_amount: nearAmount.toFixed(6),
+    deposit_yocto: deposit.toString(),
+    attempts: (prior?.attempts ?? 0) + 1, updated_at: 0,
+  };
+  await putEscrowState(env, state);
+
+  let res: { txHash: string; status: unknown };
+  try {
+    res = await nearFunctionCall(env,
+      { accountId: acct, secretKey: key }, contract,
+      {
+        methodName: "createMarket",
+        args: {
+          specHash: args.specHash, spec: args.spec,
+          deadline: args.deadline, acceptanceRule: args.acceptanceRule,
+          platformBps: args.platformBps, platformTo: args.platformTo,
+          payToHat: null, claimTtlNs: null, acceptanceHash: null,
+        },
+        gas: 50_000_000_000_000n, deposit,
+      });
+  } catch (e) {
+    state.status = "failed";
+    state.error = e instanceof Error ? e.message : String(e);
+    await putEscrowState(env, state);
+    return { escrowed: false, error: state.error, attempts: state.attempts,
+             note: "broadcast failed — safe to retry via POST /api/mirrors/escrow" };
+  }
+
+  state.txHash = res.txHash || undefined;
+  // FINAL wait means the tx executed — confirm by finding the market,
+  // not by parsing receipt JSON.
+  const marketId = await findMarketBySpecHash(env, contract, specHash);
+  if (marketId) {
+    state.status = "confirmed";
+    state.marketId = marketId;
+    await putEscrowState(env, state);
+    return { escrowed: true, market_id: marketId, txHash: res.txHash,
+             near_amount: state.near_amount, usd, near_price: price };
+  }
+  state.status = nearTxFailed(res.status) ? "failed" : "pending";
+  state.error = state.status === "failed"
+    ? `tx ${res.txHash} executed with failure: ${JSON.stringify(res.status).slice(0, 300)}`
+    : undefined;
+  await putEscrowState(env, state);
+  return { escrowed: false, status: state.status, txHash: res.txHash,
+           error: state.error, attempts: state.attempts,
+           note: state.status === "pending"
+             ? "tx broadcast but market not yet visible — will reconcile on next attempt"
+             : "contract rejected the call — check ops account balance / args" };
+}

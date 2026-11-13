@@ -43,8 +43,8 @@ interface TimelineEvent {
 
 async function isFunded(env: Env, mirror: MirrorListing): Promise<boolean> {
   if (mirror.status === "funded" && mirror.funded_market_id) return true;
-  const f = await env.CLAIMS.get(`fiatfund:${mirror.id}`).then((v) => v ? JSON.parse(v) : null);
-  return f?.status === "captured";
+  const f = await env.CLAIMS.get(`escrowstate:${mirror.id}`).then((v) => v ? JSON.parse(v) : null);
+  return f?.status === "confirmed";
 }
 
 async function sha256Hex(s: string): Promise<string> {

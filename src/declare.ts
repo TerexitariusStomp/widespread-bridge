@@ -14,7 +14,7 @@ export interface DeclareArgs {
   amount: string;
   currency?: string;
   verification?: { class?: string; params?: Record<string, unknown> };
-  payer_email?: string;        // for fiat mirrors (PayPal)
+  payer_account?: string;      // funder's NEAR account (funds escrow directly)
   funder_handle?: string;
   funder_did?: string;         // funder's DID — enables cross-surface context
   /** Cross-surface target: the profile the work is FOR (bound via
@@ -57,7 +57,7 @@ export async function bountyDeclare(env: Env, a: DeclareArgs) {
 
   const bounty: Bounty = {
     repo, amount: a.amount, currency: a.currency ?? "USD",
-    receiver_email: a.payer_email ?? "",
+    receiver_account: "",
     spec: a.spec,
     proof_requirements: domain === "code" ? undefined : [{ type: "platform-url", note: "deliverable = published artifact URL" } as never],
     domain: domain === "code" ? undefined : domain,

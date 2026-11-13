@@ -11,8 +11,6 @@
     "FORGE_BASE": "https://code.widespread.fyi",
     // Repos the cron scanner watches for unreviewed `ship` op-log entries.
     "WATCH_REPOS": "slop/slopdotcash,slop/protocol",
-    // PayPal REST base — sandbox by default, flip to api-m.paypal.com for live.
-    "PAYPAL_API_BASE": "https://api-m.sandbox.paypal.com",
     // NEAR market contract — the on-chain source of truth for /api/markets.
     "NEAR_CONTRACT": "wide-mkt-11561.testnet",
     // Ops account that auto-escrows fiat-funded mirrors (key in

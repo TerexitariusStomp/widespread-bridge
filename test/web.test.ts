@@ -58,7 +58,7 @@ describe("web pages", () => {
   it("bounty detail shows mirror fund CTA + spec", async () => {
     const t = await (await bountyPage(env, undefined, "mirror:github-thirdparty:generic:o/r#1")).text();
     expect(t).toContain("Fund this bounty");
-    expect(t).toContain("Fund with PayPal");
+    expect(t).toContain("Escrow on NEAR");
     expect(t).toContain("face value");
     expect(t).toContain("platform cut");
     expect(t).toContain("Fix the parser.");
