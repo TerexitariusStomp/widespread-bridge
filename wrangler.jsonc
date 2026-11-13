@@ -38,7 +38,8 @@
     // Upstream EVM provers — public JSON-RPC endpoints for live tx-receipt
     // verification of golem (Polygon) and hopr (Gnosis) upstream refs.
     "UPSTREAM_GOLEM_RPC": "https://polygon-rpc.com",
-    "UPSTREAM_HOPR_RPC": "https://rpc.gnosischain.com"
+    "UPSTREAM_HOPR_RPC": "https://rpc.gnosischain.com",
+    "UPSTREAM_BEE_RPC": "https://rpc.gnosischain.com"
   },
   "kv_namespaces": [
     {

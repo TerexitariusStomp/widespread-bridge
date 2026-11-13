@@ -109,6 +109,14 @@ const PROVERS: Record<string, Prover> = {
   "infernet-job": fmt(/^[0-9a-zA-Z_-]{4,64}$/, "infernet", false),
   "filecoin-pdp": fmt(/^f0[0-9]+$|^[0-9a-zA-Z_-]{4,64}$/, "filecoin-pdp", false), // provider/deal id
   netmind: fmt(/^[0-9a-zA-Z_-]{4,64}$/, "netmind", false),            // machine node_name — account-gated telemetry
+  bee: fmt(/^0x[0-9a-fA-F]{64}$|^[0-9a-fA-F]{64}$|^0x[0-9a-fA-F]{40}$/, "bee", true, evmTxProver("UPSTREAM_BEE_RPC")), // overlay/chequebook/tx on Gnosis
+  "bee-peer": fmt(/^[0-9a-fA-F]{64}$/, "bee", false),
+  autonomi: fmt(/^0x[0-9a-fA-F]{40}$|^[1-9A-HJ-NP-Za-km-z]{40,60}$/, "autonomi", false), // rewards addr (EVM) / peer id
+  akash: fmt(/^akash1[0-9a-z]{20,60}$|^[0-9a-zA-Z._-]{6,64}$/, "akash", false), // akash1... provider addr
+  arweave: fmt(/^[0-9a-zA-Z_-]{43}$|^[0-9a-zA-Z_-]{20,64}$/, "arweave", false), // block hash / wallet addr
+  gaianet: fmt(/^[0-9a-zA-Z._-]{4,80}$/, "gaianet", false),
+  "gaianet-model": fmt(/^[0-9a-zA-Z._\/-]{3,80}$/, "gaianet", false),
+  nkn: fmt(/^NKN[0-9a-zA-Z]{30,50}$|^[0-9a-f]{64}$|^[0-9a-zA-Z._-]{8,80}$/, "nkn", false),
   // challenge refs — resolved against our own coordinator, the strongest tier
   challenge: fmt(/^[A-Za-z0-9._:-]{4,128}:\d+$/, "challenge", true),
 };
