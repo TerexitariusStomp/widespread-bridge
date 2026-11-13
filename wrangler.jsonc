@@ -28,6 +28,11 @@
     "LLM_MODEL": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
     // Minimum adjudicator confidence (0..1) required to release a payout.
     "MIN_CONFIDENCE": "0.6",
+    // Surge hardening knobs — seconds. Scan sweeps and doc caches are
+    // time-bucketed so agent/plugin polling can't amplify work.
+    "SCAN_MIN_INTERVAL_S": "300",
+    "STATE_TTL_S": "30",
+    "MARKETS_TTL_S": "60",
     // Public base URL of this deployment — used for receipt target_urls
     // written back to the forge. Set after first deploy.
     "PUBLIC_BASE": "https://widespread-bridge.widespread.workers.dev"
@@ -42,6 +47,13 @@
     "binding": "AI",
     "remote": true
   },
+  // Analytics Engine for /api/ops/usage metrics — requires enabling
+  // Analytics Engine on the account once (free):
+  //   dash → Workers → Analytics Engine → Enable
+  // Uncomment after enabling; code degrades gracefully without the binding.
+  // "analytics_engine_datasets": [
+  //   { "binding": "WIDE_METRICS", "dataset": "wide_metrics" }
+  // ],
   // The scheduled() handler scans watched op-logs when a cron slot exists.
   // Free tier allows 5 cron triggers/account — this account is full, so the
   // dashboard's /api/state polling drives the same opportunistic scan.

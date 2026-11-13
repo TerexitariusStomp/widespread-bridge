@@ -1,0 +1,8 @@
+# Smithery registry listing — local key-holding server
+startCommand:
+  type: stdio
+  commandFunction: |
+    () => ({ command: "uvx", args: ["widespread-mcp"] })
+  configSchema:
+    type: object
+    properties: {}

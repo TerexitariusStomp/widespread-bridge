@@ -24,11 +24,14 @@ import { hatsOrg, hatsHat, hatsStanceCheck, hatsOpportunities,
          hatsForeign, hatsPayoutQuote, intentsStatus, mechanismList, mechanismRun,
          earnedStance, delegatedStance, parseIdentityRef, stanceScore,
          ERC8004_REGISTRIES } from "./hats";
-import { nearView } from "./near";
+import { nearView, listOnchainMarkets } from "./near";
+import { handleMcpRequest } from "./mcp";
+import { OPENAPI, LLMS_TXT, SKILL_MD } from "./docs";
+import { checkLimit, callerKey, rateLimited } from "./ratelimit";
 import { handleEvaluate } from "./evaluator";
 import { deleteBounty, listBounties, listRecords, putBounty } from "./store";
 import {
-  feedDoc, queryFeed, feedRss, handleMcp, FEED_MD,
+  feedDoc, queryFeed, feedRss, FEED_MD,
   listRunners, registerRunner, refreshFeed, handleMirrorQuote,
 } from "./feed";
 import { putFeedDoc } from "./feedstore";
@@ -135,22 +138,6 @@ async function handleReview(req: Request, env: Env): Promise<Response> {
 
 /** Read open markets straight from the NEAR market contract — the chain is
  * the state; KV is only a dev fallback when no contract is configured. */
-async function listOnchainMarkets(env: Env): Promise<unknown[] | null> {
-  const acct = (env as { NEAR_CONTRACT?: string }).NEAR_CONTRACT;
-  if (!acct) return null;
-  const markets = await nearView(env, acct, "listOpen", {}) as
-    { marketId: string; payer: string; spec: string; amount: string; locked: string; deadline: string; status: string }[] | null;
-  if (!markets) return null;
-  return markets.map((m) => ({
-    marketId: m.marketId, payer: m.payer, spec: m.spec,
-    amount: m.amount, locked: m.locked, deadline: m.deadline,
-    status: m.status, payout_trace: {
-      escrowed: true, state: m.status,
-      to: m.status === "paid" ? "claimant" : "escrow", tx: null,
-    },
-  }));
-}
-
 interface BountyBody {
   repo?: string;
   amount?: string;
@@ -204,8 +191,7 @@ async function scan(env: Env): Promise<number> {
   return reviewed;
 }
 
-export default {
-  async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
     const { pathname } = url;
 
@@ -293,12 +279,26 @@ export default {
       });
     }
     if (pathname === "/api/state" && req.method === "GET") {
-      // Opportunistic pickup: an open dashboard polls this route, so new ship
-      // claims get reviewed without needing a cron trigger slot.
-      ctx.waitUntil(scan(env).catch((e) => console.error(`scan: ${String(e)}`)));
+      // Opportunistic pickup, time-bucketed: agent/plugin polling must not
+      // re-run the forge sweep on every request — at most 1 scan per
+      // SCAN_MIN_INTERVAL_S (default 300s) across all callers.
+      const scanMinMs = Number((env as { SCAN_MIN_INTERVAL_S?: string }).SCAN_MIN_INTERVAL_S ?? "300") * 1000;
+      const lastScan = Number(await env.CLAIMS.get("scan:last").catch(() => 0)) || 0;
+      if (Date.now() - lastScan > scanMinMs) {
+        ctx.waitUntil((async () => {
+          await env.CLAIMS.put("scan:last", String(Date.now())).catch(() => {});
+          await scan(env).catch((e) => console.error(`scan: ${String(e)}`));
+        })());
+      }
+      const ttlMs = Number((env as { STATE_TTL_S?: string }).STATE_TTL_S ?? "30") * 1000;
+      const doc = await env.CLAIMS.get("state:doc", "json").catch(() => null) as
+        { generated_at?: number; claims?: unknown[]; bounties?: unknown[] } | null;
+      if (doc?.generated_at && Date.now() - doc.generated_at < ttlMs) return json(doc);
       const [claims, bounties] = await Promise.all([listRecords(env), listBounties(env)]);
       const claimsWithTrace = claims.map((c) => ({ ...c, payout_trace: payoutTrace(c) }));
-      return json({ claims: claimsWithTrace, bounties });
+      const out = { generated_at: Date.now(), claims: claimsWithTrace, bounties };
+      ctx.waitUntil(env.CLAIMS.put("state:doc", JSON.stringify(out)).catch(() => {}));
+      return json(out);
     }
     // Public bounty board — funded, open markets + where the money goes.
     // Market truth is the CHAIN (widespread-near contract listOpen), not our
@@ -311,7 +311,17 @@ export default {
         const market = await nearView(env, acct, "getMarket", { marketId }).catch(() => null);
         return market ? json({ market }) : bad("market not found", 404);
       }
-      const onchain = await listOnchainMarkets(env).catch(() => null);
+      const mttl = Number((env as { MARKETS_TTL_S?: string }).MARKETS_TTL_S ?? "60") * 1000;
+      const mc = await env.CLAIMS.get("markets:cache", "json").catch(() => null) as
+        { generated_at?: number; markets?: unknown[] } | null;
+      const onchain = (mc?.generated_at && Date.now() - mc.generated_at < mttl)
+        ? mc.markets
+        : await (async () => {
+            const m = await listOnchainMarkets(env).catch(() => null);
+            if (m) ctx.waitUntil(env.CLAIMS.put("markets:cache",
+              JSON.stringify({ generated_at: Date.now(), markets: m })).catch(() => {}));
+            return m;
+          })();
       if (onchain && url.searchParams.get("format") === "erc8183") {
         // ERC-8183 repo-variant job descriptors — any conformant client
         // can read our supply in the standard's vocabulary.
@@ -387,9 +397,12 @@ export default {
       } });
     }
     if (pathname === "/api/evaluate" && req.method === "POST") {
+      const rl = await checkLimit(env, "evaluate", callerKey(req), 10, 200);
+      if (!rl.ok) return rateLimited(rl.retryAfter);
       return handleEvaluate(req, env);
     }
     if (pathname === "/api/scan" && req.method === "POST") {
+      if (!isAuthorized(req, env)) return bad("unauthorized", 401);
       return json({ reviewed: await scan(env) });
     }
     if (pathname === "/api/premium/oplog-export" && req.method === "GET") {
@@ -402,6 +415,8 @@ export default {
       return json({ bounties: await listBounties(env) });
     }
     if (pathname === "/api/bounties" && req.method === "POST") {
+      const rl = await checkLimit(env, "bounties", callerKey(req), 20, 200);
+      if (!rl.ok) return rateLimited(rl.retryAfter);
       return handleBountyPost(req, env);
     }
     // PR-bot verdict oracle — widespread-bot posts a bot's public verdict on
@@ -545,14 +560,38 @@ export default {
         headers: { "content-type": "application/rss+xml; charset=utf-8", "cache-control": "public, max-age=60" },
       });
     }
+    if (pathname === "/api/ops/usage" && req.method === "GET") {
+      if (!isAuthorized(req, env)) return bad("unauthorized", 401);
+      const [scanLast, stateDoc, marketsDoc] = await Promise.all([
+        env.CLAIMS.get("scan:last").catch(() => null),
+        env.CLAIMS.get("state:doc", "json").catch(() => null),
+        env.CLAIMS.get("markets:cache", "json").catch(() => null),
+      ]);
+      return json({
+        scan_last: scanLast ? new Date(Number(scanLast)).toISOString() : null,
+        state_doc_age_s: (stateDoc as { generated_at?: number } | null)?.generated_at
+          ? Math.round((Date.now() - (stateDoc as { generated_at: number }).generated_at) / 1000) : null,
+        markets_cache_age_s: (marketsDoc as { generated_at?: number } | null)?.generated_at
+          ? Math.round((Date.now() - (marketsDoc as { generated_at: number }).generated_at) / 1000) : null,
+        metrics: "Analytics Engine dataset WIDE_METRICS — query in the CF dashboard (blobs: path, method, clientTag; doubles: status, ms)",
+      });
+    }
+    if (pathname === "/openapi.json" && req.method === "GET") {
+      return json(OPENAPI);
+    }
+    if (pathname === "/llms.txt" && req.method === "GET") {
+      return new Response(LLMS_TXT, { headers: { "content-type": "text/plain; charset=utf-8" } });
+    }
+    if (pathname === "/skill.md" && req.method === "GET") {
+      return new Response(SKILL_MD, { headers: { "content-type": "text/markdown; charset=utf-8" } });
+    }
     if (pathname === "/api/feed.md" && req.method === "GET") {
       return new Response(FEED_MD, { headers: { "content-type": "text/markdown; charset=utf-8" } });
     }
-    // MCP endpoint — minimal JSON-RPC: initialize/tools/list/tools/call/ping.
-    if (pathname === "/mcp" && req.method === "POST") {
-      const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
-      const res = await handleMcp(env, body, ctx);
-      return res ?? new Response(null, { status: 202 });
+    // MCP endpoint — official SDK Streamable HTTP transport (stateless;
+    // spec 2025-11-25: POST tools, GET SSE scaffold, notifications → 202).
+    if (pathname === "/mcp" && (req.method === "POST" || req.method === "GET")) {
+      return handleMcpRequest(req, env, ctx);
     }
     // Push indexing — bots/relayers upsert records directly.
     if (pathname === "/api/feed/index" && req.method === "POST") {
@@ -677,6 +716,8 @@ export default {
     // Attested real-submission claims — validate forge artifact, return
     // shipClaim args + HMAC attestation token for on-chain broadcast.
     if (pathname === "/api/claims" && req.method === "POST") {
+      const rl = await checkLimit(env, "claims", callerKey(req), 30, 500);
+      if (!rl.ok) return rateLimited(rl.retryAfter);
       return handleClaimPost(req, env);
     }
     if (pathname === "/api/claims/verify" && req.method === "GET") {
@@ -706,6 +747,25 @@ export default {
       return json({ ok: true });
     }
     return bad("not found", 404);
+}
+
+export default {
+  async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const t0 = Date.now();
+    const res = await route(req, env, ctx);
+    const m = (env as { WIDE_METRICS?: { writeDataPoint: (d: unknown) => void } }).WIDE_METRICS;
+    if (m) {
+      const u = new URL(req.url);
+      const ua = req.headers.get("user-agent") ?? "";
+      const tag = ua.includes("HermesAgent") ? "hermes-plugin"
+        : u.pathname === "/mcp" ? "mcp-remote" : "web";
+      ctx.waitUntil(Promise.resolve(m.writeDataPoint({
+        blobs: [u.pathname, req.method, tag],
+        doubles: [res.status, Date.now() - t0],
+        indexes: [tag],
+      })));
+    }
+    return res;
   },
 
   // The "picks up the claim" lane: poll each watched repo's op-log and run
@@ -724,3 +784,4 @@ export default {
     ctx.waitUntil(scanDispatchChannels(env).catch((e) => console.error(`collect: ${String(e)}`)));
   },
 } satisfies ExportedHandler<Env>;
+

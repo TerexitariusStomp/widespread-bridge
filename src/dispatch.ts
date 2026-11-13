@@ -197,10 +197,11 @@ export function agentCard(base: string) {
   return {
     name: "Widespread",
     description: "Permissionless work markets with escrow-bound claims and independent evaluation.",
-    url: `${base}/a2a`,
     version: "1.0.0",
-    protocolVersion: "0.3.0",
-    capabilities: { streaming: false, pushNotifications: false, stateTransitionHistory: false },
+    supportedInterfaces: [
+      { url: `${base}/a2a`, protocolBinding: "JSONRPC", protocolVersion: "1.0" },
+    ],
+    capabilities: { streaming: false, pushNotifications: false, extendedAgentCard: false },
     skills: [
       {
         id: "discover-funded-work",
@@ -214,7 +215,6 @@ export function agentCard(base: string) {
     ],
     defaultInputModes: ["application/json"],
     defaultOutputModes: ["application/json"],
-    supportsAuthenticatedExtendedCard: false,
     endpoints: {
       markets: `${base}/api/markets`,
       claims: `${base}/api/claims`,

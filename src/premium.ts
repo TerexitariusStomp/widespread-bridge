@@ -24,6 +24,7 @@ const invoiceHeaders = (orderId?: string) => ({
 
 function paymentRequired(env: Env, repo: string): Response {
   const invoice = {
+    x402Version: 2,
     error: "payment-required",
     message:
       "This resource is behind a PayPal paywall. Create a PayPal order for the invoice amount (sandbox OK), approve it, then retry with ?order=<ORDER_ID>.",
@@ -37,9 +38,15 @@ function paymentRequired(env: Env, repo: string): Response {
       retry_with: `?repo=${repo}&order=<ORDER_ID>`,
     },
   };
-  return new Response(JSON.stringify(invoice, null, 2), {
+  const body = JSON.stringify(invoice, null, 2);
+  return new Response(body, {
     status: 402,
-    headers: { "content-type": "application/json", ...invoiceHeaders() },
+    headers: {
+      "content-type": "application/json",
+      // x402 v2 http transport: PaymentRequired travels base64 in a header.
+      "PAYMENT-REQUIRED": btoa(unescape(encodeURIComponent(body))),
+      ...invoiceHeaders(),
+    },
   });
 }
 
@@ -82,7 +89,10 @@ async function orderPaid(env: Env, orderId: string): Promise<Order | null> {
 export async function handlePremiumExport(req: Request, env: Env): Promise<Response> {
   const url = new URL(req.url);
   const repo = url.searchParams.get("repo") ?? "";
-  const orderId = url.searchParams.get("order") ?? "";
+  const orderId = url.searchParams.get("order")
+    ?? req.headers.get("PAYMENT-SIGNATURE")   // x402 v2
+    ?? req.headers.get("X-PAYMENT")           // x402 v1
+    ?? "";
   if (!/^[a-z0-9-]+\/[a-z0-9-]+$/i.test(repo)) {
     return Response.json({ error: "repo must look like owner/repo" }, { status: 400 });
   }

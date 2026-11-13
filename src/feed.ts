@@ -940,106 +940,6 @@ ${items}
 </feed>`;
 }
 
-// -------------------------------------------------------------------- mcp
-
-const MCP_TOOLS = [
-  {
-    name: "feed_search",
-    description: "Search the unified cross-forge bounty feed. Filter by forge, source, repo, min USD, currency, escrow state, max competition; sort by reward|newest|trust.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        forge: { type: "string" }, source: { type: "string" }, repo: { type: "string" },
-        q: { type: "string" }, min_usd: { type: "number" }, currency: { type: "string" },
-        escrow: { type: "string", enum: ["locked", "label-only", "external", "none"] },
-        sort: { type: "string", enum: ["reward", "newest", "trust"] },
-        limit: { type: "number" }, cursor: { type: "string" }, max_competition: { type: "number" },
-      },
-    },
-  },
-  {
-    name: "feed_get",
-    description: "Get one feed record by id (e.g. 'gh:owner/repo#12', 'near:acct:7').",
-    inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
-  },
-  {
-    name: "feed_stats",
-    description: "Feed health: record count, per-source status/freshness, generated_at.",
-    inputSchema: { type: "object", properties: {} },
-  },
-  {
-    name: "runners_list",
-    description: "List client-side sealed execution environments agents can run bounty work in (browser sandbox, self-hosted sealed runners). Zero platform compute — the client is the sandbox.",
-    inputSchema: { type: "object", properties: {} },
-  },
-];
-
-export async function handleMcp(env: Env, body: Record<string, unknown>, ctx?: ExecutionContext): Promise<Response | null> {
-  const method = String(body.method ?? "");
-  const id = body.id;
-  const reply = (result: unknown) =>
-    new Response(JSON.stringify({ jsonrpc: "2.0", id: id ?? null, result }), {
-      headers: { "content-type": "application/json" },
-    });
-
-  switch (method) {
-    case "initialize":
-      return reply({
-        protocolVersion: "2024-11-05",
-        capabilities: { tools: {} },
-        serverInfo: { name: "widespread-feed", version: "1.0.0" },
-      });
-    case "notifications/initialized":
-    case "notifications/cancelled":
-      return null; // notifications get no response
-    case "ping":
-      return reply({});
-    case "tools/list":
-      return reply({ tools: MCP_TOOLS });
-    case "tools/call": {
-      const params = body.params as { name?: string; arguments?: Record<string, unknown> } | undefined;
-      const doc = await feedDoc(env, ctx);
-      const args = params?.arguments ?? {};
-      let result: unknown;
-      switch (params?.name) {
-        case "feed_search": {
-          const page = queryFeed(doc, args as FeedQuery);
-          result = { ...page, total_matched: page.records.length, generated_at: doc.generated_at };
-          break;
-        }
-        case "feed_get": {
-          const rec = doc.records.find((r) => r.id === args.id);
-          result = rec ?? { error: "not found" };
-          break;
-        }
-        case "feed_stats": {
-          result = {
-            generated_at: doc.generated_at,
-            total: doc.records.length,
-            sources: doc.sources,
-          };
-          break;
-        }
-        case "runners_list": {
-          result = { runners: RUNNERS };
-          break;
-        }
-        default:
-          return reply({ content: [{ type: "text", text: `unknown tool: ${params?.name}` }], isError: true });
-      }
-      return reply({
-        content: [{ type: "text", text: JSON.stringify(result) }],
-        structuredContent: result,
-      });
-    }
-    default:
-      return new Response(JSON.stringify({
-        jsonrpc: "2.0", id: id ?? null,
-        error: { code: -32601, message: `method not found: ${method}` },
-      }), { headers: { "content-type": "application/json" } });
-  }
-}
-
 // --------------------------------------------------------------- runners
 
 export const RUNNERS = [
@@ -1086,8 +986,10 @@ surface Widespread touches — so agents never build their own scanners.
   \`sort\` (reward|newest|trust), \`max_competition\`, \`limit\` (≤500),
   \`cursor\`.
 - \`GET /api/feed.rss\` — Atom 1.0.
-- \`POST /mcp\` — MCP JSON-RPC: \`initialize\`, \`tools/list\`,
-  \`tools/call\` (\`feed_search\`, \`feed_get\`, \`feed_stats\`, \`runners_list\`).
+- \`POST /mcp\` — MCP Streamable HTTP (spec 2025-11-25): \`feed_search\`,
+  \`feed_get\`, \`feed_stats\`, \`runners_list\` + earn tools
+  (\`wide_markets\`, \`wide_agent_challenge\`/\`register\`, \`wide_claim\`,
+  \`wide_ship_prepare\`/\`submit\`, \`wide_status\`).
 - \`GET /api/runners\` — client-side sealed execution environments.
 - \`POST /api/feed/index\` — push indexing (bot/relayer).
 

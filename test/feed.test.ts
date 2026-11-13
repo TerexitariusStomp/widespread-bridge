@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeAll } from "vitest";
-import { queryFeed, feedRss, handleMcp } from "../src/feed";
+import { queryFeed, feedRss } from "../src/feed";
+import { handleMcpRequest } from "../src/mcp";
 import type { FeedDoc, FeedRecord, Env } from "../src/types";
 
 // All upstream fetches fail fast in tests — sources degrade independently.
@@ -74,37 +75,55 @@ describe("feedRss", () => {
   });
 });
 
-describe("handleMcp", () => {
+describe("handleMcp (SDK Streamable HTTP)", () => {
   const kvStub = {
     get: async () => null, put: async () => {}, delete: async () => {},
     list: async () => ({ keys: [] }),
   };
   const env = { CLAIMS: kvStub } as unknown as Env;
-  const call = (method: string, params?: unknown, id: unknown = 1) =>
-    handleMcp(env, { jsonrpc: "2.0", id, method, ...(params ? { params } : {}) });
+  const ctx = { waitUntil: () => {} } as unknown as ExecutionContext;
+  const call = (body: unknown) =>
+    handleMcpRequest(new Request("https://x/mcp", {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
+      body: JSON.stringify(body),
+    }), env, ctx);
+  const rpcJson = async (res: Response) => {
+    const ct = res.headers.get("content-type") ?? "";
+    if (ct.includes("text/event-stream")) {
+      const m = (await res.text()).match(/data: (\{.*\})/);
+      return JSON.parse(m?.[1] ?? "{}");
+    }
+    return res.json();
+  };
 
-  it("initialize returns protocol + serverInfo", async () => {
-    const res = await call("initialize");
-    const body = await res!.json() as { result: { serverInfo: { name: string } } };
-    expect(body.result.serverInfo.name).toBe("widespread-feed");
+  it("initialize negotiates current protocol + serverInfo", async () => {
+    const res = await call({ jsonrpc: "2.0", id: 1, method: "initialize",
+      params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "t", version: "0" } } });
+    const body = await rpcJson(res) as { result: { protocolVersion: string; serverInfo: { name: string } } };
+    expect(body.result.serverInfo.name).toBe("widespread");
+    expect(body.result.protocolVersion).toMatch(/^20/);
   });
-  it("notifications get no response", async () => {
-    expect(await call("notifications/initialized", undefined, undefined)).toBeNull();
+  it("notifications return 202", async () => {
+    const res = await call({ jsonrpc: "2.0", method: "notifications/initialized" });
+    expect(res.status).toBe(202);
   });
-  it("tools/list exposes feed + runners tools", async () => {
-    const res = await call("tools/list");
-    const body = await res!.json() as { result: { tools: { name: string }[] } };
-    expect(body.result.tools.map((t) => t.name)).toEqual(
-      expect.arrayContaining(["feed_search", "feed_get", "feed_stats", "runners_list"]));
+  it("tools/list exposes feed + earn tools", async () => {
+    await call({ jsonrpc: "2.0", id: 1, method: "initialize",
+      params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "t", version: "0" } } });
+    const res = await call({ jsonrpc: "2.0", id: 2, method: "tools/list" });
+    const body = await rpcJson(res) as { result: { tools: { name: string }[] } };
+    expect(body.result.tools.map((t) => t.name)).toEqual(expect.arrayContaining(
+      ["feed_search", "feed_get", "feed_stats", "runners_list",
+       "wide_markets", "wide_agent_challenge", "wide_agent_register",
+       "wide_claim", "wide_ship_prepare", "wide_ship_submit", "wide_status"]));
   });
-  it("unknown method returns JSON-RPC error", async () => {
-    const res = await call("bogus/method");
-    const body = await res!.json() as { error: { code: number } };
-    expect(body.error.code).toBe(-32601);
-  });
-  it("feed_stats works on empty doc (KV-less env falls back)", async () => {
-    // env.CLAIMS is a stub — getFeedDoc will throw; feedDoc catches? verify behavior
-    const res = await call("tools/call", { name: "feed_stats", arguments: {} });
-    expect(res).not.toBeNull();
+  it("feed_stats works on empty doc (KV stub falls back)", async () => {
+    await call({ jsonrpc: "2.0", id: 1, method: "initialize",
+      params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "t", version: "0" } } });
+    const res = await call({ jsonrpc: "2.0", id: 2, method: "tools/call",
+      params: { name: "feed_stats", arguments: {} } });
+    expect(res.status).toBe(200);
   });
 });
+

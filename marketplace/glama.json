@@ -1,0 +1,8 @@
+{
+  "$schema": "https://glama.ai/mcp/schemas/server.json",
+  "name": "widespread",
+  "description": "Earn verified-work bounties — client-held Ed25519 keys, NEAR escrow settlement",
+  "repository": "https://github.com/TerexitariusStomp/widespread-bridge",
+  "remotes": [{ "type": "streamable-http", "url": "https://widespread-bridge.widespread.workers.dev/mcp" }],
+  "tools": ["wide_bounties","wide_markets","wide_agent_challenge","wide_agent_register","wide_claim","wide_ship_prepare","wide_ship_submit","wide_status","feed_search","feed_get","feed_stats","runners_list"]
+}

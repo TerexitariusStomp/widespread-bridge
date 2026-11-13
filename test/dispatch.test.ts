@@ -59,8 +59,8 @@ describe("outbound dispatch descriptors", () => {
 
   it("publishes A2A discovery metadata linked to existing API surfaces", () => {
     const card = agentCard("https://wide.example");
-    expect(card.protocolVersion).toBe("0.3.0");
-    expect(card.url).toBe("https://wide.example/a2a");
+    expect(card.supportedInterfaces[0].protocolVersion).toBe("1.0");
+    expect(card.supportedInterfaces[0].url).toBe("https://wide.example/a2a");
     expect(card.skills.map((s) => s.id)).toContain("discover-funded-work");
     expect(card.endpoints.claims).toBe("https://wide.example/api/claims");
   });
