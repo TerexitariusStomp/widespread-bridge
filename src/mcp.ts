@@ -6,7 +6,7 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { z } from "zod";
+import { z } from "zod/v4";
 import type { Env } from "./types";
 import { feedDoc, queryFeed, RUNNERS } from "./feed";
 import { bountyDeclare, bountyBroadcast } from "./declare";

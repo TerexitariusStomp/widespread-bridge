@@ -10,7 +10,7 @@
  * schema table (zod) extended for market-backed work.
  */
 
-import { z } from "zod";
+import { z } from "zod/v4";
 
 export const CANONICAL = { INFERENCE: 0, STORAGE: 1, COMPUTE: 2, BANDWIDTH: 3 } as const;
 // wp-cloud job types — site-scoped AI work routed to a site's own visitors first
