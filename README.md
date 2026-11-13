@@ -106,6 +106,30 @@ spec-fit, substance, claim-vs-evidence consistency — is the adjudicator's call
 A broken chain or unparseable model output fails closed (reject / error, never
 pay). `sender_batch_id = slopcash-<repo>-<seq>` makes PayPal dedupe retries.
 
+### Platform parity
+
+Every platform the [widespread.fyi](https://widespread.fyi) composer posts to
+is verifiable here — bounties can be declared on any surface and deliverables
+verified on any other:
+
+- **proof** (author verified via public API): x, bluesky, mastodon, nostr,
+  youtube, hackernews, pixelfed, lemmy, misskey, peertube,
+  wordpress/writefreely, devto, hashnode, blogger, substack, audius,
+  hive/steem (on-chain content), plus github/gitlab/forgejo/codeberg.
+- **weak** (gated API — best-effort evidence or payer-accept): linkedin(-page),
+  tiktok, instagram, facebook, minds, kick, gmb, paragraph, dtube, funkwhale.
+- **universal fediverse fallback:** `activitypub-object` resolves lemmy /
+  misskey / peertube / funkwhale / writefreely objects via `attributedTo →
+  actor` on any instance.
+
+Feed scanners poll lemmy, misskey, peertube, hive and devto for `#widespread`
+declarations, `widespread claim <hash>` replies, and `widespread-bind:v1`
+identity statements — instances configurable via `LEMMY_INSTANCES`,
+`MISSKEY_INSTANCES`, `PEERTUBE_INSTANCES` (comma-separated hostnames), and
+`HIVE_NODES` / `DEVTO_API_BASE` in `wrangler.jsonc`. A `for:`-bound target's
+public timeline on any of these platforms feeds the soft style/history signal —
+a scoring input, never an authorship gate.
+
 ## Deploy your own
 
 ```bash

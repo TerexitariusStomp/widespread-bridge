@@ -168,7 +168,9 @@ export async function pollPeertube(env: Env): Promise<FeedRecord[]> {
 // --- hive (on-chain tag query — posts are public chain objects) -----------------
 export async function pollHive(env: Env): Promise<FeedRecord[]> {
   const out: FeedRecord[] = [];
-  const r = await fetch("https://api.hive.blog", { method: "POST", headers: { "content-type": "application/json" },
+  const nodes = ((env as SocialEnv).HIVE_NODES ?? "api.hive.blog").split(",");
+  for (const node of nodes.slice(0, 3)) {
+  const r = await fetch(`https://${node.trim()}`, { method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "condenser_api.get_discussions_by_created", params: [{ tag: "widespread", limit: 20 }] }) }).catch(() => null);
   const j = (await r?.json().catch(() => null)) as { result?: { author?: string; permlink?: string; title?: string; body?: string }[] } | null;
   for (const p of j?.result ?? []) {
@@ -180,13 +182,15 @@ export async function pollHive(env: Env): Promise<FeedRecord[]> {
     if (cm) await noteClaim(env, cm[1], "hive", p.author ?? "?", url, text.includes("http") ? "submission" : "claim");
     await noteBind(env, text, url);
   }
+  }
   return out;
 }
 
 // --- dev.to (Forem tag API) ----------------------------------------------------
 export async function pollDevto(env: Env): Promise<FeedRecord[]> {
   const out: FeedRecord[] = [];
-  const j = (await (await fetch("https://dev.to/api/articles?tag=widespread&per_page=20&state=latest").catch(() => null))?.json().catch(() => null)) as { id: number; title?: string; description?: string; url?: string; user?: { username?: string } }[] | null;
+  const base = ((env as SocialEnv).DEVTO_API_BASE ?? "https://dev.to/api").replace(/\/$/, "");
+  const j = (await (await fetch(`${base}/articles?tag=widespread&per_page=20&state=latest`).catch(() => null))?.json().catch(() => null)) as { id: number; title?: string; description?: string; url?: string; user?: { username?: string } }[] | null;
   for (const a of Array.isArray(j) ? j : []) {
     const text = `${a.title ?? ""}\n${a.description ?? ""}`;
     const url = a.url ?? `https://dev.to/articles/${a.id}`;

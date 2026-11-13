@@ -179,6 +179,8 @@ export interface SocialEnv {
   LEMMY_INSTANCES?: string;
   MISSKEY_INSTANCES?: string;
   PEERTUBE_INSTANCES?: string;
+  HIVE_NODES?: string;        // comma-separated hive api node hostnames
+  DEVTO_API_BASE?: string;    // any Forem instance's /api base
 }
 
 export interface FeedDoc {

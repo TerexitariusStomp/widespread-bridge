@@ -168,8 +168,12 @@ leave the client.
 Cross-surface bindings link a DID to any platform handle via a publicly
 re-verifiable widespread-bind:v1 statement or signature — github gist/
 comment, gitlab snippet, forgejo/codeberg comment, bluesky post (native
-when did==atproto did), nostr note, mastodon/x/hackernews post, EIP-191
-(EVM), ed25519 (Solana/NEAR); gated platforms verify weakly. Never
+when did==atproto did), nostr note, mastodon/x/hackernews post, pixelfed,
+lemmy, misskey, peertube, wordpress/writefreely, devto, hashnode,
+blogger, substack, audius, hive/steem (on-chain content, native when
+did==account), youtube, EIP-191 (EVM), ed25519 (Solana/NEAR); gated
+platforms (linkedin, tiktok, instagram, facebook, minds, kick, gmb,
+paragraph, dtube, funkwhale) verify weakly or via payer-accept. Never
 inferred from similarity. Endpoints: POST /api/identity/challenge · bind ·
 revoke · reverify; GET /api/identity/resolve · /api/identity/{did}.
 MCP: wide_identity_challenge/bind/list/resolve/revoke.
