@@ -35,6 +35,7 @@ import {
   listRunners, registerRunner, refreshFeed, handleMirrorQuote,
 } from "./feed";
 import { putFeedDoc } from "./feedstore";
+import { bountiesList, marketsList } from "./mcpearn";
 import { handleClaimPost, handleClaimVerify } from "./claims";
 import { createFiatOrder, captureFiatOrder, tryOpsEscrow } from "./fiat";
 import { handleMirrorClaimPost, handleMirrorClaimsList, handleMirrorClaimTimeout, handleMirrorRequestChanges, handleMirrorVerdict, handleMirrorPayout } from "./mirrorclaims";
@@ -575,6 +576,27 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
           ? Math.round((Date.now() - (marketsDoc as { generated_at: number }).generated_at) / 1000) : null,
         metrics: "Analytics Engine dataset widespread — query in the CF dashboard (blobs: path, method, clientTag; doubles: status, ms)",
       });
+    }
+    if (pathname === "/poe" && req.method === "POST") {
+      const body = await req.json().catch(() => ({})) as { query?: Array<{ role: string; content: string }> };
+      const last = body.query?.slice(-1)[0]?.content ?? "";
+      const doc = await feedDoc(env, ctx);
+      let text: string;
+      const low = last.toLowerCase();
+      if (/bounty|bounties/.test(low)) {
+        const b = await bountiesList(env);
+        text = `Widespread bounty board: ${JSON.stringify(b).slice(0, 3000)}`;
+      } else if (/market/.test(low)) {
+        text = `Open escrowed work markets: ${JSON.stringify(await marketsList(env, {})).slice(0, 3000)}`;
+      } else {
+        const recs = doc.records.slice(0, 15);
+        text = `Widespread — verified-work protocol (https://widespread.fyi). ${doc.records.length} funded-work records across forges. Latest: ${JSON.stringify(recs).slice(0, 2400)} — ask about "bounties", "markets", or search the feed. MCP: https://widespread-bridge.widespread.workers.dev/mcp`;
+      }
+      const sse = (ev: string, data: unknown) => `event: ${ev}\ndata: ${JSON.stringify(data)}\n\n`;
+      const payload =
+        sse("meta", { content_type: "text/markdown", suggested_replies: ["show bounties", "open markets", "how do I earn?"] }) +
+        sse("text", { text }) + sse("done", {});
+      return new Response(payload, { headers: { "content-type": "text/event-stream", "access-control-allow-origin": "*" } });
     }
     if (pathname === "/openapi.json" && req.method === "GET") {
       return json(OPENAPI);
