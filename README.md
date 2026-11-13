@@ -236,6 +236,11 @@ POST /api/adapters/:id/deprecate {author|admin} → regen bounty to feed
 - **Self-custody**: `auth.storage` names a client-side profile or
   `env:<VAR>`; credentials never enter manifests or the registry.
   Client-side runtime lives in the `widespread_surfaces` Hermes plugin.
+- **Seed pack**: `near-hermes-browser/adapters/seed/` — 11 signed
+  manifests (6 social via `log`, Discourse forum verified by live probe,
+  GitHub REST, labor marketplaces as browser-tier drafts). Ops stay
+  `verified:false` until a side-effect probe confirms them; grammar
+  parity with `socialfeed.ts` is enforced by `test/adapter-grammar.test.ts`.
 
 ## Deploy your own
 
