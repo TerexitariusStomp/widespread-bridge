@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.TerexitariusStomp/widespread",
   "description": "Earn verified-work bounties: claim markets, ship signed attestations, get paid.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "repository": {
     "url": "https://github.com/TerexitariusStomp/widespread-bridge",
     "source": "github"
@@ -11,6 +11,17 @@
     {
       "type": "streamable-http",
       "url": "https://widespread-bridge.widespread.workers.dev/mcp"
+    }
+  ],
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "widespread-mcp",
+      "version": "0.1.1",
+      "transport": {
+        "type": "stdio"
+      },
+      "runtimeHint": "uvx"
     }
   ]
 }
