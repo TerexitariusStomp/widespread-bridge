@@ -35,6 +35,7 @@ import {
   listRunners, registerRunner, refreshFeed, handleMirrorQuote,
 } from "./feed";
 import { bountyDeclare, bountyBroadcast, getDeclared } from "./declare";
+import { bindStatement, bindInstructions, registerBinding, listBindings, resolveHandle, revokeBinding, reverifyBinding } from "./identity";
 import { putFeedDoc } from "./feedstore";
 import { bountiesList, marketsList } from "./mcpearn";
 import { handleClaimPost, handleClaimVerify } from "./claims";
@@ -547,12 +548,61 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
       ]);
       return bounty ? json({ hash, bounty, reply_claims: claims ?? [] }) : json({ error: "not found" }, 404);
     }
+    // Cross-surface identity — trust-minimized bindings. A bind is a public
+    // attestation re-verifiable by anyone; never inferred from similarity.
+    if (pathname === "/api/identity/challenge" && req.method === "POST") {
+      const b = (await req.json().catch(() => ({}))) as { did?: string; platform?: string; handle?: string };
+      if (!b.did || !b.platform || !b.handle) return json({ error: "did, platform, handle required" }, 400);
+      return json({ statement: bindStatement(b.did, b.platform, b.handle), instructions: bindInstructions(b.platform) });
+    }
+    if (pathname === "/api/identity/bind" && req.method === "POST") {
+      const b = (await req.json().catch(() => ({}))) as Parameters<typeof registerBinding>[1];
+      const r = await registerBinding(env, b);
+      return r.ok ? json(r, 201) : json(r, 422);
+    }
+    if (pathname === "/api/identity/revoke" && req.method === "POST") {
+      const b = (await req.json().catch(() => ({}))) as Parameters<typeof revokeBinding>[1];
+      const r = await revokeBinding(env, b);
+      return r.ok ? json(r) : json(r, 422);
+    }
+    if (pathname === "/api/identity/reverify" && req.method === "POST") {
+      const b = (await req.json().catch(() => ({}))) as { did?: string; platform?: string; handle?: string };
+      if (!b.did || !b.platform || !b.handle) return json({ error: "did, platform, handle required" }, 400);
+      const r = await reverifyBinding(env, b.did, b.platform, b.handle);
+      return r.ok ? json(r) : json(r, 422);
+    }
+    if (pathname === "/api/identity/resolve" && req.method === "GET") {
+      const platform = url.searchParams.get("platform") ?? "";
+      const handle = url.searchParams.get("handle") ?? "";
+      if (!platform || !handle) return json({ error: "platform + handle params required" }, 400);
+      const r = await resolveHandle(env, platform, handle);
+      return r ? json({ platform, handle, ...r }) : json({ platform, handle, bound: false }, 404);
+    }
+    if (pathname.startsWith("/api/identity/") && req.method === "GET") {
+      const did = decodeURIComponent(pathname.split("/").pop() ?? "");
+      const bindings = await listBindings(env, did);
+      return json({ did, bindings });
+    }
     if (pathname === "/api/leaderboard" && req.method === "GET") {
       const recs = await listRecords(env);
+      // Aggregate reputation across bound surfaces: every handle a DID has
+      // verifiably bound collapses onto the DID's row — rep is portable.
+      const bound = await env.CLAIMS.list({ prefix: "idhandle:" });
+      const handleToDid = new Map<string, string>();
+      for (const k of bound.keys) {
+        const v = await env.CLAIMS.get(k.name, "json") as { did?: string } | null;
+        if (v?.did) handleToDid.set(k.name.split(":").slice(1).join(":"), v.did);
+      }
       const board: Record<string, { accepts: number; rejects: number; paid_usd: number }> = {};
       for (const r of recs) {
-        const actor = String((r.claim?.payload as Record<string, unknown> | undefined)?.actor
+        let actor = String((r.claim?.payload as Record<string, unknown> | undefined)?.actor
           ?? (r.claim?.payload as Record<string, unknown> | undefined)?.agent ?? "anon");
+        const platform = String((r.claim?.payload as Record<string, unknown> | undefined)?.platform
+          ?? (r.domain_evidence as Record<string, unknown> | undefined)?.platform ?? "");
+        if (!actor.startsWith("did:")) {
+          const did = platform ? handleToDid.get(`${platform.toLowerCase()}:${actor.toLowerCase()}`) : undefined;
+          if (did) actor = did;
+        }
         const b = board[actor] ??= { accepts: 0, rejects: 0, paid_usd: 0 };
         if (r.status === "rejected" || r.status === "error") b.rejects++;
         else b.accepts++;

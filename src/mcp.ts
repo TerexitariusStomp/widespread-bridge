@@ -10,6 +10,7 @@ import { z } from "zod";
 import type { Env } from "./types";
 import { feedDoc, queryFeed, RUNNERS } from "./feed";
 import { bountyDeclare, bountyBroadcast } from "./declare";
+import { bindStatement, bindInstructions, registerBinding, listBindings, resolveHandle, revokeBinding } from "./identity";
 import { listRunners } from "./feed";
 import { agentChallenge, agentRegister, marketClaim, shipPrepare, shipSubmit, marketsList, bountiesList, agentStatus } from "./mcpearn";
 
@@ -133,7 +134,9 @@ export async function handleMcpRequest(req: Request, env: Env, ctx: ExecutionCon
       domain: z.string().optional(), spec: z.string(), amount: z.string(),
       currency: z.string().optional(),
       verification: z.object({ class: z.string().optional(), params: z.record(z.string(), z.unknown()).optional() }).optional(),
-      payer_email: z.string().optional(), funder_handle: z.string().optional(),
+      payer_email: z.string().optional(), funder_handle: z.string().optional(), funder_did: z.string().optional(),
+      target_platform: z.string().optional(), target_handle: z.string().optional(),
+      deliverable_class: z.enum(["draft", "publish"]).optional(),
     },
   }, async (a) => json(await bountyDeclare(env, a)));
 
@@ -144,9 +147,42 @@ export async function handleMcpRequest(req: Request, env: Env, ctx: ExecutionCon
       domain: z.string().optional(), spec: z.string(), amount: z.string(),
       currency: z.string().optional(),
       verification: z.object({ class: z.string().optional(), params: z.record(z.string(), z.unknown()).optional() }).optional(),
-      payer_email: z.string().optional(), funder_handle: z.string().optional(),
+      payer_email: z.string().optional(), funder_handle: z.string().optional(), funder_did: z.string().optional(),
+      target_platform: z.string().optional(), target_handle: z.string().optional(),
+      deliverable_class: z.enum(["draft", "publish"]).optional(),
     },
   }, async (a) => json(await bountyBroadcast(env, a)));
+
+  // --------------------------------------------------- identity (write)
+  server.registerTool("wide_identity_challenge", {
+    annotations: { title: 'Identity Bind Challenge', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    description: "Get the canonical bind statement + per-platform instructions to link a DID to a platform handle (github/gitlab/forgejo/codeberg/bluesky/mastodon/nostr/x/hackernews/evm/solana/near/…). Trust-minimized: the bind is a public attestation anyone can re-verify — never inferred from name or style similarity.",
+    inputSchema: { did: z.string(), platform: z.string(), handle: z.string() },
+  }, async ({ did, platform, handle }) => json({ statement: bindStatement(did, platform, handle), instructions: bindInstructions(platform) }));
+
+  server.registerTool("wide_identity_bind", {
+    annotations: { title: 'Register Identity Binding', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    description: "Register a DID↔platform-handle binding after publishing/signing the bind statement. proof = the URL the statement was posted at (gist, post, comment, note id) or a signature (hex for EVM, JSON {pubkey,sig} for Solana/NEAR). Verified against the platform's public API — a handle already bound to another DID is rejected.",
+    inputSchema: { did: z.string(), platform: z.string(), handle: z.string(), proof: z.string() },
+  }, async (a) => json(await registerBinding(env, a)));
+
+  server.registerTool("wide_identity_list", {
+    annotations: { title: 'List Identity Bindings', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    description: "List all platform bindings for a DID with their verification tier (native|sig|proof|weak) and evidence.",
+    inputSchema: { did: z.string() },
+  }, async ({ did }) => json({ did, bindings: await listBindings(env, did) }));
+
+  server.registerTool("wide_identity_resolve", {
+    annotations: { title: 'Resolve Platform Handle', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    description: "Resolve a platform handle to its bound DID — e.g. find the DID behind github/octocat or bluesky/alice.bsky.social.",
+    inputSchema: { platform: z.string(), handle: z.string() },
+  }, async ({ platform, handle }) => json(await resolveHandle(env, platform, handle) ?? { platform, handle, bound: false }));
+
+  server.registerTool("wide_identity_revoke", {
+    annotations: { title: 'Revoke Identity Binding', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+    description: "Revoke a binding — signed by the bound DID's registered Ed25519 key over `widespread-revoke:v1\\n<did>\\n<platform>\\n<handle>`.",
+    inputSchema: { did: z.string(), platform: z.string(), handle: z.string(), sig_hex: z.string() },
+  }, async (a) => json(await revokeBinding(env, a)));
 
   const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
   await server.connect(transport);

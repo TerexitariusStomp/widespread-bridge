@@ -7,9 +7,11 @@
 // recorded as claim hints for zero-account humans.
 
 import type { Env, FeedRecord, SocialEnv } from "./types";
+import { parseBindStatement, registerBinding } from "./identity";
 
 const DECL_RE = /#widespread\s+bounty\s+([0-9a-f]{8,16})|domain:\s*(\w+)[\s\S]*?amount:\s*([\d.]+)\s*([A-Z]{3,5})/i;
 const CLAIM_RE = /widespread\s+claim\s+([0-9a-f]{8,16})/i;
+const BIND_TAG = "widespread-bind:v1";
 const now = () => Date.now();
 
 function declRecord(hash: string, platform: string, url: string, body: string, actor?: string): FeedRecord {
@@ -26,6 +28,14 @@ function declRecord(hash: string, platform: string, url: string, body: string, a
     domain: m?.[2]?.toLowerCase(),
     created_at: now(), updated_at: now(),
   };
+}
+
+/** A bind statement posted natively on the claimed platform IS its own
+ * proof — the post URL goes through the same verifier registry. */
+async function noteBind(env: Env, text: string, url: string) {
+  if (!text.includes(BIND_TAG)) return;
+  const b = parseBindStatement(text);
+  if (b) await registerBinding(env, { did: b.did, platform: b.platform, handle: b.handle, proof: url }).catch(() => null);
 }
 
 async function noteClaim(env: Env, hash: string, platform: string, actor: string, url: string, kind: "claim" | "submission") {
@@ -50,6 +60,7 @@ export async function pollBluesky(env: Env): Promise<FeedRecord[]> {
     if (dm) out.push(declRecord(dm[1] ?? "unknown", "bluesky", url, text, p.author.handle));
     const cm = text.match(CLAIM_RE);
     if (cm) await noteClaim(env, cm[1], "bluesky", p.author.handle, url, text.includes("http") ? "submission" : "claim");
+    await noteBind(env, text, url);
   }
   return out;
 }
@@ -68,6 +79,7 @@ export async function pollMastodon(env: Env): Promise<FeedRecord[]> {
       if (dm) out.push(declRecord(dm[1] ?? "unknown", `mastodon:${inst}`, s.url, text, s.account.acct));
       const cm = text.match(CLAIM_RE);
       if (cm) await noteClaim(env, cm[1], `mastodon:${inst}`, s.account.acct, s.url, text.includes("http") ? "submission" : "claim");
+      await noteBind(env, text, s.url);
     }
   }
   return out;
@@ -87,6 +99,7 @@ export async function pollNostr(env: Env): Promise<FeedRecord[]> {
       if (dm) out.push(declRecord(dm[1] ?? "unknown", "nostr", url, e.content, e.pubkey.slice(0, 8)));
       const cm = e.content.match(CLAIM_RE);
       if (cm) await noteClaim(env, cm[1], "nostr", e.pubkey.slice(0, 8), url, e.content.includes("http") ? "submission" : "claim");
+      await noteBind(env, e.content, e.id);
     }
     pool.close(relays.map((x: string) => x.trim()));
   } catch { /* nostr optional — relay unreachable is not fatal */ }

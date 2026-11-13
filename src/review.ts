@@ -89,17 +89,24 @@ export async function runReview(
   let domainEvidence: Record<string, unknown> | null = null;
   if (bounty?.domain && bounty.domain !== "code") {
     const { validateDomain } = await import("./domains/index");
+    const claimEvidence = ((claim as unknown as Record<string, unknown>).evidence ?? {}) as Record<string, unknown>;
+    const draftText = (claimEvidence.text ?? claimEvidence.draft) as string | undefined;
     const claimRef = (claim as unknown as Record<string, unknown>).ref as string | undefined
-      ?? ((claim as unknown as Record<string, unknown>).evidence as Record<string, unknown> | undefined)?.url as string | undefined
-    if (!claimRef) {
-      domainEvidence = { failures: ["no artifact ref on claim"], pack: "none" };
+      ?? claimEvidence.url as string | undefined;
+    // draft-class deliverables ride evidence.text — no URL needed
+    const domain = draftText && bounty.deliverable_class !== "publish" ? "text-draft" : bounty.domain;
+    let packFailures: string[] = [];
+    if (!claimRef && !draftText) {
+      domainEvidence = { failures: ["no artifact ref or draft text on claim"], pack: "none" };
+      packFailures = ["no artifact ref or draft text on claim"];
     } else {
       const v = await validateDomain(
-        { id: repo, spec: bounty.spec, domain: bounty.domain, verification: { class: "platform-url" }, created_at: bounty.created_at },
-        { ref: claimRef, actor: (claim as unknown as Record<string, unknown>).actor as string | undefined },
+        { id: repo, spec: bounty.spec, domain, verification: { class: "platform-url", params: undefined }, created_at: bounty.created_at },
+        { ref: claimRef ?? "draft:inline", actor: (claim as unknown as Record<string, unknown>).actor as string | undefined, evidence: { text: draftText } },
         env as unknown as Record<string, string | undefined>,
       );
       domainEvidence = v as unknown as Record<string, unknown>;
+      packFailures = v.failures;
       if (v.failures.length) {
         const record: ReviewRecord = {
           id, repo, seq, status: "rejected",
@@ -110,6 +117,33 @@ export async function runReview(
         };
         await putRecord(env, record);
         return record;
+      }
+    }
+    // Cross-surface target checks (bound profile the work is FOR):
+    //   publish class → artifact MUST be authored by the target handle
+    //     (anti-impersonation: you can't publish "for my profile" on an
+    //      account you don't control — hard reject)
+    //   any class    → style/theme similarity vs the target's public
+    //     history — a SOFT scoring signal for the judge, never a gate.
+    if (bounty.target && !packFailures.length) {
+      const author = String((domainEvidence?.author ?? domainEvidence?.channel ?? "") as string).replace(/^@/, "");
+      if (bounty.deliverable_class === "publish" && author
+          && author.toLowerCase() !== bounty.target.handle.toLowerCase()) {
+        const record: ReviewRecord = {
+          id, repo, seq, status: "rejected",
+          claim: entry, chain, commits, crosscheck: check, bounty,
+          adjudication: { verdict: "reject", reasoning: `bind-identity: publish-class artifact authored by @${author}, not target @${bounty.target.handle}`, confidence: 1, model: "domain(bind-target)" },
+          domain_evidence: domainEvidence,
+          payout: null, writeback: null, reviewed_at: Date.now(),
+        };
+        await putRecord(env, record);
+        return record;
+      }
+      const { fetchTimeline, styleScore } = await import("./domains/history");
+      const tl = await fetchTimeline(env, bounty.target.platform, bounty.target.handle, 25).catch(() => null);
+      if (tl) {
+        const artifactText = draftText ?? String((domainEvidence as Record<string, unknown>).text ?? "");
+        domainEvidence = { ...(domainEvidence ?? {}), style: styleScore(artifactText, tl.samples, tl.gated), target: bounty.target };
       }
     }
   }

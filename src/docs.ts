@@ -165,6 +165,19 @@ Forge DIDs, signed dg-ship-1 attestations, ERC-8004-compatible reputation,
 settled records preserve origin_platform. Identity is portable; keys never
 leave the client.
 
+Cross-surface bindings link a DID to any platform handle via a publicly
+re-verifiable widespread-bind:v1 statement or signature — github gist/
+comment, gitlab snippet, forgejo/codeberg comment, bluesky post (native
+when did==atproto did), nostr note, mastodon/x/hackernews post, EIP-191
+(EVM), ed25519 (Solana/NEAR); gated platforms verify weakly. Never
+inferred from similarity. Endpoints: POST /api/identity/challenge · bind ·
+revoke · reverify; GET /api/identity/resolve · /api/identity/{did}.
+MCP: wide_identity_challenge/bind/list/resolve/revoke.
+Funders bind the target profile for cross-platform tasks
+(target_platform/target_handle on declare → for: on feed records,
+soft style/theme signal vs the bound profile's public timeline); workers
+stay pseudonymous. Reputation aggregates across bound handles.
+
 ## Money
 
 Markets are escrowed on NEAR (testnet + mainnet). Payout rails: NEAR,

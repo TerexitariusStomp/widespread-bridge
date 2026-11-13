@@ -78,6 +78,9 @@ export interface Env {
   /** EVM address our oracle occupies as the `evaluator` on outbound 8183
    * jobs — named in createJob calldata so our verdict lands on-chain. */
   ORACLE_EVM_ADDRESS?: string;
+  /** Optional X API bearer — upgrades x-post verification + timelines to
+   * proof tier (oembed fallback stays weak without it). */
+  X_BEARER_TOKEN?: string;
   /** Paxos — licensed transmitter of record for PYUSD payouts. */
   PAXOS_CLIENT_ID?: string;
   PAXOS_CLIENT_SECRET?: string;
@@ -121,6 +124,13 @@ export interface FeedRecord {
   /** Work domain (code | social-media | research | writing | data | other) —
    * picks the verifier; independent of the surface it was posted on. */
   domain?: string;
+  /** Cross-surface target — the bound profile this work is FOR (e.g. the
+   * funder's LinkedIn handle on a ghostwrite task). bound=true once the
+   * handle resolves to a DID via idbind. Never inferred. */
+  for?: { platform: string; handle: string; bound?: boolean };
+  /** draft = deliverable is text reviewed before publication (ghostwriting);
+   * publish = deliverable must be a published artifact on the target. */
+  deliverable_class?: "draft" | "publish";
   created_at?: number;
   updated_at: number;
 }
@@ -303,6 +313,12 @@ export interface Bounty {
   proof_requirements?: ProofRequirement[];
   /** Work domain for non-code verticals — routes runReview to a domain pack. */
   domain?: string;
+  /** Cross-surface target profile (verified via idbind when bound). */
+  target?: { platform: string; handle: string };
+  /** draft (default for ghostwriting) | publish (target must publish). */
+  deliverable_class?: "draft" | "publish";
+  /** Funder's DID when the market is declared by a bound identity. */
+  funder_did?: string;
   created_at: number;
 }
 

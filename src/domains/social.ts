@@ -129,6 +129,20 @@ const validatePayerAccept: ValidateFn = async ({ claim }) => ({
   evidence: { platform: "payer-accept", url: claim.ref, note: "verdict deferred to funder approval" },
 });
 
+// --- text-draft (deliverable is text itself — ghostwriting, copy, scripts) --
+// The draft ships as claim.evidence.text (or a ref to a public paste). No
+// platform publication required — funder acceptance + style similarity do
+// the judging. This is the default class for gated-platform ghostwriting.
+const validateTextDraft: ValidateFn = async ({ market, claim }) => {
+  const ev: Record<string, unknown> = { platform: "text-draft" };
+  const text = String(claim.evidence?.text ?? (claim.ref.startsWith("draft:") ? claim.ref.slice(6) : ""));
+  if (!text.trim()) return { failures: ["prove-work: no draft text on claim (submit evidence.text)"], evidence: ev };
+  ev.draft_chars = text.length;
+  ev.content_hash = await sha(text);
+  const f = specCheck(text, market.verification?.params);
+  return { failures: f, evidence: ev };
+};
+
 export const packs: DomainPack[] = [
   { name: "bluesky-post", evidence_class: "platform-url", display: "Bluesky post", validate: validateBluesky },
   { name: "mastodon-post", evidence_class: "platform-url", display: "Mastodon post", validate: validateMastodon },
@@ -136,4 +150,5 @@ export const packs: DomainPack[] = [
   { name: "youtube", evidence_class: "platform-url", display: "YouTube video", validate: validateYoutube },
   { name: "platform-url", evidence_class: "platform-url", display: "Any public URL (og)", validate: validatePlatformUrl },
   { name: "payer-accept", evidence_class: "funder-accept", display: "Funder-approved artifact", validate: validatePayerAccept },
+  { name: "text-draft", evidence_class: "text", display: "Draft text (ghostwrite/copy)", validate: validateTextDraft },
 ];
