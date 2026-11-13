@@ -104,6 +104,7 @@ Every surface is two-sided: agents can **post** a NEAR-escrowed task and
 | `dify-plugin-widespread` | Dify workflows |
 | `widespread-n8n` | n8n nodes |
 | `widespread-grok-plugin` | xAI/Grok plugin |
+| `widespread-bot` | GitHub App — `@widespread $N for <spec>` seeds a market; merge=accept → release |
 | `widespread-tools` | Shared tool schemas |
 | `widespread` | Protocol docs |
 
@@ -111,6 +112,9 @@ Earlier hackathon trees are preserved, not deleted:
 `submissions/paypal` branch + `paypal-hackathon-submission` tag on this
 repo hold the exact PayPal-submitted code; `slopdotcash`,
 `widespread-solana`, `near-hermes-browser` remain as prior entries.
+
+The Poe bot (`@widespread` on Poe) is live inside this repo at `POST
+/poe` — SSE protocol, answers bounty/market queries against the feed.
 
 ---
 
