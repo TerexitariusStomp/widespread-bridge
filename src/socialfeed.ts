@@ -9,9 +9,9 @@
 import type { Env, FeedRecord, SocialEnv } from "./types";
 import { parseBindStatement, registerBinding } from "./identity";
 
-const DECL_RE = /#widespread\s+bounty\s+([0-9a-f]{8,16})|domain:\s*(\w+)[\s\S]*?amount:\s*([\d.]+)\s*([A-Z]{3,5})/i;
-const CLAIM_RE = /widespread\s+claim\s+([0-9a-f]{8,16})/i;
-const RECEIPT_RE = /widespread\s+receipt\s+([A-Za-z0-9:_-]{8,128})/i;
+export const DECL_RE = /#widespread\s+bounty\s+([0-9a-f]{8,16})|domain:\s*(\w+)[\s\S]*?amount:\s*([\d.]+)\s*([A-Z]{3,5})/i;
+export const CLAIM_RE = /widespread\s+claim\s+([0-9a-f]{8,16})/i;
+export const RECEIPT_RE = /widespread\s+receipt\s+([A-Za-z0-9:._~/-]{8,160})/i;
 const BIND_TAG = "widespread-bind:v1";
 const now = () => Date.now();
 
