@@ -51,9 +51,9 @@
   // Analytics Engine on the account once (free):
   //   dash → Workers → Analytics Engine → Enable
   // Uncomment after enabling; code degrades gracefully without the binding.
-  // "analytics_engine_datasets": [
-  //   { "binding": "WIDE_METRICS", "dataset": "wide_metrics" }
-  // ],
+  "analytics_engine_datasets": [
+    { "binding": "widespread", "dataset": "Widespread" }
+  ],
   // The scheduled() handler scans watched op-logs when a cron slot exists.
   // Free tier allows 5 cron triggers/account — this account is full, so the
   // dashboard's /api/state polling drives the same opportunistic scan.

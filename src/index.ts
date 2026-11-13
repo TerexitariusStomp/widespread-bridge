@@ -573,7 +573,7 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
           ? Math.round((Date.now() - (stateDoc as { generated_at: number }).generated_at) / 1000) : null,
         markets_cache_age_s: (marketsDoc as { generated_at?: number } | null)?.generated_at
           ? Math.round((Date.now() - (marketsDoc as { generated_at: number }).generated_at) / 1000) : null,
-        metrics: "Analytics Engine dataset WIDE_METRICS — query in the CF dashboard (blobs: path, method, clientTag; doubles: status, ms)",
+        metrics: "Analytics Engine dataset widespread — query in the CF dashboard (blobs: path, method, clientTag; doubles: status, ms)",
       });
     }
     if (pathname === "/openapi.json" && req.method === "GET") {
@@ -753,7 +753,7 @@ export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const t0 = Date.now();
     const res = await route(req, env, ctx);
-    const m = (env as { WIDE_METRICS?: { writeDataPoint: (d: unknown) => void } }).WIDE_METRICS;
+    const m = (env as { widespread?: { writeDataPoint: (d: unknown) => void } }).widespread;
     if (m) {
       const u = new URL(req.url);
       const ua = req.headers.get("user-agent") ?? "";
