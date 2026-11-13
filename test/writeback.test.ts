@@ -61,7 +61,7 @@ describe("writebackReceipt", () => {
     expect(h["x-dg-did"]).toBe("did:key:zTestAgent");
     const body = JSON.parse(captured!.body);
     expect(body.state).toBe("success");
-    expect(body.context).toBe("slopcash/payout");
+    expect(body.context).toBe("widespread/payout");
 
     // Re-verify the signature exactly as the forge does:
     // sig = Ed25519( sha256("dg1\ndid\nts\nnonce\nPOST\npath\nsha256(body)") )

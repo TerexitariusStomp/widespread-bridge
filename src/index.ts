@@ -285,7 +285,7 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
     }
     // Sponsor-tool surface: AG Grid payout-trace viewer.
     if (pathname === "/sponsor") return sponsorPage(env);
-    if (pathname === "/healthz") return json({ ok: true, service: "slopcash-bridge" });
+    if (pathname === "/healthz") return json({ ok: true, service: "widespread-bridge" });
     if (pathname === "/.well-known/agent-card.json" && req.method === "GET") {
       return json(agentCard(env.PUBLIC_BASE || url.origin));
     }

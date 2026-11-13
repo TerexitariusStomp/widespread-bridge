@@ -84,7 +84,7 @@ receipt written back to the forge as a signed commit status
    GET https://code.widespread.fyi/api/slop/slopdotcash/dg/status/<commit-sha>
    ```
 
-   → `context: "slopcash/payout"` with the release details and a link back
+   → `context: "widespread/payout"` with the release details and a link back
    to the dashboard card.
 
 ## Architecture
@@ -210,13 +210,13 @@ opportunistically.
 - **Cloudflare Workers + KV** — the whole service.
 - **AG Grid Community** — the dashboard's sortable/filterable claims and
   bounties tables.
-- **Postman** — `postman/slopcash-bridge.postman_collection.json` replays the
+- **Postman** — `postman/widespread-bridge.postman_collection.json` replays the
   full demo (op-log read → bounty → review → receipt write-back).
 
 ## Stretch lanes
 
 - **Receipt write-back (shipped):** verdicts land on the forge as signed
-  `slopcash/payout` commit statuses — the audit trail runs both directions.
+  `widespread/payout` commit statuses — the audit trail runs both directions.
 - **Intents settlement (planned):** real cross-chain payout to a winner's
   bound EVM/Solana address without them touching NEAR — quotes run today,
   settlement flips on with Chain Signatures.

@@ -10,17 +10,17 @@ const claims = [
   {
     repo: "slop/slopdotcash",
     commits: "99cc25d469c2ededff0b67d99f08dd4375cf4208",
-    session: "slopcash-demo-keeper-pay",
+    session: "widespread-demo-keeper-pay",
   },
   {
     repo: "slop/slopdotcash",
     commits: "a0cc9de43d530b6b4d3884a5910074e4eee02e84",
-    session: "slopcash-demo-lease-receipt",
+    session: "widespread-demo-lease-receipt",
   },
   {
     repo: "slop/protocol",
     commits: "ec8f99d477e2c7846b8a33c234ca9451ee464866",
-    session: "slopcash-demo-reject",
+    session: "widespread-demo-reject",
   },
 ];
 

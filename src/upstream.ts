@@ -50,19 +50,64 @@ function evmTxProver(rpcEnvKey: string): Prover["verify"] {
   };
 }
 
+/** Public-HTTP prover — networks exposing a no-auth public API keyed by
+ * the ref id. `env` override lets deployments/tests repoint the base. */
+function httpApiProver(envKey: string, defaultBase: string, path: (id: string) => string,
+  ok: (body: unknown) => boolean, label: string): Prover["verify"] {
+  return async (env, opaque) => {
+    const base = ((env as unknown as Record<string, string | undefined>)[envKey] || defaultBase).replace(/\/$/, "");
+    try {
+      const res = await fetch(`${base}${path(opaque)}`, {
+        headers: { accept: "application/json" }, signal: AbortSignal.timeout(8000),
+      });
+      if (!res.ok) return { ok: false, detail: `${label} HTTP ${res.status}` };
+      const body = await res.json();
+      return ok(body)
+        ? { ok: true, detail: `${label} confirmed` }
+        : { ok: false, detail: `${label} returned negative status` };
+    } catch (e) {
+      return { ok: false, detail: `${label} unreachable: ${e instanceof Error ? e.message : e}` };
+    }
+  };
+}
+
 const PROVERS: Record<string, Prover> = {
   // Wave A — ported chimera networks
   golem: fmt(/^agr-[0-9a-f]{8,64}$|^0x[0-9a-fA-F]{64}$/, "golem", true, evmTxProver("UPSTREAM_GOLEM_RPC")),
   mysterium: fmt(/^sess-[0-9a-f-]{8,64}$|^[0-9a-f-]{36}$/, "mysterium", false),
   btfs: fmt(/^(Qm[1-9A-HJ-NP-Za-km-z]{44}|b[a-z2-7]{20,120}|[0-9a-f]{64})$/, "btfs", false),
   anyone: fmt(/^[0-9a-f]{40,64}$/, "anyone", false),
-  // Wave B — public daemons
-  storj: fmt(/^[a-z0-9]{16,64}@[a-z0-9.:-]+$/i, "storj", false),        // satellite:node pair
-  sia: fmt(/^[0-9a-f]{64}$/, "sia", false),                            // hostd consensus id
-  theta: fmt(/^edge-[0-9a-z-]{8,64}$/i, "theta", false),
-  aioz: fmt(/^[0-9a-f]{64}$|^aioz[0-9a-z]{20,}$/i, "aioz", false),
-  hopr: fmt(/^0x[0-9a-fA-F]{40}$|^0x[0-9a-fA-F]{64}$/, "hopr", true, evmTxProver("UPSTREAM_HOPR_RPC")), // channel / tx on Gnosis
+  // Wave B/C — public daemons (refs emitted by the runner providers)
+  storj: fmt(/^[1-9A-HJ-NP-Za-km-z]{30,64}$/, "storj", false),          // node id (base58)
+  "storj-sat": fmt(/^[1-9A-HJ-NP-Za-km-z]{30,64}$/, "storj", false),    // satellite id
+  sia: fmt(/^(ed25519:)?[0-9a-f]{16,128}$|^ed25519:[0-9a-fA-F+/=]{8,128}$/, "sia", false), // host pubkey / contract id
+  theta: fmt(/^[0-9a-zA-Z_-]{4,128}$/, "theta", false),                 // edgelauncher job id / node addr
+  aioz: fmt(/^[0-9a-zA-Z_-]{4,128}$/, "aioz", false),                  // dCDN task id
+  hopr: fmt(/^0x[0-9a-fA-F]{40}$|^0x[0-9a-fA-F]{64}$|^[1-9A-HJ-NP-Za-km-z]{44,60}$/, "hopr", true, evmTxProver("UPSTREAM_HOPR_RPC")), // channel/tx on Gnosis, or libp2p peer id (format-only)
   nosana: fmt(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/, "nosana", false),        // solana address
+  ionet: fmt(/^[0-9a-zA-Z_-]{6,64}$/, "ionet", true,
+    httpApiProver("UPSTREAM_IONET_EXPLORER", "https://api.io.solutions",
+      (id) => `/v1/io-explorer/devices/${encodeURIComponent(id)}/details`,
+      (b) => !!(b && typeof b === "object"), "io explorer")),          // public device telemetry
+  sentinel: fmt(/^sentnode1[0-9a-z]{38}$|^\d{4,20}$/, "sentinel", true,
+    async (env, opaque) => {
+      // node addresses → public health API; numeric session ids → LCD query
+      if (opaque.startsWith("sentnode1")) {
+        const fn = httpApiProver("UPSTREAM_SENTINEL_HEALTH", "https://api.health.sentinel.co",
+          (id) => `/v1/records/${encodeURIComponent(id)}`,
+          (b) => (b as { result?: { ok?: boolean; status?: number } })?.result?.ok === true,
+          "sentinel health");
+        return fn!(env, opaque);
+      }
+      const fn = httpApiProver("UPSTREAM_SENTINEL_LCD", "https://lcd.sentinel.co",
+        (id) => `/sentinel/session/v3/sessions/${encodeURIComponent(id)}`,
+        (b) => !!(b as { session?: unknown })?.session, "sentinel lcd");
+      return fn!(env, opaque);
+    }),
+  spheron: fmt(/^[0-9a-zA-Z_-]{4,64}$/, "spheron", false),              // fizz node id — dashboard-only telemetry
+  infernet: fmt(/^0x[0-9a-fA-F]{40}$|^[0-9a-zA-Z_-]{4,64}$/, "infernet", false), // coordinator contract / wallet
+  "infernet-job": fmt(/^[0-9a-zA-Z_-]{4,64}$/, "infernet", false),
+  "filecoin-pdp": fmt(/^f0[0-9]+$|^[0-9a-zA-Z_-]{4,64}$/, "filecoin-pdp", false), // provider/deal id
   // challenge refs — resolved against our own coordinator, the strongest tier
   challenge: fmt(/^[A-Za-z0-9._:-]{4,128}:\d+$/, "challenge", true),
 };

@@ -16,6 +16,6 @@ An AI agent ships code to delta-git, which writes a signed `dg-ship-1` attestati
 PayPal Payouts API + Orders API (sandbox), Cloudflare Workers AI (Llama 3.3 70B adjudicator), delta-git (op-log, signed agent envelopes), AG Grid, Postman, Cloudflare Workers + KV.
 
 ## Links
-- Live: https://slopcash-bridge.hardwoodstablecoin.workers.dev
-- Repo: https://github.com/TerexitariusStomp/slopcash-bridge
+- Live: https://widespread-bridge.widespread.workers.dev
+- Repo: https://github.com/TerexitariusStomp/widespread-bridge
 - Video: (YouTube link)

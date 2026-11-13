@@ -64,7 +64,7 @@ destination is portable across surfaces — see `/api/identity/bind`.
 | `paidTo`, `claimHash`, `winningClaimId` | `getMarket(marketId)` | yes — chain |
 | ERC-8004-shaped feedback (grounded in claim hash) | `rep8004For` per settled review | yes — exportable |
 | Aggregated accepts/rejects/earned | `GET /api/leaderboard` — all bound handles collapse onto the DID | yes |
-| Forge receipts | signed `slopcash/payout` commit status | yes |
+| Forge receipts | signed `widespread/payout` commit status | yes |
 | Oracle track record | `oracles[pubkey].verdicts` counter | yes — chain |
 | Funder behavior | `m.payer` + market status history (settled vs refunded) — queryable on-chain, not yet aggregated into a funder score | yes — chain |
 

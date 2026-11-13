@@ -92,7 +92,7 @@ export async function writebackReceipt(
   const res = await signedPost(env, key, path, {
     sha: opts.sha,
     state: opts.accepted ? "success" : "failure",
-    context: "slopcash/payout",
+    context: "widespread/payout",
     description: opts.description.slice(0, 512),
     ...(targetUrl ? { target_url: targetUrl } : {}),
   });

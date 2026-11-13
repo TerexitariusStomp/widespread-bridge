@@ -19,7 +19,7 @@ const pkcs8 = await crypto.subtle.exportKey("pkcs8", pair.privateKey);
 const res = await fetch(`${HOST}/api/agents`, {
   method: "POST",
   headers: { "content-type": "application/json" },
-  body: JSON.stringify({ pubkey: pubkeyHex, label: "slopcash-bridge" }),
+  body: JSON.stringify({ pubkey: pubkeyHex, label: "widespread-bridge" }),
 });
 if (!res.ok) throw new Error(`register: ${res.status} ${await res.text()}`);
 const { did } = await res.json();

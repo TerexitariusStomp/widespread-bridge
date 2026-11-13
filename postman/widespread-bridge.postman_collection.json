@@ -5,7 +5,7 @@
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "bridge", "value": "https://slopcash-bridge.hardwoodstablecoin.workers.dev" },
+    { "key": "bridge", "value": "https://widespread-bridge.widespread.workers.dev" },
     { "key": "forge", "value": "https://code.widespread.fyi" },
     { "key": "repo", "value": "slop/slopdotcash" },
     { "key": "seq", "value": "0" },
@@ -68,7 +68,7 @@
       "request": {
         "method": "GET",
         "url": "{{forge}}/api/{{repo}}/dg/status/{{commit_sha}}",
-        "description": "The payout receipt as a signed slopcash/payout commit status — the audit trail runs both directions."
+        "description": "The payout receipt as a signed widespread/payout commit status — the audit trail runs both directions."
       }
     }
   ]

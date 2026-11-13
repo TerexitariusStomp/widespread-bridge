@@ -20,7 +20,7 @@ const COMMITS = getOpt("commits", "")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
-const SESSION = getOpt("session", `slopcash-demo-${Date.now().toString(36)}`);
+const SESSION = getOpt("session", `widespread-demo-${Date.now().toString(36)}`);
 const TOOL = getOpt("tool", "devin");
 
 if (COMMITS.some((c) => !/^[0-9a-f]{40}$/i.test(c))) {
@@ -41,7 +41,7 @@ const pubkeyHex = toHex(await crypto.subtle.exportKey("raw", pair.publicKey));
 const reg = await fetch(`${HOST}/api/agents`, {
   method: "POST",
   headers: { "content-type": "application/json" },
-  body: JSON.stringify({ pubkey: pubkeyHex, label: `slopcash-${SESSION}` }),
+  body: JSON.stringify({ pubkey: pubkeyHex, label: `widespread-${SESSION}` }),
 });
 if (!reg.ok) throw new Error(`register: ${reg.status} ${await reg.text()}`);
 const { did } = await reg.json();
