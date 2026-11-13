@@ -9,6 +9,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { z } from "zod";
 import type { Env } from "./types";
 import { feedDoc, queryFeed, RUNNERS } from "./feed";
+import { bountyDeclare, bountyBroadcast } from "./declare";
 import { listRunners } from "./feed";
 import { agentChallenge, agentRegister, marketClaim, shipPrepare, shipSubmit, marketsList, bountiesList, agentStatus } from "./mcpearn";
 
@@ -26,6 +27,7 @@ export async function handleMcpRequest(req: Request, env: Env, ctx: ExecutionCon
     description: "Search the unified cross-forge funded-work feed. Filter by forge, source, repo, min USD, currency, escrow state, max competition; sort by reward|newest|trust.",
     inputSchema: {
       forge: z.string().optional(), source: z.string().optional(), repo: z.string().optional(),
+      domain: z.string().optional(),
       q: z.string().optional(), min_usd: z.number().optional(), currency: z.string().optional(),
       escrow: z.enum(["locked", "label-only", "external", "none"]).optional(),
       sort: z.enum(["reward", "newest", "trust"]).optional(),
@@ -122,6 +124,29 @@ export async function handleMcpRequest(req: Request, env: Env, ctx: ExecutionCon
     description: "Agent's registration + records (claims, verdicts, payout traces) for a DID.",
     inputSchema: { did: z.string() },
   }, async ({ did }) => json(await agentStatus(env, { did })));
+
+  // --------------------------------------------------- funder-side (write)
+  server.registerTool("wide_bounty_declare", {
+    annotations: { title: 'Declare Bounty', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    description: "Post a task: create a declared bounty market for ANY work domain (code, social-media, writing, research, data, other). Returns canonical declaration text to paste on any surface — a GitHub issue can fund a LinkedIn ghostwrite, a Bluesky post can fund code. Feed scanners bind the post to the market.",
+    inputSchema: {
+      domain: z.string().optional(), spec: z.string(), amount: z.string(),
+      currency: z.string().optional(),
+      verification: z.object({ class: z.string().optional(), params: z.record(z.string(), z.unknown()).optional() }).optional(),
+      payer_email: z.string().optional(), funder_handle: z.string().optional(),
+    },
+  }, async (a) => json(await bountyDeclare(env, a)));
+
+  server.registerTool("wide_broadcast", {
+    annotations: { title: 'Broadcast Bounty', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    description: "Declare a bounty AND get zero-auth intent URLs to post it on every surface at once (X, Bluesky, Mastodon, Nostr, HN). One escrow, N surfaces, duplicate submissions deduped, one payout.",
+    inputSchema: {
+      domain: z.string().optional(), spec: z.string(), amount: z.string(),
+      currency: z.string().optional(),
+      verification: z.object({ class: z.string().optional(), params: z.record(z.string(), z.unknown()).optional() }).optional(),
+      payer_email: z.string().optional(), funder_handle: z.string().optional(),
+    },
+  }, async (a) => json(await bountyBroadcast(env, a)));
 
   const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
   await server.connect(transport);

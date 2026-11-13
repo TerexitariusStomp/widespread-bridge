@@ -34,6 +34,7 @@ import {
   feedDoc, queryFeed, feedRss, FEED_MD,
   listRunners, registerRunner, refreshFeed, handleMirrorQuote,
 } from "./feed";
+import { bountyDeclare, bountyBroadcast, getDeclared } from "./declare";
 import { putFeedDoc } from "./feedstore";
 import { bountiesList, marketsList } from "./mcpearn";
 import { handleClaimPost, handleClaimVerify } from "./claims";
@@ -530,6 +531,37 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
     }
     // Unified forge bounty feed — normalized cross-forge discovery index.
     // JSON canonical · Atom RSS · minimal MCP · self-describing doc.
+    if (pathname === "/api/bounty/declare" && req.method === "POST") {
+      const body = (await req.json().catch(() => ({}))) as Parameters<typeof bountyDeclare>[1];
+      return json(await bountyDeclare(env, body));
+    }
+    if (pathname === "/api/bounty/broadcast" && req.method === "POST") {
+      const body = (await req.json().catch(() => ({}))) as Parameters<typeof bountyBroadcast>[1];
+      return json(await bountyBroadcast(env, body));
+    }
+    if (pathname.startsWith("/api/declarations/") && req.method === "GET") {
+      const hash = pathname.split("/").pop() ?? "";
+      const [bounty, claims] = await Promise.all([
+        getDeclared(env, hash),
+        env.CLAIMS.get(`hclaim:${hash}`, "json"),
+      ]);
+      return bounty ? json({ hash, bounty, reply_claims: claims ?? [] }) : json({ error: "not found" }, 404);
+    }
+    if (pathname === "/api/leaderboard" && req.method === "GET") {
+      const recs = await listRecords(env);
+      const board: Record<string, { accepts: number; rejects: number; paid_usd: number }> = {};
+      for (const r of recs) {
+        const actor = String((r.claim?.payload as Record<string, unknown> | undefined)?.actor
+          ?? (r.claim?.payload as Record<string, unknown> | undefined)?.agent ?? "anon");
+        const b = board[actor] ??= { accepts: 0, rejects: 0, paid_usd: 0 };
+        if (r.status === "rejected" || r.status === "error") b.rejects++;
+        else b.accepts++;
+        b.paid_usd += Number((r.payout as unknown as Record<string, unknown>)?.amount_usd ?? (r.payout as unknown as Record<string, unknown>)?.amount ?? 0) || 0;
+      }
+      const rows = Object.entries(board).map(([actor, s]) => ({ actor, ...s, rep: s.accepts / Math.max(1, s.accepts + s.rejects) }))
+        .sort((a, b) => b.accepts - a.accepts || b.paid_usd - a.paid_usd).slice(0, 100);
+      return json({ generated_at: Date.now(), leaderboard: rows });
+    }
     if (pathname === "/api/feed" && req.method === "GET") {
       const doc = await feedDoc(env, ctx);
       const q = {

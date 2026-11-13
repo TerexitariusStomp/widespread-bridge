@@ -8,6 +8,7 @@ import { fetchOpLog, verifyChain } from "./oplog";
 import { refreshBatch, sendPayout } from "./payouts";
 import { attestClaim } from "./ecosystem";
 import { getBounty, getRecord, putRecord } from "./store";
+import { getDeclared } from "./declare";
 import { writebackReceipt } from "./writeback";
 import type {
   Bounty,
@@ -54,7 +55,9 @@ export async function runReview(
   const prior = stored?.claim.hash === entry.hash ? stored : null;
 
   const claim = entry.payload as unknown as ShipClaim;
-  const [chain, bounty] = await Promise.all([verifyChain(entries), getBounty(env, repo)]);
+  const [chain, repoBounty] = await Promise.all([verifyChain(entries), getBounty(env, repo)]);
+  // Declared markets: per-repo bounty may not exist — resolve by work_id.
+  const bounty = repoBounty ?? (claim.work_id ? await getDeclared(env, claim.work_id) : null);
 
   // Recompute each claimed commit's diff independently of the forge verdict.
   const commits = await Promise.all(
@@ -80,7 +83,37 @@ export async function runReview(
   // proof requirements) goes to the bias-corrected evaluator panel —
   // blind presentation, minority-veto escalation. Code claims stay on the
   // cheaper single recompute judge.
-  const adjudicatorInput = { repo, entry, chain, bounty, commits, check, derivative };
+  // Domain seam: non-code markets route through a domain pack first —
+  // hard failures (unresolvable artifact, wrong author) reject outright;
+  // pass → evidence feeds the judge.
+  let domainEvidence: Record<string, unknown> | null = null;
+  if (bounty?.domain && bounty.domain !== "code") {
+    const { validateDomain } = await import("./domains/index");
+    const claimRef = (claim as unknown as Record<string, unknown>).ref as string | undefined
+      ?? ((claim as unknown as Record<string, unknown>).evidence as Record<string, unknown> | undefined)?.url as string | undefined
+    if (!claimRef) {
+      domainEvidence = { failures: ["no artifact ref on claim"], pack: "none" };
+    } else {
+      const v = await validateDomain(
+        { id: repo, spec: bounty.spec, domain: bounty.domain, verification: { class: "platform-url" }, created_at: bounty.created_at },
+        { ref: claimRef, actor: (claim as unknown as Record<string, unknown>).actor as string | undefined },
+        env as unknown as Record<string, string | undefined>,
+      );
+      domainEvidence = v as unknown as Record<string, unknown>;
+      if (v.failures.length) {
+        const record: ReviewRecord = {
+          id, repo, seq, status: "rejected",
+          claim: entry, chain, commits, crosscheck: check, bounty,
+          adjudication: { verdict: "reject", reasoning: `domain ${v.pack}: ${v.failures.join("; ")}`, confidence: 1, model: `domain(${v.pack})` },
+          domain_evidence: v as unknown as Record<string, unknown>,
+          payout: null, writeback: null, reviewed_at: Date.now(),
+        };
+        await putRecord(env, record);
+        return record;
+      }
+    }
+  }
+  const adjudicatorInput = { repo, entry, chain, bounty, commits, check, derivative, domain_evidence: domainEvidence };
   const adjudication = (!claim.commits?.length || bounty?.proof_requirements?.length)
     ? await adjudicatePanel(env, adjudicatorInput)
     : await adjudicate(env, adjudicatorInput);

@@ -118,6 +118,9 @@ export interface FeedRecord {
    * String for simple hints; MirrorOffer when a concrete mirror
    * into a Widespread market is available. */
   widespread_offer?: string | MirrorOffer;
+  /** Work domain (code | social-media | research | writing | data | other) —
+   * picks the verifier; independent of the surface it was posted on. */
+  domain?: string;
   created_at?: number;
   updated_at: number;
 }
@@ -159,6 +162,12 @@ export interface MirrorListing {
 }
 
 /** Materialized feed document stored in KV — merged+normalized once per refresh. */
+export interface SocialEnv {
+  MASTODON_INSTANCES?: string;
+  NOSTR_RELAYS?: string;
+  RSS_WATCH?: string;
+}
+
 export interface FeedDoc {
   generated_at: number;
   sources: Record<string, { ok: boolean; count: number; error?: string; fetched_at: number }>;
@@ -292,6 +301,8 @@ export interface Bounty {
   /** Typed proofs a submission must supply — the human-side complement
    * to spec for non-recomputable verticals (routes claims to the panel). */
   proof_requirements?: ProofRequirement[];
+  /** Work domain for non-code verticals — routes runReview to a domain pack. */
+  domain?: string;
   created_at: number;
 }
 
@@ -371,6 +382,8 @@ export interface ReviewRecord {
   attestation?: { uuid?: string; logIndex?: string; integratedTime?: number; skipped?: string } | null;
   payout: PayoutReceipt | null;
   writeback: Writeback | null;
+  /** Domain-pack validation evidence for non-code markets. */
+  domain_evidence?: Record<string, unknown> | null;
   /** ERC-8004-schema reputation record emitted from this settled review. */
   reputation_8004?: unknown;
   reviewed_at: number;

@@ -8,6 +8,7 @@ import { ed25519 } from "@noble/curves/ed25519";
 import { sha256 } from "@noble/hashes/sha256";
 import type { Env } from "./types";
 import { handleClaimPost } from "./claims";
+import { getDeclared } from "./declare";
 import { listBounties, listRecords } from "./store";
 import { listOnchainMarkets } from "./near";
 import { checkLimit, callerKey, rateLimited } from "./ratelimit";

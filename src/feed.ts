@@ -13,6 +13,7 @@
 import { nearView } from "./near";
 import { readJobs, readBounties, readTokenUris } from "./evmread";
 import { scanMirrorSubmissions } from "./ingest";
+import { pollBluesky, pollMastodon, pollNostr, pollRss } from "./socialfeed";
 import { listBounties, listRecords } from "./store";
 import {
   acquireFeedLock, getFeedDoc, getSourceStamp, putFeedDoc,
@@ -263,6 +264,17 @@ function ghIssueToRecord(env: Env, issue: GhIssue, repo: string, opts: {
     created_at: Date.parse(issue.created_at) || undefined,
     updated_at: Date.parse(issue.updated_at) || Date.now(),
   };
+}
+
+/** Declared bounties (wide_bounty_declare) — canonical market records. */
+async function pollDeclared(env: Env): Promise<FeedRecord[]> {
+  const out: FeedRecord[] = [];
+  const list = await env.CLAIMS.list({ prefix: "feedrec:decl:", limit: 200 });
+  for (const k of list.keys) {
+    const rec = await env.CLAIMS.get<FeedRecord>(k.name, "json").catch(() => null);
+    if (rec) out.push(rec);
+  }
+  return out;
 }
 
 async function pollGithub(env: Env): Promise<FeedRecord[]> {
@@ -691,7 +703,7 @@ export async function refreshFeed(env: Env, ctx?: ExecutionContext): Promise<Fee
     if (existing) return existing;
   }
   try {
-    const [nearR, kvR, ghR, tgR, fwR, imR, txR, wkR, alR, clR, e8R, olR, trust] = await Promise.all([
+    const [nearR, kvR, ghR, tgR, fwR, imR, txR, wkR, alR, clR, e8R, olR, dcR, bR, mR, nR, rsR, trust] = await Promise.all([
       runSource(env, "near-chain", () => pollNearChain(env)),
       runSource(env, "kv-registry", () => pollKvRegistry(env)),
       runSource(env, "github", () => pollGithub(env)),
@@ -704,6 +716,11 @@ export async function refreshFeed(env: Env, ctx?: ExecutionContext): Promise<Fee
       runSource(env, "claudelance", () => pollClaudelance(env)),
       runSource(env, "erc8183", () => pollErc8183Generic(env)),
       runSource(env, "olas", () => pollOlas(env)),
+      runSource(env, "declared", () => pollDeclared(env)),
+      runSource(env, "bluesky", () => pollBluesky(env)),
+      runSource(env, "mastodon", () => pollMastodon(env)),
+      runSource(env, "nostr", () => pollNostr(env)),
+      runSource(env, "rss", () => pollRss(env)),
       trustIndex(env),
     ]);
     const sources: FeedDoc["sources"] = {};
@@ -711,6 +728,7 @@ export async function refreshFeed(env: Env, ctx?: ExecutionContext): Promise<Fee
       "near-chain": nearR, "kv-registry": kvR, github: ghR, tangled: tgR,
       forgejo: fwR, "external:immunefi": imR, termix: txR, wurk: wkR,
       agentledger: alR, claudelance: clR, erc8183: e8R, olas: olR,
+      declared: dcR, bluesky: bR, mastodon: mR, nostr: nR, rss: rsR,
     })) sources[name] = r.stamp;
 
     // Merge: fresh records replace stale ones by id; records from
@@ -718,7 +736,7 @@ export async function refreshFeed(env: Env, ctx?: ExecutionContext): Promise<Fee
     const prior = await getFeedDoc(env);
     const byId = new Map<string, FeedRecord>();
     for (const r of prior?.records ?? []) byId.set(r.id, r);
-    for (const r of [...nearR.records, ...kvR.records, ...ghR.records, ...tgR.records, ...fwR.records, ...imR.records, ...txR.records, ...wkR.records, ...alR.records, ...clR.records, ...e8R.records, ...olR.records]) {
+    for (const r of [...nearR.records, ...kvR.records, ...ghR.records, ...tgR.records, ...fwR.records, ...imR.records, ...txR.records, ...wkR.records, ...alR.records, ...clR.records, ...e8R.records, ...olR.records, ...dcR.records, ...bR.records, ...mR.records, ...nR.records, ...rsR.records]) {
       const t = r.repo ? trust.get(r.repo) : undefined;
       byId.set(r.id, { ...r, ...(t ? { trust: t } : {}) });
     }
@@ -887,6 +905,7 @@ export interface FeedQuery {
   min_usd?: number; currency?: string; escrow?: string;
   sort?: "reward" | "newest" | "trust"; limit?: number; cursor?: string;
   max_competition?: number;
+  domain?: string;
 }
 
 export function queryFeed(doc: FeedDoc, q: FeedQuery): { records: FeedRecord[]; next_cursor: string | null } {
@@ -899,6 +918,7 @@ export function queryFeed(doc: FeedDoc, q: FeedQuery): { records: FeedRecord[]; 
   if (q.currency) recs = recs.filter((r) => (r.currency ?? "").toUpperCase() === q.currency!.toUpperCase());
   if (q.escrow) recs = recs.filter((r) => r.escrow.state === q.escrow);
   if (q.max_competition !== undefined) recs = recs.filter((r) => (r.competition?.pending_claims ?? 0) <= q.max_competition!);
+  if (q.domain) recs = recs.filter((r) => (r.domain ?? "code") === q.domain);
 
   const sort = q.sort ?? "reward";
   recs = [...recs].sort((a, b) => {
