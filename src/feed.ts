@@ -13,7 +13,7 @@
 import { nearView } from "./near";
 import { readJobs, readBounties, readTokenUris } from "./evmread";
 import { scanMirrorSubmissions } from "./ingest";
-import { pollBluesky, pollMastodon, pollNostr, pollRss } from "./socialfeed";
+import { pollBluesky, pollMastodon, pollNostr, pollRss, pollLemmy, pollMisskey, pollPeertube, pollHive, pollDevto } from "./socialfeed";
 import { listBounties, listRecords } from "./store";
 import {
   acquireFeedLock, getFeedDoc, getSourceStamp, putFeedDoc,
@@ -703,7 +703,7 @@ export async function refreshFeed(env: Env, ctx?: ExecutionContext): Promise<Fee
     if (existing) return existing;
   }
   try {
-    const [nearR, kvR, ghR, tgR, fwR, imR, txR, wkR, alR, clR, e8R, olR, dcR, bR, mR, nR, rsR, trust] = await Promise.all([
+    const [nearR, kvR, ghR, tgR, fwR, imR, txR, wkR, alR, clR, e8R, olR, dcR, bR, mR, nR, rsR, lemR, misR, ptR, hvR, dvR, trust] = await Promise.all([
       runSource(env, "near-chain", () => pollNearChain(env)),
       runSource(env, "kv-registry", () => pollKvRegistry(env)),
       runSource(env, "github", () => pollGithub(env)),
@@ -721,6 +721,11 @@ export async function refreshFeed(env: Env, ctx?: ExecutionContext): Promise<Fee
       runSource(env, "mastodon", () => pollMastodon(env)),
       runSource(env, "nostr", () => pollNostr(env)),
       runSource(env, "rss", () => pollRss(env)),
+      runSource(env, "lemmy", () => pollLemmy(env)),
+      runSource(env, "misskey", () => pollMisskey(env)),
+      runSource(env, "peertube", () => pollPeertube(env)),
+      runSource(env, "hive", () => pollHive(env)),
+      runSource(env, "devto", () => pollDevto(env)),
       trustIndex(env),
     ]);
     const sources: FeedDoc["sources"] = {};
@@ -729,6 +734,7 @@ export async function refreshFeed(env: Env, ctx?: ExecutionContext): Promise<Fee
       forgejo: fwR, "external:immunefi": imR, termix: txR, wurk: wkR,
       agentledger: alR, claudelance: clR, erc8183: e8R, olas: olR,
       declared: dcR, bluesky: bR, mastodon: mR, nostr: nR, rss: rsR,
+      lemmy: lemR, misskey: misR, peertube: ptR, hive: hvR, devto: dvR,
     })) sources[name] = r.stamp;
 
     // Merge: fresh records replace stale ones by id; records from
@@ -736,7 +742,7 @@ export async function refreshFeed(env: Env, ctx?: ExecutionContext): Promise<Fee
     const prior = await getFeedDoc(env);
     const byId = new Map<string, FeedRecord>();
     for (const r of prior?.records ?? []) byId.set(r.id, r);
-    for (const r of [...nearR.records, ...kvR.records, ...ghR.records, ...tgR.records, ...fwR.records, ...imR.records, ...txR.records, ...wkR.records, ...alR.records, ...clR.records, ...e8R.records, ...olR.records, ...dcR.records, ...bR.records, ...mR.records, ...nR.records, ...rsR.records]) {
+    for (const r of [...nearR.records, ...kvR.records, ...ghR.records, ...tgR.records, ...fwR.records, ...imR.records, ...txR.records, ...wkR.records, ...alR.records, ...clR.records, ...e8R.records, ...olR.records, ...dcR.records, ...bR.records, ...mR.records, ...nR.records, ...rsR.records, ...lemR.records, ...misR.records, ...ptR.records, ...hvR.records, ...dvR.records]) {
       const t = r.repo ? trust.get(r.repo) : undefined;
       byId.set(r.id, { ...r, ...(t ? { trust: t } : {}) });
     }

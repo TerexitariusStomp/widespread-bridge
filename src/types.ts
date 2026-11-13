@@ -176,6 +176,9 @@ export interface SocialEnv {
   MASTODON_INSTANCES?: string;
   NOSTR_RELAYS?: string;
   RSS_WATCH?: string;
+  LEMMY_INSTANCES?: string;
+  MISSKEY_INSTANCES?: string;
+  PEERTUBE_INSTANCES?: string;
 }
 
 export interface FeedDoc {

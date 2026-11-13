@@ -9,14 +9,29 @@ export function getDomain(name: string | undefined): DomainPack | null {
   return packs.find((p) => p.name === n || p.name.startsWith(n)) ?? null;
 }
 
+const pack = (name: string) => packs.find((p) => p.name === name)!;
+
 /** Guess the pack from the artifact ref when the market doesn't declare one. */
 export function sniffDomain(ref: string): DomainPack {
   const r = ref.toLowerCase();
-  if (/bsky\.app\/profile|at:\/\//.test(r)) return packs[0];
-  if (/(x|twitter)\.com\/\w+\/status/.test(r)) return packs[2];
-  if (/youtube\.com|youtu\.be/.test(r)) return packs[3];
-  if (/@[\w.-]+\/\d+|mastodon|\.social\/@|hachyderm|fosstodon|infosec\.exchange/.test(r)) return packs[1];
-  return packs[4]; // platform-url
+  if (/bsky\.app\/profile|at:\/\//.test(r)) return pack("bluesky-post");
+  if (/(x|twitter)\.com\/\w+\/status/.test(r)) return pack("x-post");
+  if (/youtube\.com|youtu\.be/.test(r)) return pack("youtube");
+  if (/tiktok\.com/.test(r)) return pack("tiktok-video");
+  if (/kick\.com/.test(r)) return pack("kick-clip");
+  if (/dev\.to\/[\w-]+\/[\w-]+/.test(r)) return pack("devto-article");
+  if (/hashnode\.(dev|com)|\.hashnode\.dev/.test(r)) return pack("hashnode-post");
+  if (/peakd\.com\/@|hive\.blog\/@/.test(r)) return pack("hive-post");
+  if (/steemit\.com\/@|steempeak\.com\/@/.test(r)) return pack("steem-post");
+  if (/audius\.co\//.test(r)) return pack("audius-track");
+  if (/blogspot\.|\.blogger\.com/.test(r)) return pack("blogger-post");
+  if (/substack\.com\/p\//.test(r)) return pack("substack-post");
+  if (/pixelfed\.\w+\//.test(r)) return pack("pixelfed-post");
+  if (/\/notes\/[\w]+$/.test(r)) return pack("misskey-note");
+  if (/\/w\/[\w-]+$|\/videos\/watch\//.test(r)) return pack("peertube-video");
+  if (/\/(post|comment)\/\d+(\?|$)/.test(r)) return pack("lemmy-post");
+  if (/@[\w.-]+\/\d+|mastodon|\.social\/@|hachyderm|fosstodon|infosec\.exchange/.test(r)) return pack("mastodon-post");
+  return pack("platform-url");
 }
 
 export async function validateDomain(

@@ -76,8 +76,81 @@ export async function fetchTimeline(env: Env, platform: string, handle: string, 
     return out;
   }
 
-  // linkedin / instagram / facebook / tiktok / github etc. — no reliable
-  // public timeline API; caller falls back to spec-only adjudication.
+  if (p === "lemmy") {
+    const [user, inst] = handle.includes("@") ? handle.split("@") : [handle, ((env as SocialEnv).LEMMY_INSTANCES ?? "lemmy.world").split(",")[0].trim()];
+    const j = await fetch(`https://${inst}/api/v3/person?username=${encodeURIComponent(user)}`).then((r) => r.json()).catch(() => null) as { person_view?: { person?: { id?: number } } } | null;
+    const pid = j?.person_view?.person?.id;
+    if (!pid) { out.gated = true; return out; }
+    const posts = await fetch(`https://${inst}/api/v3/post/list?person_id=${pid}&limit=${Math.min(limit, 50)}&sort=New`).then((r) => r.json()).catch(() => null) as { posts?: { post?: { name?: string; body?: string } }[] } | null;
+    const comments = await fetch(`https://${inst}/api/v3/comment/list?person_id=${pid}&limit=${Math.min(limit, 50)}&sort=New`).then((r) => r.json()).catch(() => null) as { comments?: { comment?: { content?: string } }[] } | null;
+    out.samples = [
+      ...(posts?.posts ?? []).map((x) => `${x.post?.name ?? ""}\n${x.post?.body ?? ""}`),
+      ...(comments?.comments ?? []).map((x) => x.comment?.content ?? ""),
+    ].filter(Boolean).slice(0, limit);
+    return out;
+  }
+
+  if (p === "misskey") {
+    const [user, inst] = handle.includes("@") ? handle.split("@") : [handle, ((env as SocialEnv).MISSKEY_INSTANCES ?? "misskey.io").split(",")[0].trim()];
+    const u = await fetch(`https://${inst}/api/users/show`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username: user }) }).then((r) => r.json()).catch(() => null) as { id?: string } | null;
+    if (!u?.id) { out.gated = true; return out; }
+    const notes = await fetch(`https://${inst}/api/users/notes`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ userId: u.id, limit: Math.min(limit, 50), withReplies: false }) }).then((r) => r.json()).catch(() => null) as { text?: string }[] | null;
+    out.samples = (Array.isArray(notes) ? notes : []).map((n) => n.text ?? "").filter(Boolean).slice(0, limit);
+    return out;
+  }
+
+  if (p === "peertube") {
+    const [user, inst] = handle.includes("@") ? handle.split("@") : [handle, ((env as SocialEnv).PEERTUBE_INSTANCES ?? "peertube.tv").split(",")[0].trim()];
+    const j = await fetch(`https://${inst}/api/v1/accounts/${encodeURIComponent(user)}/videos?count=${Math.min(limit, 30)}`).then((r) => r.json()).catch(() => null) as { data?: { name?: string; description?: string }[] } | null;
+    out.samples = (j?.data ?? []).map((v) => `${v.name ?? ""}\n${v.description ?? ""}`).filter(Boolean).slice(0, limit);
+    if (!out.samples.length) out.gated = true;
+    return out;
+  }
+
+  if (p === "hive" || p === "steem") {
+    const api = p === "steem" ? "https://api.steemit.com" : "https://api.hive.blog";
+    const j = await fetch(api, { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "condenser_api.get_discussions_by_blog", params: [{ tag: handle, limit: Math.min(limit, 30) }] }) })
+      .then((r) => r.json()).catch(() => null) as { result?: { title?: string; body?: string }[] } | null;
+    out.samples = (j?.result ?? []).map((x) => `${x.title ?? ""}\n${(x.body ?? "").slice(0, 800)}`).filter(Boolean).slice(0, limit);
+    if (!out.samples.length) out.gated = true;
+    return out;
+  }
+
+  if (p === "devto" || p === "dev.to") {
+    const j = await fetch(`https://dev.to/api/articles?username=${encodeURIComponent(handle)}&per_page=${Math.min(limit, 30)}`).then((r) => r.json()).catch(() => null) as { title?: string; description?: string }[] | null;
+    out.samples = (Array.isArray(j) ? j : []).map((a) => `${a.title ?? ""}\n${a.description ?? ""}`).filter(Boolean).slice(0, limit);
+    if (!out.samples.length) out.gated = true;
+    return out;
+  }
+
+  if (p === "wordpress") {
+    // handle = site host (wordpress binds are per-site)
+    const j = await fetch(`https://${handle}/wp-json/wp/v2/posts?per_page=${Math.min(limit, 30)}`).then((r) => r.json()).catch(() => null) as { content?: { rendered?: string } }[] | null;
+    out.samples = (Array.isArray(j) ? j : []).map((x) => strip(x.content?.rendered ?? "")).filter(Boolean).slice(0, limit);
+    if (!out.samples.length) out.gated = true;
+    return out;
+  }
+
+  if (p === "audius") {
+    const j = await fetch(`https://api.audius.co/v1/users/handle/${encodeURIComponent(handle)}/tracks?app_name=widespread&limit=${Math.min(limit, 30)}`).then((r) => r.json()).catch(() => null) as { data?: { title?: string; description?: string }[] } | null;
+    out.samples = (j?.data ?? []).map((t) => `${t.title ?? ""}\n${t.description ?? ""}`).filter(Boolean).slice(0, limit);
+    if (!out.samples.length) out.gated = true;
+    return out;
+  }
+
+  if (p === "substack" || p === "blogger") {
+    const { default: Parser } = await import("rss-parser");
+    const feedUrl = p === "substack" ? `https://${handle.includes(".") ? handle : `${handle}.substack.com`}/feed`
+      : `https://${handle}/feeds/posts/default`;
+    const feed = await new Parser().parseURL(feedUrl).catch(() => null);
+    out.samples = (feed?.items ?? []).map((i) => `${i.title ?? ""}\n${(i.contentSnippet ?? "").slice(0, 500)}`).filter(Boolean).slice(0, limit);
+    if (!out.samples.length) out.gated = true;
+    return out;
+  }
+
+  // linkedin / gmb / tiktok / kick / minds / dtube / paragraph / github — no
+  // reliable public timeline API; caller falls back to spec-only adjudication.
   out.gated = true;
   return out;
 }

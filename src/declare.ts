@@ -99,6 +99,8 @@ function intentUrls(text: string) {
     mastodon: `https://mastodonshare.com/?text=${t}`,
     nostr: `nostr:${t}`,
     hackernews: `https://news.ycombinator.com/submitlink?t=${t}`,
+    // the fyi composer cross-posts to all 27 OAuth-connected platforms
+    gateway: `https://widespread.fyi/?text=${t}`,
   };
 }
 

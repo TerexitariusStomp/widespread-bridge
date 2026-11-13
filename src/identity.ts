@@ -282,6 +282,151 @@ async function vEd25519Chain(chain: string, { did, platform, handle, proof }: Bi
   }
 }
 
+// lemmy: statement in a post/comment on any instance → author.name
+async function vLemmy({ did, platform, handle, proof }: BindInput): Promise<VerifyResult> {
+  const ev: Record<string, unknown> = { url: proof };
+  const m = proof.match(/(https?:\/\/[\w.-]+)\/(post|comment)\/(\d+)/);
+  if (!m) return bad("proof", "proof must be a lemmy post/comment URL", ev);
+  const j = await fetchJson(`${m[1]}/api/v3/${m[2]}?id=${m[3]}`) as Record<string, any> | null;
+  const view = j?.[`${m[2]}_view`];
+  if (!view) return bad("proof", "object not found", ev);
+  const author = view.creator?.name ?? "";
+  const text = view[m[2]]?.body ?? view[m[2]]?.content ?? view[m[2]]?.name ?? "";
+  if (author.toLowerCase() !== handle.toLowerCase()) return bad("proof", `author @${author} != ${handle}`, ev);
+  if (!stmtPresent(text, did, platform, handle)) return bad("proof", "bind statement not in object", ev);
+  return { ok: true, tier: "proof", evidence: { ...ev, author } };
+}
+
+// misskey: statement in a note → note.user.username
+async function vMisskey({ did, platform, handle, proof }: BindInput): Promise<VerifyResult> {
+  const ev: Record<string, unknown> = { url: proof };
+  const m = proof.match(/(https?:\/\/[\w.-]+)\/notes\/(\w+)/);
+  if (!m) return bad("proof", "proof must be a misskey note URL", ev);
+  const r = await fetch(`${m[1]}/api/notes/show`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ noteId: m[2] }) }).catch(() => null);
+  const j = (await r?.json().catch(() => null)) as { user?: { username?: string }; text?: string } | null;
+  if (!j?.user) return bad("proof", "note not found", ev);
+  if ((j.user.username ?? "").toLowerCase() !== handle.toLowerCase()) return bad("proof", `note author @${j.user.username} != ${handle}`, ev);
+  if (!stmtPresent(j.text ?? "", did, platform, handle)) return bad("proof", "bind statement not in note", ev);
+  return { ok: true, tier: "proof", evidence: { ...ev, author: j.user.username } };
+}
+
+// peertube: statement in a video description → channel name
+async function vPeertube({ did, platform, handle, proof }: BindInput): Promise<VerifyResult> {
+  const ev: Record<string, unknown> = { url: proof };
+  const m = proof.match(/(https?:\/\/[\w.-]+)\/(?:w|videos\/watch)\/([\w-]+)/);
+  if (!m) return bad("proof", "proof must be a peertube video URL", ev);
+  const j = await fetchJson(`${m[1]}/api/v1/videos/${m[2]}`) as any;
+  const author = j?.channel?.name ?? j?.account?.name ?? "";
+  if (!author) return bad("proof", "video not found", ev);
+  const text = `${j?.name ?? ""}\n${j?.description ?? ""}`;
+  if (author.toLowerCase() !== handle.toLowerCase()) return bad("proof", `channel @${author} != ${handle}`, ev);
+  if (!stmtPresent(text, did, platform, handle)) return bad("proof", "bind statement not in video", ev);
+  return { ok: true, tier: "proof", evidence: { ...ev, author } };
+}
+
+// wordpress: statement in a post → _embedded author slug
+async function vWordpress({ did, platform, handle, proof }: BindInput): Promise<VerifyResult> {
+  const ev: Record<string, unknown> = { url: proof };
+  const u = new URL(proof);
+  const pid = u.searchParams.get("p");
+  const slug = u.pathname.split("/").filter(Boolean).pop();
+  const base = `${u.protocol}//${u.host}`;
+  const api = pid ? `${base}/wp-json/wp/v2/posts/${pid}?_embed=1` : `${base}/wp-json/wp/v2/posts?slug=${encodeURIComponent(slug ?? "")}&_embed=1`;
+  const j = await fetchJson(api) as any;
+  const post = Array.isArray(j) ? j[0] : j;
+  if (!post?.id) return bad("proof", "post not found via wp-json", ev);
+  const author = post._embedded?.author?.[0]?.slug ?? post._embedded?.author?.[0]?.name ?? "";
+  const text = (post.content?.rendered ?? "").replace(/<[^>]+>/g, "");
+  if (author && author.toLowerCase() !== handle.toLowerCase()) return bad("proof", `author @${author} != ${handle}`, ev);
+  if (!stmtPresent(text, did, platform, handle)) return bad("proof", "bind statement not in post", ev);
+  return { ok: true, tier: "proof", evidence: { ...ev, author } };
+}
+
+// dev.to: statement in an article → user.username
+async function vDevto({ did, platform, handle, proof }: BindInput): Promise<VerifyResult> {
+  const ev: Record<string, unknown> = { url: proof };
+  const m = proof.match(/dev\.to\/([\w-]+)\/([\w-]+)/);
+  if (!m) return bad("proof", "proof must be a dev.to article URL", ev);
+  const list = await fetchJson(`https://dev.to/api/articles?username=${m[1]}&per_page=30`) as { slug?: string; id?: number }[] | null;
+  const id = (Array.isArray(list) ? list : []).find((a) => a.slug === m[2])?.id;
+  const j = await fetchJson(`https://dev.to/api/articles/${id ?? m[2]}`) as any;
+  const author = j?.user?.username;
+  if (!author) return bad("proof", "article not found", ev);
+  if (author.toLowerCase() !== handle.toLowerCase()) return bad("proof", `author @${author} != ${handle}`, ev);
+  if (!stmtPresent(`${j.title ?? ""}\n${j.body_markdown ?? ""}`, did, platform, handle)) return bad("proof", "bind statement not in article", ev);
+  return { ok: true, tier: "proof", evidence: { ...ev, author } };
+}
+
+// hashnode: statement in a post → author.username
+async function vHashnode({ did, platform, handle, proof }: BindInput): Promise<VerifyResult> {
+  const ev: Record<string, unknown> = { url: proof };
+  const m = proof.match(/(https?:\/\/[\w.-]+)\/([\w-]+)/);
+  if (!m) return bad("proof", "proof must be a hashnode post URL", ev);
+  const host = m[1].includes("hashnode") ? new URL(m[1]).host : `${new URL(m[1]).host}`;
+  const r = await fetch("https://gql.hashnode.com", { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ query: `{ publication(host: "${host}") { post(slug: "${m[2]}") { title author { username } content { markdown } } } }` }) }).catch(() => null);
+  const post = ((await r?.json().catch(() => null)) as any)?.data?.publication?.post;
+  if (!post) return bad("proof", "post not found", ev);
+  const author = post.author?.username ?? "";
+  if (author.toLowerCase() !== handle.toLowerCase()) return bad("proof", `author @${author} != ${handle}`, ev);
+  if (!stmtPresent(`${post.title ?? ""}\n${post.content?.markdown ?? ""}`, did, platform, handle)) return bad("proof", "bind statement not in post", ev);
+  return { ok: true, tier: "proof", evidence: { ...ev, author } };
+}
+
+// hive/steem: statement ON-CHAIN → author is the account itself (proof-strong)
+async function vHiveChain(chain: string, api: string, { did, platform, handle, proof }: BindInput): Promise<VerifyResult> {
+  const ev: Record<string, unknown> = { url: proof, chain };
+  const m = proof.match(/@([\w.-]+)\/([\w-]+)/);
+  if (!m) return bad("proof", `proof must be a ${chain} @author/permlink URL`, ev);
+  const r = await fetch(api, { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "condenser_api.get_content", params: [m[1], m[2]] }) }).catch(() => null);
+  const post = ((await r?.json().catch(() => null)) as any)?.result;
+  if (!post?.author) return bad("proof", "on-chain content not found", ev);
+  if (post.author.toLowerCase() !== handle.toLowerCase()) return bad("proof", `author @${post.author} != ${handle}`, ev);
+  const text = `${post.title ?? ""}\n${post.body ?? ""}`;
+  if (!stmtPresent(text, did, platform, handle)) return bad("proof", "bind statement not in post", ev);
+  // the account key signed this post on-chain — native when did==account
+  const tier: BindTier = did === `${chain}:${post.author}` || did === `did:${chain}:${post.author}` ? "native" : "proof";
+  return { ok: true, tier, evidence: { ...ev, author: post.author } };
+}
+
+// audius: statement in a track description → user.handle
+async function vAudius({ did, platform, handle, proof }: BindInput): Promise<VerifyResult> {
+  const ev: Record<string, unknown> = { url: proof };
+  const j = await fetchJson(`https://api.audius.co/v1/resolve?url=${encodeURIComponent(proof)}&app_name=widespread`) as any;
+  const t = j?.data;
+  if (!t?.id) return bad("proof", "track not found", ev);
+  const author = t.user?.handle ?? "";
+  if (author.toLowerCase() !== handle.toLowerCase()) return bad("proof", `artist @${author} != ${handle}`, ev);
+  if (!stmtPresent(`${t.title ?? ""}\n${t.description ?? ""}`, did, platform, handle)) return bad("proof", "bind statement not in track", ev);
+  return { ok: true, tier: "proof", evidence: { ...ev, author } };
+}
+
+// blogger/substack: statement in the publication's feed → author name (weak —
+// feed authorship is per-publication, not per-handle verified)
+async function vFeedAuthored({ did, platform, handle, proof }: BindInput): Promise<VerifyResult> {
+  const ev: Record<string, unknown> = { url: proof };
+  const u = new URL(proof);
+  let text = "", author = "";
+  if (/blogspot\.|blogger\.com/.test(u.host)) {
+    const j = await fetchJson(`${u.protocol}//${u.host}/feeds/posts/default?alt=json&max-results=50`) as any;
+    const entry = (j?.feed?.entry ?? []).find((e: any) => (e.link ?? []).some((l: any) => l.rel === "alternate" && proof.startsWith(l.href)));
+    if (!entry) return bad("weak", "post not found in blog feed", ev);
+    text = `${entry.title?.$t ?? ""}\n${entry.content?.$t ?? ""}`;
+    author = entry.author?.[0]?.name?.$t ?? "";
+  } else {
+    const { default: Parser } = await import("rss-parser");
+    const xml = await fetch(`${u.protocol}//${u.host}/feed`).then((r) => (r.ok ? r.text() : "")).catch(() => "");
+    const feed = xml ? await new Parser().parseString(xml).catch(() => null) : null;
+    const item = (feed?.items ?? []).find((i) => i.link && proof.startsWith(i.link.split("?")[0]));
+    if (!item) return bad("weak", "post not found in feed", ev);
+    text = `${item.title ?? ""}\n${item.contentSnippet ?? item.content ?? ""}`;
+    author = item.creator ?? "";
+  }
+  if (!stmtPresent(text, did, platform, handle)) return bad("weak", "bind statement not in post", ev);
+  return { ok: true, tier: "weak", evidence: { ...ev, author, note: "feed-level author — publication verified" } };
+}
+
 // generic URL — fetch the page and look for the statement (gated platforms,
 // blogs, pastebins). Author can't be verified → weak tier.
 async function vGeneric({ did, platform, handle, proof }: BindInput): Promise<VerifyResult> {
@@ -307,7 +452,19 @@ export async function verifyBindProof(env: Env, input: BindInput): Promise<Verif
   if (["evm", "ethereum", "base", "poidh"].includes(p)) return vEvm(input);
   if (p === "solana") return vEd25519Chain("solana", input);
   if (p === "near") return vEd25519Chain("near", input);
-  return vGeneric(input); // linkedin/instagram/tiktok/rss/paste — weak tier
+  // fyi-gateway platforms
+  if (p === "lemmy") return vLemmy(input);
+  if (p === "misskey") return vMisskey(input);
+  if (p === "peertube") return vPeertube(input);
+  if (p === "wordpress") return vWordpress(input);
+  if (p === "devto" || p === "dev.to") return vDevto(input);
+  if (p === "hashnode") return vHashnode(input);
+  if (p === "hive") return vHiveChain("hive", "https://api.hive.blog", input);
+  if (p === "steem") return vHiveChain("steem", "https://api.steemit.com", input);
+  if (p === "audius") return vAudius(input);
+  if (p === "blogger" || p === "substack") return vFeedAuthored(input);
+  if (p === "pixelfed" || p === "funkwhale") return vMastodon(input); // mastodon-shape status urls
+  return vGeneric(input); // linkedin/gmb/tiktok/kick/minds/dtube/paragraph/paste — weak tier
 }
 
 /** Instructions per platform for POST /api/identity/challenge. */
@@ -323,6 +480,16 @@ export function bindInstructions(platform: string): string {
   if (p === "hackernews" || p === "hn") return "Comment the statement on any HN thread. Send the item URL.";
   if (["evm", "ethereum", "base", "poidh"].includes(p)) return "Sign the statement with EIP-191 personal_sign from the handle address. Send the hex signature as proof.";
   if (["solana", "near"].includes(p)) return `Sign the statement with your ${p} ed25519 key. Send proof JSON: {"pubkey":"<base58>","sig":"<base64>"}`;
+  if (p === "lemmy") return "Post or comment the statement on any Lemmy instance. Send the post/comment URL.";
+  if (p === "misskey") return "Post the statement as a note. Send the note URL.";
+  if (p === "peertube") return "Put the statement in a video description on your channel. Send the video URL.";
+  if (p === "wordpress") return "Publish the statement in a post on your WordPress site. Send the post URL.";
+  if (p === "devto" || p === "dev.to") return "Publish the statement in a dev.to article. Send the article URL.";
+  if (p === "hashnode") return "Publish the statement in a Hashnode post. Send the post URL.";
+  if (p === "hive" || p === "steem") return `Publish the statement as a ${p} post — it lands on-chain. Send the @author/permlink URL.`;
+  if (p === "audius") return "Put the statement in a track description. Send the audius.co track URL.";
+  if (p === "blogger" || p === "substack") return `Publish the statement in a ${p} post. Send the post URL (verified via your publication feed — weak tier).`;
+  if (p === "pixelfed" || p === "funkwhale") return "Post the statement natively. Send the status URL (verified via the Mastodon-compatible API).";
   return "Publish the statement somewhere publicly reachable on the platform (profile, post, bio page). Send the URL — note: gated platforms verify weakly.";
 }
 

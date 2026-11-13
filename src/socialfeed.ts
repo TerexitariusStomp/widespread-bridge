@@ -106,6 +106,99 @@ export async function pollNostr(env: Env): Promise<FeedRecord[]> {
   return out;
 }
 
+// --- lemmy (search API on configured instances) -------------------------------
+export async function pollLemmy(env: Env): Promise<FeedRecord[]> {
+  const out: FeedRecord[] = [];
+  const insts = ((env as SocialEnv).LEMMY_INSTANCES ?? "lemmy.world,lemm.ee").split(",");
+  for (const inst of insts.slice(0, 4)) {
+    const r = await fetch(`https://${inst.trim()}/api/v3/search?q=widespread&type_=Posts&limit=20`).catch(() => null);
+    const j = (await r?.json().catch(() => null)) as { posts?: { post: { id: number; name?: string; body?: string; ap_id?: string }; creator: { name: string } }[] } | null;
+    for (const p of j?.posts ?? []) {
+      const text = `${p.post.name ?? ""}\n${p.post.body ?? ""}`;
+      const url = p.post.ap_id ?? `https://${inst.trim()}/post/${p.post.id}`;
+      const dm = text.match(DECL_RE);
+      if (dm) out.push(declRecord(dm[1] ?? "unknown", `lemmy:${inst.trim()}`, url, text, p.creator.name));
+      const cm = text.match(CLAIM_RE);
+      if (cm) await noteClaim(env, cm[1], `lemmy:${inst.trim()}`, p.creator.name, url, text.includes("http") ? "submission" : "claim");
+      await noteBind(env, text, url);
+    }
+  }
+  return out;
+}
+
+// --- misskey (notes/search on configured instances) ----------------------------
+export async function pollMisskey(env: Env): Promise<FeedRecord[]> {
+  const out: FeedRecord[] = [];
+  const insts = ((env as SocialEnv).MISSKEY_INSTANCES ?? "misskey.io").split(",");
+  for (const inst of insts.slice(0, 4)) {
+    const r = await fetch(`https://${inst.trim()}/api/notes/search`, { method: "POST",
+      headers: { "content-type": "application/json" }, body: JSON.stringify({ query: "widespread", limit: 20 }) }).catch(() => null);
+    const j = (await r?.json().catch(() => null)) as { id: string; text?: string; user?: { username?: string } }[] | null;
+    for (const n of Array.isArray(j) ? j : []) {
+      const text = n.text ?? "";
+      const url = `https://${inst.trim()}/notes/${n.id}`;
+      const dm = text.match(DECL_RE);
+      if (dm) out.push(declRecord(dm[1] ?? "unknown", `misskey:${inst.trim()}`, url, text, n.user?.username));
+      const cm = text.match(CLAIM_RE);
+      if (cm) await noteClaim(env, cm[1], `misskey:${inst.trim()}`, n.user?.username ?? "?", url, text.includes("http") ? "submission" : "claim");
+      await noteBind(env, text, url);
+    }
+  }
+  return out;
+}
+
+// --- peertube (search/videos on configured instances) ---------------------------
+export async function pollPeertube(env: Env): Promise<FeedRecord[]> {
+  const out: FeedRecord[] = [];
+  const insts = ((env as SocialEnv).PEERTUBE_INSTANCES ?? "peertube.tv").split(",");
+  for (const inst of insts.slice(0, 3)) {
+    const r = await fetch(`https://${inst.trim()}/api/v1/search/videos?search=widespread&count=15`).catch(() => null);
+    const j = (await r?.json().catch(() => null)) as { data?: { uuid: string; name?: string; description?: string; channel?: { name?: string } }[] } | null;
+    for (const v of j?.data ?? []) {
+      const text = `${v.name ?? ""}\n${v.description ?? ""}`;
+      const url = `https://${inst.trim()}/w/${v.uuid}`;
+      const dm = text.match(DECL_RE);
+      if (dm) out.push(declRecord(dm[1] ?? "unknown", `peertube:${inst.trim()}`, url, text, v.channel?.name));
+      await noteBind(env, text, url);
+    }
+  }
+  return out;
+}
+
+// --- hive (on-chain tag query — posts are public chain objects) -----------------
+export async function pollHive(env: Env): Promise<FeedRecord[]> {
+  const out: FeedRecord[] = [];
+  const r = await fetch("https://api.hive.blog", { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "condenser_api.get_discussions_by_created", params: [{ tag: "widespread", limit: 20 }] }) }).catch(() => null);
+  const j = (await r?.json().catch(() => null)) as { result?: { author?: string; permlink?: string; title?: string; body?: string }[] } | null;
+  for (const p of j?.result ?? []) {
+    const text = `${p.title ?? ""}\n${p.body ?? ""}`;
+    const url = `https://peakd.com/@${p.author}/${p.permlink}`;
+    const dm = text.match(DECL_RE);
+    if (dm) out.push(declRecord(dm[1] ?? "unknown", "hive", url, text, p.author));
+    const cm = text.match(CLAIM_RE);
+    if (cm) await noteClaim(env, cm[1], "hive", p.author ?? "?", url, text.includes("http") ? "submission" : "claim");
+    await noteBind(env, text, url);
+  }
+  return out;
+}
+
+// --- dev.to (Forem tag API) ----------------------------------------------------
+export async function pollDevto(env: Env): Promise<FeedRecord[]> {
+  const out: FeedRecord[] = [];
+  const j = (await (await fetch("https://dev.to/api/articles?tag=widespread&per_page=20&state=latest").catch(() => null))?.json().catch(() => null)) as { id: number; title?: string; description?: string; url?: string; user?: { username?: string } }[] | null;
+  for (const a of Array.isArray(j) ? j : []) {
+    const text = `${a.title ?? ""}\n${a.description ?? ""}`;
+    const url = a.url ?? `https://dev.to/articles/${a.id}`;
+    const dm = text.match(DECL_RE);
+    if (dm) out.push(declRecord(dm[1] ?? "unknown", "devto", url, text, a.user?.username));
+    const cm = text.match(CLAIM_RE);
+    if (cm) await noteClaim(env, cm[1], "devto", a.user?.username ?? "?", url, "claim");
+    await noteBind(env, text, url);
+  }
+  return out;
+}
+
 // --- rss (configured watch feeds — blogs/newsletters carrying declarations) ---
 export async function pollRss(env: Env): Promise<FeedRecord[]> {
   const out: FeedRecord[] = [];
