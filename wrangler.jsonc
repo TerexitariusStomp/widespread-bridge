@@ -34,7 +34,11 @@
     "MARKETS_TTL_S": "60",
     // Public base URL of this deployment — used for receipt target_urls
     // written back to the forge. Set after first deploy.
-    "PUBLIC_BASE": "https://widespread-bridge.widespread.workers.dev"
+    "PUBLIC_BASE": "https://widespread-bridge.widespread.workers.dev",
+    // Upstream EVM provers — public JSON-RPC endpoints for live tx-receipt
+    // verification of golem (Polygon) and hopr (Gnosis) upstream refs.
+    "UPSTREAM_GOLEM_RPC": "https://polygon-rpc.com",
+    "UPSTREAM_HOPR_RPC": "https://rpc.gnosischain.com"
   },
   "kv_namespaces": [
     {

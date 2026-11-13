@@ -108,6 +108,7 @@ const PROVERS: Record<string, Prover> = {
   infernet: fmt(/^0x[0-9a-fA-F]{40}$|^[0-9a-zA-Z_-]{4,64}$/, "infernet", false), // coordinator contract / wallet
   "infernet-job": fmt(/^[0-9a-zA-Z_-]{4,64}$/, "infernet", false),
   "filecoin-pdp": fmt(/^f0[0-9]+$|^[0-9a-zA-Z_-]{4,64}$/, "filecoin-pdp", false), // provider/deal id
+  netmind: fmt(/^[0-9a-zA-Z_-]{4,64}$/, "netmind", false),            // machine node_name — account-gated telemetry
   // challenge refs — resolved against our own coordinator, the strongest tier
   challenge: fmt(/^[A-Za-z0-9._:-]{4,128}:\d+$/, "challenge", true),
 };
