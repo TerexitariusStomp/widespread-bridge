@@ -1,19 +1,16 @@
 {
-  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-10-17/server.schema.json",
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.TerexitariusStomp/widespread",
-  "description": "Earn verified-work bounties: discover funded markets, claim, ship signed attestations, collect payouts. Client-side Ed25519 keys — server verifies signatures only.",
+  "description": "Earn verified-work bounties: claim markets, ship signed attestations, get paid.",
   "version": "1.0.0",
-  "repository": { "url": "https://github.com/TerexitariusStomp/widespread-bridge", "source": "github" },
+  "repository": {
+    "url": "https://github.com/TerexitariusStomp/widespread-bridge",
+    "source": "github"
+  },
   "remotes": [
-    { "type": "streamable-http", "url": "https://widespread-bridge.widespread.workers.dev/mcp" }
-  ],
-  "packages": [
     {
-      "registryType": "pypi",
-      "identifier": "widespread-mcp",
-      "version": "0.1.0",
-      "transport": { "type": "stdio" },
-      "runtimeHint": "uvx"
+      "type": "streamable-http",
+      "url": "https://widespread-bridge.widespread.workers.dev/mcp"
     }
   ]
 }
