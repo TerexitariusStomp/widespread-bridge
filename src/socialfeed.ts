@@ -11,6 +11,7 @@ import { parseBindStatement, registerBinding } from "./identity";
 
 const DECL_RE = /#widespread\s+bounty\s+([0-9a-f]{8,16})|domain:\s*(\w+)[\s\S]*?amount:\s*([\d.]+)\s*([A-Z]{3,5})/i;
 const CLAIM_RE = /widespread\s+claim\s+([0-9a-f]{8,16})/i;
+const RECEIPT_RE = /widespread\s+receipt\s+([A-Za-z0-9:_-]{8,128})/i;
 const BIND_TAG = "widespread-bind:v1";
 const now = () => Date.now();
 
@@ -38,7 +39,7 @@ async function noteBind(env: Env, text: string, url: string) {
   if (b) await registerBinding(env, { did: b.did, platform: b.platform, handle: b.handle, proof: url }).catch(() => null);
 }
 
-async function noteClaim(env: Env, hash: string, platform: string, actor: string, url: string, kind: "claim" | "submission") {
+async function noteClaim(env: Env, hash: string, platform: string, actor: string, url: string, kind: "claim" | "submission" | "receipt") {
   const key = `hclaim:${hash}`;
   const list = (await env.CLAIMS.get(key, "json").catch(() => null)) as unknown[] ?? [];
   if (list.length < 100) {
@@ -60,6 +61,8 @@ export async function pollBluesky(env: Env): Promise<FeedRecord[]> {
     if (dm) out.push(declRecord(dm[1] ?? "unknown", "bluesky", url, text, p.author.handle));
     const cm = text.match(CLAIM_RE);
     if (cm) await noteClaim(env, cm[1], "bluesky", p.author.handle, url, text.includes("http") ? "submission" : "claim");
+    const rc = text.match(RECEIPT_RE);
+    if (rc) await noteClaim(env, rc[1], "bluesky", p.author.handle, url, "receipt");
     await noteBind(env, text, url);
   }
   return out;
@@ -79,6 +82,8 @@ export async function pollMastodon(env: Env): Promise<FeedRecord[]> {
       if (dm) out.push(declRecord(dm[1] ?? "unknown", `mastodon:${inst}`, s.url, text, s.account.acct));
       const cm = text.match(CLAIM_RE);
       if (cm) await noteClaim(env, cm[1], `mastodon:${inst}`, s.account.acct, s.url, text.includes("http") ? "submission" : "claim");
+      const rc = text.match(RECEIPT_RE);
+      if (rc) await noteClaim(env, rc[1], `mastodon:${inst}`, s.account.acct, s.url, "receipt");
       await noteBind(env, text, s.url);
     }
   }
@@ -99,6 +104,8 @@ export async function pollNostr(env: Env): Promise<FeedRecord[]> {
       if (dm) out.push(declRecord(dm[1] ?? "unknown", "nostr", url, e.content, e.pubkey.slice(0, 8)));
       const cm = e.content.match(CLAIM_RE);
       if (cm) await noteClaim(env, cm[1], "nostr", e.pubkey.slice(0, 8), url, e.content.includes("http") ? "submission" : "claim");
+      const rc = e.content.match(RECEIPT_RE);
+      if (rc) await noteClaim(env, rc[1], "nostr", e.pubkey.slice(0, 8), url, "receipt");
       await noteBind(env, e.content, e.id);
     }
     pool.close(relays.map((x: string) => x.trim()));
@@ -120,6 +127,8 @@ export async function pollLemmy(env: Env): Promise<FeedRecord[]> {
       if (dm) out.push(declRecord(dm[1] ?? "unknown", `lemmy:${inst.trim()}`, url, text, p.creator.name));
       const cm = text.match(CLAIM_RE);
       if (cm) await noteClaim(env, cm[1], `lemmy:${inst.trim()}`, p.creator.name, url, text.includes("http") ? "submission" : "claim");
+      const rc = text.match(RECEIPT_RE);
+      if (rc) await noteClaim(env, rc[1], `lemmy:${inst.trim()}`, p.creator.name, url, "receipt");
       await noteBind(env, text, url);
     }
   }
@@ -141,6 +150,8 @@ export async function pollMisskey(env: Env): Promise<FeedRecord[]> {
       if (dm) out.push(declRecord(dm[1] ?? "unknown", `misskey:${inst.trim()}`, url, text, n.user?.username));
       const cm = text.match(CLAIM_RE);
       if (cm) await noteClaim(env, cm[1], `misskey:${inst.trim()}`, n.user?.username ?? "?", url, text.includes("http") ? "submission" : "claim");
+      const rc = text.match(RECEIPT_RE);
+      if (rc) await noteClaim(env, rc[1], `misskey:${inst.trim()}`, n.user?.username ?? "?", url, "receipt");
       await noteBind(env, text, url);
     }
   }
@@ -159,6 +170,8 @@ export async function pollPeertube(env: Env): Promise<FeedRecord[]> {
       const url = `https://${inst.trim()}/w/${v.uuid}`;
       const dm = text.match(DECL_RE);
       if (dm) out.push(declRecord(dm[1] ?? "unknown", `peertube:${inst.trim()}`, url, text, v.channel?.name));
+      const rc = text.match(RECEIPT_RE);
+      if (rc) await noteClaim(env, rc[1], `peertube:${inst.trim()}`, v.channel?.name ?? "?", url, "receipt");
       await noteBind(env, text, url);
     }
   }
@@ -180,6 +193,8 @@ export async function pollHive(env: Env): Promise<FeedRecord[]> {
     if (dm) out.push(declRecord(dm[1] ?? "unknown", "hive", url, text, p.author));
     const cm = text.match(CLAIM_RE);
     if (cm) await noteClaim(env, cm[1], "hive", p.author ?? "?", url, text.includes("http") ? "submission" : "claim");
+    const rc = text.match(RECEIPT_RE);
+    if (rc) await noteClaim(env, rc[1], "hive", p.author ?? "?", url, "receipt");
     await noteBind(env, text, url);
   }
   }
@@ -198,6 +213,8 @@ export async function pollDevto(env: Env): Promise<FeedRecord[]> {
     if (dm) out.push(declRecord(dm[1] ?? "unknown", "devto", url, text, a.user?.username));
     const cm = text.match(CLAIM_RE);
     if (cm) await noteClaim(env, cm[1], "devto", a.user?.username ?? "?", url, "claim");
+    const rc = text.match(RECEIPT_RE);
+    if (rc) await noteClaim(env, rc[1], "devto", a.user?.username ?? "?", url, "receipt");
     await noteBind(env, text, url);
   }
   return out;

@@ -676,3 +676,155 @@ describe("resource sessions", () => {
     void ws1; void ws2; void loserWs;
   });
 });
+
+// ── surface adapter registry (widespread-adapter/1) ──
+
+import { adapterId, adapterSignMessage } from "../src/adapters";
+
+async function signedManifest(
+  k: Awaited<ReturnType<typeof sessionKey>>, over: Record<string, unknown> = {},
+) {
+  const body: Record<string, unknown> = {
+    schema: "widespread-adapter/1",
+    surface: "example.com",
+    kind: "api",
+    author: k.did,
+    auth: { type: "none", refresh: "manual", delegation: "none" },
+    ops: [{
+      name: "get_item", class: "read", endpoint: "/api/item", method: "GET",
+      verified: false, risk: "low",
+    }],
+    status: "draft",
+    issued_at: 1700000000,
+    ...over,
+  };
+  if (over.ops === undefined) body.ops = [{
+    name: "get_item", class: "read", endpoint: "/api/item", method: "GET",
+    verified: false, risk: "low",
+  }];
+  const id = await adapterId(body);
+  const sig = await k.sign(adapterSignMessage(id));
+  return { ...body, id, sig };
+}
+
+describe("adapter registry", () => {
+  const post = (m: unknown) => ({
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify(m),
+  });
+
+  it("publishes a signed manifest, dedupes, and lists it", async () => {
+    const { doo } = makeDO();
+    const k = await sessionKey();
+    const m = await signedManifest(k);
+    const r1 = await doo.fetch(new Request("https://x/api/adapters", post(m)));
+    expect(r1.status).toBe(200);
+    expect(((await r1.json()) as { id: string }).id).toBe(m.id);
+    const r2 = await doo.fetch(new Request("https://x/api/adapters", post(m)));
+    expect(((await r2.json()) as { deduped?: boolean }).deduped).toBe(true);
+
+    const list = await doo.fetch(new Request("https://x/api/adapters?surface=example.com"));
+    const { adapters } = await list.json() as { adapters: { id: string; surface: string }[] };
+    expect(adapters.map((a) => a.id)).toContain(m.id);
+
+    const one = await doo.fetch(new Request(`https://x/api/adapters/${m.id}`));
+    expect(((await one.json()) as { id: string }).id).toBe(m.id);
+  });
+
+  it("rejects bad signatures, id mismatches, and verified ops without assert", async () => {
+    const { doo } = makeDO();
+    const k = await sessionKey();
+    const k2 = await sessionKey();
+
+    // Forged signature (signed by a different key).
+    const forged = await signedManifest(k);
+    forged.sig = (await signedManifest(k2)).sig;
+    expect((await doo.fetch(new Request("https://x/api/adapters", post(forged)))).status).toBe(400);
+
+    // Tampered body — id no longer matches.
+    const tampered = await signedManifest(k);
+    tampered.surface = "evil.com";
+    expect((await doo.fetch(new Request("https://x/api/adapters", post(tampered)))).status).toBe(400);
+
+    // verified:true without verify.assert — honesty gate.
+    const noAssert = await signedManifest(k, {
+      ops: [{ name: "x", class: "read", endpoint: "/x", method: "GET",
+              verified: true, risk: "low" }],
+    });
+    expect((await doo.fetch(new Request("https://x/api/adapters", post(noAssert)))).status).toBe(400);
+
+    // Code-execution attempt — javascript: endpoint refused.
+    const js = await signedManifest(k, {
+      ops: [{ name: "x", class: "read", endpoint: "javascript:alert(1)",
+              method: "GET", verified: false, risk: "low" }],
+    });
+    expect((await doo.fetch(new Request("https://x/api/adapters", post(js)))).status).toBe(400);
+  });
+
+  it("supersedes chains link old → new", async () => {
+    const { doo, state } = makeDO();
+    const k = await sessionKey();
+    const v1 = await signedManifest(k);
+    await doo.fetch(new Request("https://x/api/adapters", post(v1)));
+    const v2 = await signedManifest(k, { supersedes: v1.id, issued_at: 1700000001 });
+    await doo.fetch(new Request("https://x/api/adapters", post(v2)));
+    const old = state.storage.map.get(`adapter:${v1.id}`) as { meta: { superseded_by: string | null } };
+    expect(old.meta.superseded_by).toBe(v2.id);
+  });
+
+  it("verify_fail telemetry auto-deprecates and posts a regen bounty", async () => {
+    const { doo } = makeDO();
+    const k = await sessionKey();
+    const m = await signedManifest(k);
+    await doo.fetch(new Request("https://x/api/adapters", post(m)));
+
+    const rep = (event: string) => doo.fetch(new Request(`https://x/api/adapters/${m.id}/report`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ event }),
+    }));
+    for (let i = 0; i < 5; i++) await rep("verify_fail");
+
+    const one = await doo.fetch(new Request(`https://x/api/adapters/${m.id}`));
+    const j = await one.json() as { status: string; meta: { verify_fail: number; bounty_posted: boolean } };
+    expect(j.status).toBe("deprecated");
+    expect(j.meta.verify_fail).toBe(5);
+    expect(j.meta.bounty_posted).toBe(true);
+
+    // The regen bounty landed in the declared-feed lane.
+    const claims = (doo as unknown as { env: Env }).env.CLAIMS as unknown as {
+      map: Map<string, string>;
+    };
+    const keys = [...claims.map.keys()].filter((k2) => k2.startsWith("feedrec:decl:"));
+    expect(keys.length).toBe(1);
+    const rec = JSON.parse(claims.map.get(keys[0])!) as { kind: string; claim: { grammar: string } };
+    expect(rec.kind).toBe("bounty");
+    expect(rec.claim.grammar).toContain("widespread claim adapter-regen:");
+  });
+
+  it("explicit deprecate requires author or admin; stats report coverage", async () => {
+    const { doo } = makeDO({ COORDINATOR_ADMIN: "adm" });
+    const k = await sessionKey();
+    const m = await signedManifest(k);
+    await doo.fetch(new Request("https://x/api/adapters", post(m)));
+
+    // Random author → 401.
+    const bad = await doo.fetch(new Request(`https://x/api/adapters/${m.id}/deprecate`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ author: "did:key:z6Mkbogus" }),
+    }));
+    expect(bad.status).toBe(401);
+
+    // Real author → deprecated.
+    const ok = await doo.fetch(new Request(`https://x/api/adapters/${m.id}/deprecate`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ author: m.author, reason: "site changed" }),
+    }));
+    expect(ok.status).toBe(200);
+
+    const stats = await doo.fetch(new Request("https://x/api/adapters/stats"));
+    const s = await stats.json() as { adapters: number; surfaces: number; by_status: Record<string, number> };
+    expect(s.adapters).toBe(1);
+    expect(s.surfaces).toBe(1);
+    expect(s.by_status.deprecated).toBe(1);
+  });
+});

@@ -206,6 +206,37 @@ POST /api/requests/:id/ticks/:seq/ack|dispute     → requester verdict
   `wide_request_tick_verdict`. A2A card advertises the
   `request-metered-resources` skill.
 
+### Surface adapters (act on anything)
+
+`widespread-adapter/1` manifests describe how to act on any external
+surface — social networks, marketplaces, forums, internal tools, desktop
+apps — as narrow declarative HTTP ops. They are generated client-side
+(REA `rea-agents` + browser capture, or `log` for social), signed
+Ed25519, and published to the advisory registry:
+
+```
+POST /api/adapters              signed manifest → dedupe + supersedes link
+GET  /api/adapters?surface=&kind=&status=&q=   catalog (ranked by verified ops)
+GET  /api/adapters/stats        live coverage metrics
+GET  /api/adapters/:id          manifest + lifecycle meta
+POST /api/adapters/:id/report   {event: import|invoke|verify_ok|verify_fail}
+POST /api/adapters/:id/deprecate {author|admin} → regen bounty to feed
+```
+
+- **Honesty gate**: `verified:true` requires `verify.assert`
+  (`post-exists|reply-visible|id-returned|state-changed|list-contains`)
+  — HTTP 200 alone is not verification. `draft` ops are labeled;
+  `deprecated` ops are refused.
+- **Self-healing catalog**: ≥5 cumulative `verify_fail` reports (or an
+  explicit deprecation) flips effective status to `deprecated` and posts
+  a regeneration bounty into the declared feed — adapter maintenance is
+  protocol work, paid through the same escrow rails.
+- **No code execution**: endpoints must be http(s) or site-relative —
+  manifests can never carry `javascript:`/`file:` payloads.
+- **Self-custody**: `auth.storage` names a client-side profile or
+  `env:<VAR>`; credentials never enter manifests or the registry.
+  Client-side runtime lives in the `widespread_surfaces` Hermes plugin.
+
 ## Deploy your own
 
 ```bash

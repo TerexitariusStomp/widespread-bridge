@@ -60,6 +60,11 @@ import {
 } from "../x402";
 import { checkMandate } from "../mandate";
 import { verifySiwx, type SiwxAuth } from "../siwx";
+import {
+  verifyAdapterManifest, effectiveStatus,
+  verifiedOpCount, type AdapterRecord,
+} from "../adapters";
+import type { FeedRecord } from "../types";
 import type { Env } from "../types";
 
 interface PendingJob {
@@ -489,6 +494,25 @@ export class CoordinatorDO implements DurableObject {
         if (!Number.isInteger(seq) || seq < 1) return this.json({ error: "tick seq required" }, 400);
         return this.handleTickVerdict(id, seq, verdict, req);
       }
+      return this.json({ error: "not found" }, 404);
+    }
+
+    // ── Surface adapter registry (widespread-adapter/1 manifests) ──
+    if (path === "/adapters" || path === "/api/adapters") {
+      if (req.method === "GET") return this.handleAdaptersList(url);
+      if (req.method === "POST") return this.handleAdapterPost(req);
+      return this.json({ error: "method not allowed" }, 405);
+    }
+    if ((path === "/adapters/stats" || path === "/api/adapters/stats") && req.method === "GET") {
+      return this.handleAdapterStats();
+    }
+    if (path.startsWith("/adapters/") || path.startsWith("/api/adapters/")) {
+      const rest = decodeURIComponent(path.slice(path.indexOf("adapters/") + 9));
+      const [id, action] = rest.split("/");
+      if (!id || id.length > 128) return this.json({ error: "adapter id required" }, 400);
+      if (!action && req.method === "GET") return this.handleAdapterGet(id);
+      if (action === "report" && req.method === "POST") return this.handleAdapterReport(id, req);
+      if (action === "deprecate" && req.method === "POST") return this.handleAdapterDeprecate(id, req);
       return this.json({ error: "not found" }, 404);
     }
 
@@ -1738,6 +1762,207 @@ export class CoordinatorDO implements DurableObject {
     for (const key of await this.keys(`offer:${nodeId}:`)) {
       await this.state.storage.delete(key);
     }
+  }
+
+  // ── Surface adapter registry ──
+
+  private adapterKey(id: string): string { return `adapter:${id}`; }
+
+  private async getAdapter(id: string): Promise<AdapterRecord | null> {
+    return (await this.state.storage.get(this.adapterKey(id))) as AdapterRecord | undefined ?? null;
+  }
+
+  private async listAdapters(): Promise<AdapterRecord[]> {
+    const out: AdapterRecord[] = [];
+    for (const key of await this.keys("adapter:")) {
+      const r = (await this.state.storage.get(key)) as AdapterRecord | undefined;
+      if (r?.manifest) out.push(r);
+    }
+    return out;
+  }
+
+  /** GET /api/adapters — catalog query. Ranked by verified-op count (the
+   *  honesty signal), then recency. Filters: surface, kind, status, q. */
+  private async handleAdaptersList(url: URL): Promise<Response> {
+    const surface = url.searchParams.get("surface")?.toLowerCase();
+    const kind = url.searchParams.get("kind");
+    const status = url.searchParams.get("status");
+    const q = url.searchParams.get("q")?.toLowerCase();
+    let recs = await this.listAdapters();
+    if (surface) recs = recs.filter((r) => r.manifest.surface === surface || r.manifest.surface.endsWith(`.${surface}`));
+    if (kind) recs = recs.filter((r) => r.manifest.kind === kind);
+    if (status) recs = recs.filter((r) => effectiveStatus(r) === status);
+    if (q) recs = recs.filter((r) =>
+      r.manifest.surface.includes(q) || r.manifest.author.includes(q) ||
+      r.manifest.ops.some((o) => o.name.includes(q)));
+    recs.sort((a, b) =>
+      verifiedOpCount(b.manifest) - verifiedOpCount(a.manifest) ||
+      b.manifest.issued_at - a.manifest.issued_at ||
+      a.manifest.id.localeCompare(b.manifest.id));
+    return this.json({
+      adapters: recs.slice(0, 500).map((r) => ({
+        ...r.manifest, status: effectiveStatus(r),
+        meta: { ...r.meta, verified_ops: verifiedOpCount(r.manifest) },
+      })),
+    });
+  }
+
+  /** GET /api/adapters/stats — live coverage metrics: the honest answer to
+   *  "how many surfaces can you actually act on?" */
+  private async handleAdapterStats(): Promise<Response> {
+    const recs = await this.listAdapters();
+    const byStatus: Record<string, number> = {};
+    const byKind: Record<string, number> = {};
+    const surfaces = new Set<string>();
+    let ops = 0, verifiedOps = 0;
+    for (const r of recs) {
+      const s = effectiveStatus(r);
+      byStatus[s] = (byStatus[s] ?? 0) + 1;
+      byKind[r.manifest.kind] = (byKind[r.manifest.kind] ?? 0) + 1;
+      surfaces.add(r.manifest.surface);
+      ops += r.manifest.ops.length;
+      verifiedOps += verifiedOpCount(r.manifest);
+    }
+    return this.json({
+      adapters: recs.length, surfaces: surfaces.size, ops, verified_ops: verifiedOps,
+      by_status: byStatus, by_kind: byKind,
+    });
+  }
+
+  private async handleAdapterGet(id: string): Promise<Response> {
+    const rec = await this.getAdapter(id);
+    if (!rec) return this.json({ error: "adapter not found" }, 404);
+    return this.json({ ...rec.manifest, status: effectiveStatus(rec), meta: rec.meta });
+  }
+
+  /** POST /api/adapters — publish a signed manifest. Dedupes by id;
+   *  links `supersedes` chains. The manifest signature is the only
+   *  admission requirement — the registry is advisory, clients re-probe
+   *  before trusting `verified` claims. */
+  private async handleAdapterPost(req: Request): Promise<Response> {
+    const body = (await req.json().catch(() => null)) as unknown;
+    if (!body) return this.json({ error: "json body required" }, 400);
+    const res = await verifyAdapterManifest(body);
+    if (!res.ok) return this.json({ error: res.error ?? "invalid manifest" }, 400);
+    const manifest = res.manifest;
+
+    const existing = await this.getAdapter(manifest.id);
+    if (existing) {
+      return this.json({ ok: true, id: manifest.id, deduped: true });
+    }
+    const rec: AdapterRecord = {
+      manifest,
+      meta: {
+        status: null, superseded_by: null, imports: 1, invocations: 0,
+        verify_ok: 0, verify_fail: 0, last_report_at: null, bounty_posted: false,
+      },
+    };
+    await this.state.storage.put(this.adapterKey(manifest.id), rec);
+    if (manifest.supersedes) {
+      const old = await this.getAdapter(manifest.supersedes);
+      if (old && !old.meta.superseded_by) {
+        old.meta.superseded_by = manifest.id;
+        await this.state.storage.put(this.adapterKey(old.manifest.id), old);
+      }
+    }
+    void this.audit("adapter.publish", {
+      id: manifest.id, surface: manifest.surface, kind: manifest.kind,
+      author: manifest.author, supersedes: manifest.supersedes ?? null,
+      verified_ops: verifiedOpCount(manifest),
+    });
+    return this.json({ ok: true, id: manifest.id });
+  }
+
+  /** POST /api/adapters/:id/report — client telemetry: invoke / verify_ok /
+   *  verify_fail / import. Repeated verify failures degrade the effective
+   *  status to deprecated and post a regeneration bounty to the feed —
+   *  adapter decay becomes paid work instead of silent breakage. */
+  private async handleAdapterReport(id: string, req: Request): Promise<Response> {
+    const body = (await req.json().catch(() => null)) as
+      | { event?: string; op?: string } | null;
+    if (!body?.event) return this.json({ error: "event required" }, 400);
+    const rec = await this.getAdapter(id);
+    if (!rec) return this.json({ error: "adapter not found" }, 404);
+    const m = rec.meta;
+    m.last_report_at = Date.now();
+    switch (body.event) {
+      case "import": m.imports++; break;
+      case "invoke": m.invocations++; break;
+      case "verify_ok": m.verify_ok++; break;
+      case "verify_fail": m.verify_fail++; break;
+      default: return this.json({ error: "event must be import|invoke|verify_ok|verify_fail" }, 400);
+    }
+    // Auto-degrade: ≥5 cumulative verify failures and the adapter is
+    // effectively broken in the wild. The signed manifest stays intact —
+    // only the registry's effective status moves.
+    if (m.verify_fail >= 5 && m.status !== "deprecated") {
+      m.status = "deprecated";
+      await this.postAdapterBounty(rec, "auto-degrade: ≥5 verify failures");
+    }
+    await this.state.storage.put(this.adapterKey(id), rec);
+    return this.json({ ok: true, status: effectiveStatus(rec), meta: m });
+  }
+
+  /** POST /api/adapters/:id/deprecate — explicit deprecation. Author or
+   *  admin only; emits the regeneration bounty once. */
+  private async handleAdapterDeprecate(id: string, req: Request): Promise<Response> {
+    const body = (await req.json().catch(() => null)) as
+      | { reason?: string; author?: string } | null;
+    const rec = await this.getAdapter(id);
+    if (!rec) return this.json({ error: "adapter not found" }, 404);
+    const admin = this.bearerOk(req, this.env.COORDINATOR_ADMIN || this.env.ADMIN_TOKEN);
+    if (!admin && body?.author !== rec.manifest.author) {
+      return this.json({ error: "unauthorized — author did:key or admin required" }, 401);
+    }
+    if (rec.meta.status !== "deprecated") {
+      rec.meta.status = "deprecated";
+      await this.postAdapterBounty(rec, body?.reason ?? "explicit deprecation");
+    }
+    await this.state.storage.put(this.adapterKey(id), rec);
+    return this.json({ ok: true, status: "deprecated" });
+  }
+
+  /** Write a regeneration opportunity into the declared-feed lane — the
+   *  protocol's own labor market maintains its adapter catalog. Deduped
+   *  per adapter via bounty_posted. */
+  private async postAdapterBounty(rec: AdapterRecord, reason: string): Promise<void> {
+    if (rec.meta.bounty_posted) return;
+    rec.meta.bounty_posted = true;
+    const short = rec.manifest.id.slice(0, 12);
+    const hash = `adapter-regen:${rec.manifest.surface}:${short}`;
+    const record: FeedRecord = {
+      id: hash,
+      source: "adapter-registry",
+      forge: "generic",
+      kind: "bounty",
+      title: `Regenerate widespread adapter for ${rec.manifest.surface} (${rec.manifest.kind})`,
+      spec: [
+        `Adapter ${rec.manifest.id} for ${rec.manifest.surface} is deprecated (${reason}).`,
+        `Inspect the surface with REA (@morluto/rea) or browser capture, then publish a`,
+        `superseding widespread-adapter/1 manifest via POST /api/adapters.`,
+        `Ops must carry side-effect-asserting verify metadata; verified ops need probe evidence.`,
+        `Old manifest: GET /api/adapters/${rec.manifest.id}`,
+      ].join("\n"),
+      escrow: { state: "label-only" },
+      verification: { required: "adapter-reprobe", spec_hash: hash },
+      url: `https://widespread-bridge.widespread.workers.dev/api/adapters/${rec.manifest.id}`,
+      claim: {
+        how: `submit superseding manifest (supersedes: ${rec.manifest.id}) via POST /api/adapters, then POST /api/claims`,
+        grammar: `widespread claim ${hash}`,
+      },
+      domain: "other",
+      deliverable_class: "publish",
+      execution: {
+        recommended: "browser-tab + REA inspection",
+        isolation: "client-side",
+        alternatives: ["self-hosted sealed runner"],
+        note: "adapter manifests are declarative HTTP only — no code execution",
+      },
+      created_at: Date.now(),
+      updated_at: Date.now(),
+    };
+    await this.env.CLAIMS.put(`feedrec:decl:${record.id}`, JSON.stringify(record));
+    void this.audit("adapter.regen-bounty", { adapter: rec.manifest.id, surface: rec.manifest.surface, reason });
   }
 
   private async findOffer(id: string): Promise<Offer | null> {

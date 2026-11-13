@@ -208,6 +208,7 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
     // endpoints (/status, /leaderboard, /rep, /operator, /earnings, /audit).
     if (pathname === "/api/nodes" || pathname.startsWith("/api/jobs") ||
         pathname.startsWith("/api/offers") || pathname.startsWith("/api/requests") ||
+        pathname.startsWith("/api/adapters") ||
         pathname.startsWith("/api/x402") ||
         pathname.startsWith("/api/coordinator")) {
       const res = handleCoordinatorRequest(req, env);
