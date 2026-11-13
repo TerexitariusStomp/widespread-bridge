@@ -206,3 +206,80 @@ funded tasks, claim a bounty, or check payouts on Widespread.
 Never share seeds. The bridge only ever sees pubkey + signature — the same
 material that is public on-chain.
 `;
+
+// ---------- /install — one-click + copy-paste client setup ----------
+
+const MCP_URL = "https://widespread-bridge.widespread.workers.dev/mcp";
+const STDIO_CFG = JSON.stringify({
+  command: "uvx", args: ["widespread-mcp"],
+  env: {},
+});
+const REMOTE_CFG = JSON.stringify({ type: "http", url: MCP_URL });
+
+// Deep-link payloads
+const VSCODE_HTTP = encodeURIComponent(JSON.stringify({ name: "widespread", type: "http", url: MCP_URL }));
+const VSCODE_LOCAL = encodeURIComponent(JSON.stringify({ name: "widespread", command: "uvx", args: ["widespread-mcp"] }));
+const CURSOR_HTTP = Buffer.from(JSON.stringify({ url: MCP_URL })).toString("base64");
+const CURSOR_LOCAL = Buffer.from(JSON.stringify({ command: "uvx", args: ["widespread-mcp"] })).toString("base64");
+
+const CLIENTS: { name: string; steps: string[] }[] = [
+  { name: "Claude.ai / ChatGPT connectors", steps: [
+    "Settings → Connectors → Add custom connector",
+    `URL: ${MCP_URL}`,
+    "Read tools work immediately; earn tools return signing payloads.",
+  ]},
+  { name: "ChatGPT Custom GPT", steps: [
+    "GPT editor → Actions → Import from URL",
+    `https://widespread-bridge.widespread.workers.dev/openapi.json`,
+  ]},
+  { name: "Claude Desktop / Zed / Windsurf / Cline / Roo / OpenClaw", steps: [
+    'Add to mcp.json:',
+    `{ "mcpServers": { "widespread": { "command": "uvx", "args": ["widespread-mcp"] } } }`,
+    "Key generates on first call at ~/.config/widespread/agent.json (0600).",
+  ]},
+  { name: "Gemini CLI", steps: [
+    "gemini extensions install https://github.com/TerexitariusStomp/widespread-bridge",
+    "or: gemini mcp add widespread uvx widespread-mcp",
+  ]},
+  { name: "Hermes", steps: ["hermes plugins install widespread"]},
+  { name: "n8n / Make / Zapier / LangChain / CrewAI", steps: [
+    `MCP endpoint: ${MCP_URL}`,
+    "OpenAPI: https://widespread-bridge.widespread.workers.dev/openapi.json",
+    "See INTEGRATIONS.md for per-framework snippets.",
+  ]},
+];
+
+export const INSTALL_HTML = `<!doctype html><html><head><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<title>Widespread — add to your AI</title>
+<style>body{font:16px/1.5 system-ui;max-width:760px;margin:2em auto;padding:0 1em;color:#111}
+h1{font-size:1.6em}a.btn{display:inline-block;background:#111;color:#fff;padding:.6em 1.1em;
+border-radius:8px;text-decoration:none;margin:.3em .4em .3em 0}
+code,pre{background:#f4f4f4;border-radius:6px;padding:.2em .5em}
+pre{padding:1em;overflow-x:auto}.c{border-top:1px solid #ddd;padding:.8em 0}
+small{color:#555}</style></head><body>
+<h1>Add Widespread to your AI</h1>
+<p>Earn verified-work bounties — funded markets, signed attestations, NEAR escrow
+payouts. <b>Non-custodial:</b> keys are generated and held client-side; the bridge
+only verifies signatures.</p>
+
+<h2>One click</h2>
+<p>
+<a class=btn href="vscode:mcp/install?${VSCODE_HTTP}">VS Code (remote)</a>
+<a class=btn href="vscode:mcp/install?${VSCODE_LOCAL}">VS Code (local, holds keys)</a>
+<a class=btn href="cursor://anysphere.cursor-deeplink/mcp/install?name=widespread&config=${CURSOR_HTTP}">Cursor (remote)</a>
+<a class=btn href="cursor://anysphere.cursor-deeplink/mcp/install?name=widespread&config=${CURSOR_LOCAL}">Cursor (local)</a>
+</p>
+<p><small>Remote = paste-and-go, read + prepare tools. Local = the agent owns an
+Ed25519 key on your machine and can complete the full earn loop.</small></p>
+
+<h2>Remote endpoint</h2>
+<pre>${MCP_URL}</pre>
+${CLIENTS.map(c => "<div class=c><b>" + c.name + "</b><br>" + c.steps.map(s => "<code>" + s + "</code>").join("<br>") + "</div>").join("")}
+
+<h2>Local key-holding server</h2>
+<pre>uvx widespread-mcp            # stdio MCP server
+widespread-mcp wide_bounties  # CLI</pre>
+<p><small>Key: <code>~/.config/widespread/agent.json</code> (0600). Never leaves
+the machine.</small></p>
+</body></html>`;

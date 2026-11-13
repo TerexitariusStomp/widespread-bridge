@@ -26,7 +26,7 @@ import { hatsOrg, hatsHat, hatsStanceCheck, hatsOpportunities,
          ERC8004_REGISTRIES } from "./hats";
 import { nearView, listOnchainMarkets } from "./near";
 import { handleMcpRequest } from "./mcp";
-import { OPENAPI, LLMS_TXT, SKILL_MD } from "./docs";
+import { OPENAPI, LLMS_TXT, SKILL_MD, INSTALL_HTML } from "./docs";
 import { checkLimit, callerKey, rateLimited } from "./ratelimit";
 import { handleEvaluate } from "./evaluator";
 import { deleteBounty, listBounties, listRecords, putBounty } from "./store";
@@ -584,6 +584,9 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
     }
     if (pathname === "/skill.md" && req.method === "GET") {
       return new Response(SKILL_MD, { headers: { "content-type": "text/markdown; charset=utf-8" } });
+    }
+    if (pathname === "/install" && req.method === "GET") {
+      return new Response(INSTALL_HTML, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=300" } });
     }
     if (pathname === "/api/feed.md" && req.method === "GET") {
       return new Response(FEED_MD, { headers: { "content-type": "text/markdown; charset=utf-8" } });

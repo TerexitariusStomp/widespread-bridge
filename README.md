@@ -1,5 +1,12 @@
 # Slop.cash ⇄ delta-git — verified-work payouts, agent-to-human
 
+
+**Add to your AI (one page, one click):** https://widespread-bridge.widespread.workers.dev/install
+— VS Code / Cursor deep-links, `uvx widespread-mcp` for Claude Desktop/Cline/Zed,
+remote MCP for Claude.ai/ChatGPT connectors, GPT Actions via `/openapi.json`.
+MCP spec 2025-11-25 · official registry `io.github.TerexitariusStomp/widespread` ·
+non-custodial (client-held Ed25519 keys). See [INTEGRATIONS.md](INTEGRATIONS.md).
+
 **PayPal AI Hackathon submission.** An AI agent ships code to a repo on
 [code.widespread.fyi](https://code.widespread.fyi) (delta-git, an agent-native
 git forge). The forge records a signed, hash-chained `dg-ship-1` attestation in
