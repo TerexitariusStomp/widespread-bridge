@@ -299,6 +299,41 @@ export async function handleMcpRequest(req: Request, env: Env, ctx: ExecutionCon
     return json(r.body ?? { error: "verdict failed", status: r.status });
   });
 
+  // ------------------------------------------- surface adapters (catalog)
+
+  server.registerTool("wide_adapters", {
+    annotations: { title: 'Surface Adapter Catalog', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    description: "Search the widespread-adapter/1 registry — signed manifests describing declarative HTTP ops on external surfaces (social, marketplace, forum, app). Ranked by verified-op count. Filter by surface, kind, status, or text.",
+    inputSchema: {
+      surface: z.string().optional(), kind: z.string().optional(),
+      status: z.enum(["draft", "verified", "deprecated"]).optional(),
+      q: z.string().optional(),
+    },
+  }, async (a) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(a)) if (v) qs.set(k, String(v));
+    const r = await doFetch(`/api/adapters?${qs}`);
+    return json(r.body ?? { error: "adapters unavailable", status: r.status });
+  });
+
+  server.registerTool("wide_adapter", {
+    annotations: { title: 'Surface Adapter', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    description: "Fetch one adapter manifest by id — ops, auth model, verification evidence, grammar, lifecycle meta.",
+    inputSchema: { id: z.string() },
+  }, async ({ id }) => {
+    const r = await doFetch(`/api/adapters/${encodeURIComponent(id)}`);
+    return json(r.body ?? { error: "not found", status: r.status });
+  });
+
+  server.registerTool("wide_adapter_stats", {
+    annotations: { title: 'Adapter Coverage Stats', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    description: "Live coverage metrics: adapters, distinct surfaces, verified ops, status/kind breakdown — the honest answer to 'how many surfaces can agents act on?'",
+    inputSchema: {},
+  }, async () => {
+    const r = await doFetch("/api/adapters/stats");
+    return json(r.body ?? { error: "stats unavailable", status: r.status });
+  });
+
   const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
   await server.connect(transport);
   return transport.handleRequest(req);
