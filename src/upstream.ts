@@ -84,7 +84,7 @@ const PROVERS: Record<string, Prover> = {
   theta: fmt(/^[0-9a-zA-Z_-]{4,128}$/, "theta", false),                 // edgelauncher job id / node addr
   aioz: fmt(/^[0-9a-zA-Z_-]{4,128}$/, "aioz", false),                  // dCDN task id
   hopr: fmt(/^0x[0-9a-fA-F]{40}$|^0x[0-9a-fA-F]{64}$|^[1-9A-HJ-NP-Za-km-z]{44,60}$/, "hopr", true, evmTxProver("UPSTREAM_HOPR_RPC")), // channel/tx on Gnosis, or libp2p peer id (format-only)
-  nosana: fmt(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/, "nosana", false),        // solana address
+  nosana: fmt(/^[1-9A-HJ-NP-Za-km-z]{32,88}$/, "nosana", false),       // solana address / job id (job post returns tx sig or job pubkey)
   ionet: fmt(/^[0-9a-zA-Z_-]{6,64}$/, "ionet", true,
     httpApiProver("UPSTREAM_IONET_EXPLORER", "https://api.io.solutions",
       (id) => `/v1/io-explorer/devices/${encodeURIComponent(id)}/details`,
@@ -112,11 +112,65 @@ const PROVERS: Record<string, Prover> = {
   bee: fmt(/^0x[0-9a-fA-F]{64}$|^[0-9a-fA-F]{64}$|^0x[0-9a-fA-F]{40}$/, "bee", true, evmTxProver("UPSTREAM_BEE_RPC")), // overlay/chequebook/tx on Gnosis
   "bee-peer": fmt(/^[0-9a-fA-F]{64}$/, "bee", false),
   autonomi: fmt(/^0x[0-9a-fA-F]{40}$|^[1-9A-HJ-NP-Za-km-z]{40,60}$/, "autonomi", false), // rewards addr (EVM) / peer id
-  akash: fmt(/^akash1[0-9a-z]{20,60}$|^[0-9a-zA-Z._-]{6,64}$/, "akash", false), // akash1... provider addr
+  akash: fmt(/^(dseq|provider|lease):[0-9a-zA-Z:._-]{2,80}$|^akash1[0-9a-z]{20,60}$|^[0-9a-zA-Z._-]{6,64}$/, "akash", false), // dseq/provider refs from serve() deploys, akash1... provider addr
   arweave: fmt(/^[0-9a-zA-Z_-]{43}$|^[0-9a-zA-Z_-]{20,64}$/, "arweave", false), // block hash / wallet addr
   gaianet: fmt(/^[0-9a-zA-Z._-]{4,80}$/, "gaianet", false),
   "gaianet-model": fmt(/^[0-9a-zA-Z._\/-]{3,80}$/, "gaianet", false),
   nkn: fmt(/^NKN[0-9a-zA-Z]{30,50}$|^[0-9a-f]{64}$|^[0-9a-zA-Z._-]{8,80}$/, "nkn", false),
+  // attest:<url> — TEE attestation doc (tinfoil/dstack style
+  // `/.well-known/*-attestation`). Full DCAP/SGX quote verification
+  // needs native libs workerd lacks; the honest tier fetches the doc,
+  // checks shape + freshness, and marks verified only when an external
+  // verifier (UPSTREAM_ATTEST_VERIFY_URL) confirms the quote.
+  attest: fmt(/^https?:\/\/[0-9a-zA-Z._\-/:?=&%]{8,300}$/, "attest", true,
+    async (env, opaque) => {
+      const verifyUrl = (env as unknown as Record<string, string | undefined>).UPSTREAM_ATTEST_VERIFY_URL;
+      try {
+        const res = await fetch(opaque, {
+          headers: { accept: "application/json" }, signal: AbortSignal.timeout(8000),
+        });
+        if (!res.ok) return { ok: false, detail: `attestation doc HTTP ${res.status}` };
+        const doc = await res.json() as Record<string, unknown>;
+        const hasShape = doc && typeof doc === "object" &&
+          (doc.verifier || doc.measurement || doc.quote || doc.evidence || doc.attestation);
+        if (!hasShape) return { ok: false, detail: "attestation doc missing verifier/measurement/quote fields" };
+        if (!verifyUrl) {
+          return { ok: false, detail: "attestation doc well-formed but unsigned-quote verification needs UPSTREAM_ATTEST_VERIFY_URL" };
+        }
+        const v = await fetch(verifyUrl, {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ doc, url: opaque }), signal: AbortSignal.timeout(15000),
+        });
+        const out = await v.json() as { verified?: boolean; detail?: string };
+        return out.verified
+          ? { ok: true, detail: out.detail || "TEE quote verified" }
+          : { ok: false, detail: out.detail || "external verifier rejected quote" };
+      } catch (e) {
+        return { ok: false, detail: `attestation unreachable: ${e instanceof Error ? e.message : e}` };
+      }
+    }),
+  // zktls:<proof-id> — zkTLS proof (TLSNotary/Reclaim-style). The proof
+  // itself lives off-chain; verification delegates to a configured
+  // prover service (UPSTREAM_ZKTLS_PROVER_URL) which runs the real
+  // TLSNotary/Reclaim verification. Without it, format-only.
+  zktls: fmt(/^[0-9a-zA-Z._:/-]{4,200}$/, "zktls", true,
+    async (env, opaque) => {
+      const prover = (env as unknown as Record<string, string | undefined>).UPSTREAM_ZKTLS_PROVER_URL;
+      if (!prover) return { ok: false, detail: "no zkTLS prover configured (UPSTREAM_ZKTLS_PROVER_URL)" };
+      try {
+        const res = await fetch(prover, {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ proof_id: opaque }), signal: AbortSignal.timeout(20000),
+        });
+        if (!res.ok) return { ok: false, detail: `zkTLS prover HTTP ${res.status}` };
+        const out = await res.json() as { verified?: boolean; detail?: string };
+        return out.verified
+          ? { ok: true, detail: out.detail || "zkTLS proof verified" }
+          : { ok: false, detail: out.detail || "zkTLS proof rejected" };
+      } catch (e) {
+        return { ok: false, detail: `zkTLS prover unreachable: ${e instanceof Error ? e.message : e}` };
+      }
+    }),
   // challenge refs — resolved against our own coordinator, the strongest tier
   challenge: fmt(/^[A-Za-z0-9._:-]{4,128}:\d+$/, "challenge", true),
 };
