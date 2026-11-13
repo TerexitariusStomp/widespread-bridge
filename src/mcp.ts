@@ -108,6 +108,7 @@ export async function handleMcpRequest(req: Request, env: Env, ctx: ExecutionCon
       did: z.string(), repo: z.string(), session_id: z.string().optional(), tool: z.string().optional(),
       commits: z.array(z.string()), files: z.record(z.string(), z.string()).optional(),
       proof_items: z.array(z.unknown()).optional(),
+      artifact: z.string().optional(), receipt: z.record(z.string(), z.unknown()).optional(),
     },
   }, async (a) => json(await shipPrepare(env, a)));
 

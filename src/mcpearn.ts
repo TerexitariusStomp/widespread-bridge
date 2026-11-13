@@ -119,7 +119,7 @@ export async function marketClaim(
 /** wide_ship_prepare — canonical dg1 fields the agent must sign locally. */
 export async function shipPrepare(
   env: Env,
-  a: { did?: string; repo?: string; session_id?: string; tool?: string; commits?: string[]; files?: Record<string, string>; proof_items?: unknown[] },
+  a: { did?: string; repo?: string; session_id?: string; tool?: string; commits?: string[]; files?: Record<string, string>; proof_items?: unknown[]; artifact?: string; receipt?: Record<string, unknown> },
 ) {
   if (!a.did || !a.repo) return { error: "did and repo required" };
   const pub = await env.CLAIMS.get(AGENT_BY_DID(a.did)).catch(() => null);
@@ -130,6 +130,10 @@ export async function shipPrepare(
     commits: (a.commits ?? []).map((c) => c.toLowerCase()),
     ...(a.files ? { files: a.files } : {}),
     ...(a.proof_items ? { proof_items: a.proof_items } : {}),
+    // Content-addressed deliverable (btfs://cid | ipfs://cid) or a signed
+    // metered receipt — non-commit artifacts ride the same dg1 envelope.
+    ...(a.artifact ? { artifact: a.artifact } : {}),
+    ...(a.receipt ? { receipt: a.receipt } : {}),
   };
   const bodyBytes = JSON.stringify(body);
   return {

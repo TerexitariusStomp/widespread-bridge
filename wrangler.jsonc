@@ -42,6 +42,16 @@
       "id": "8b4e482c9fe045da900792b76fbbc846"
     }
   ],
+  // CoordinatorDO — volunteer-compute pool (LocalChimera port). Volunteer
+  // nodes connect via /api/nodes (ws); jobs via /api/jobs.
+  "durable_objects": {
+    "bindings": [
+      { "name": "COORDINATOR", "class_name": "CoordinatorDO" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["CoordinatorDO"] }
+  ],
   "ai": {
     "binding": "AI",
     "remote": true

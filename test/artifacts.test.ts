@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import {
   parseArtifactRef, isCid, validateCidArtifact, validateReceipt,
-  receiptCanonical, meterSpec, verifyJobRecordSig,
+  receiptCanonical, receiptId, meterSpec, verifyJobRecordSig, canonicalJson,
   type MeteredReceipt,
 } from "../src/artifacts";
 import { validateForgeSubmission } from "../src/claims";
@@ -89,28 +89,34 @@ describe("validateCidArtifact", () => {
 
 // --- receipts --------------------------------------------------------------
 
+/** Mirror of the runner's signReceipt: id = sha256(canonicalJson(body)),
+ * sig = ed25519 over `widespread-receipt:<id>`, fields pubkey+sig hex. */
 async function signReceipt(
-  payload: Omit<MeteredReceipt, "sig_hex">, priv: CryptoKey,
+  body: Record<string, unknown>, priv: CryptoKey, pub: Uint8Array,
 ): Promise<MeteredReceipt> {
   const digest = await crypto.subtle.digest("SHA-256",
-    new TextEncoder().encode(JSON.stringify(payload)));
-  const digestHex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-  const canonical = `widespread-receipt\n${payload.id}\n${digestHex}`;
-  const sig = await crypto.subtle.sign("Ed25519", priv, new TextEncoder().encode(canonical));
-  return { ...payload, sig_hex: [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("") };
+    new TextEncoder().encode(canonicalJson(body)));
+  const id = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  const sig = await crypto.subtle.sign("Ed25519", priv,
+    new TextEncoder().encode(`widespread-receipt:${id}`));
+  return {
+    ...body, id,
+    pubkey: [...pub].map((b) => b.toString(16).padStart(2, "0")).join(""),
+    sig: [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join(""),
+  } as MeteredReceipt;
 }
 
-async function makeReceipt(over: Partial<MeteredReceipt> = {}) {
+async function makeReceipt(over: Record<string, unknown> = {}) {
   const pair = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
   const pub = new Uint8Array(await crypto.subtle.exportKey("raw", pair.publicKey));
   const node_did = didKeyFromPublicKey(pub);
-  const payload: Omit<MeteredReceipt, "sig_hex"> = {
-    id: "rcpt-test-1", node_did, meter_kind: "bandwidth_gb",
+  const body = {
+    v: 1, market: "mkt-1", node_did, meter_kind: "bandwidth_gb",
     units: { bandwidth_gb: 12.5 }, period_secs: 604800,
-    upstream_refs: ["mysterium:sess-abc123"], issued_at: Date.now(),
+    upstream_refs: ["mysterium:sess-abc123"], issued_at: Math.floor(Date.now() / 1000),
     ...over,
   };
-  return { receipt: await signReceipt(payload, pair.privateKey), pair, node_did };
+  return { receipt: await signReceipt(body, pair.privateKey, pub), pair, node_did };
 }
 
 const RESOURCE_MARKET = { spec: "serve exit bandwidth meter:bandwidth_gb threshold:10 window:7d" };
@@ -128,11 +134,12 @@ describe("meterSpec", () => {
 });
 
 describe("validateReceipt", () => {
-  const rcptRef = { kind: "receipt" as const, receiptId: "rcpt-test-1" };
+  const refFor = (receipt: MeteredReceipt) =>
+    ({ kind: "receipt" as const, receiptId: receipt.id });
 
   it("accepts a signed receipt at threshold with upstream refs", async () => {
     const { receipt } = await makeReceipt();
-    const { failures, evidence } = await validateReceipt(fakeEnv(), rcptRef, RESOURCE_MARKET, { receipt });
+    const { failures, evidence } = await validateReceipt(fakeEnv(), refFor(receipt), RESOURCE_MARKET, { receipt });
     expect(failures).toEqual([]);
     expect(evidence.sig_verified).toBe(true);
     expect(evidence.device_did).toBe(receipt.node_did);
@@ -142,26 +149,33 @@ describe("validateReceipt", () => {
   it("rejects a forged signature", async () => {
     const { receipt } = await makeReceipt();
     const forged = { ...receipt, units: { bandwidth_gb: 9999 } }; // mutate after signing
-    const { failures } = await validateReceipt(fakeEnv(), rcptRef, RESOURCE_MARKET, { receipt: forged });
+    const { failures } = await validateReceipt(fakeEnv(), refFor(receipt), RESOURCE_MARKET, { receipt: forged });
     expect(failures[0]).toMatch(/signature does not verify/);
   });
 
   it("rejects below-threshold metering", async () => {
     const { receipt } = await makeReceipt({ units: { bandwidth_gb: 3 } });
-    const { failures } = await validateReceipt(fakeEnv(), rcptRef, RESOURCE_MARKET, { receipt });
+    const { failures } = await validateReceipt(fakeEnv(), refFor(receipt), RESOURCE_MARKET, { receipt });
     expect(failures[0]).toMatch(/below market threshold/);
   });
 
   it("rejects self-reported metering with no corroboration", async () => {
     const { receipt } = await makeReceipt({ upstream_refs: [] });
-    const { failures } = await validateReceipt(fakeEnv(), rcptRef, RESOURCE_MARKET, { receipt });
+    const { failures } = await validateReceipt(fakeEnv(), refFor(receipt), RESOURCE_MARKET, { receipt });
     expect(failures.some((f) => /unverifiable metering/.test(f))).toBe(true);
   });
 
   it("rejects when market declares no measurable threshold", async () => {
     const { receipt } = await makeReceipt();
-    const { failures } = await validateReceipt(fakeEnv(), rcptRef, { spec: "do good work" }, { receipt });
+    const { failures } = await validateReceipt(fakeEnv(), refFor(receipt), { spec: "do good work" }, { receipt });
     expect(failures[0]).toMatch(/no measurable threshold/);
+  });
+
+  it("rejects a ref whose id doesn't match the receipt body", async () => {
+    const { receipt } = await makeReceipt();
+    const { failures } = await validateReceipt(
+      fakeEnv(), { kind: "receipt", receiptId: "f".repeat(64) }, RESOURCE_MARKET, { receipt });
+    expect(failures[0]).toMatch(/does not match ref/);
   });
 
   it("did:key roundtrips pubkey encode/decode", async () => {
@@ -190,15 +204,17 @@ describe("upstream provers", () => {
 });
 
 describe("job records", () => {
-  it("verifies HMAC job record signatures", async () => {
+  it("verifies hmac-sha256 job record signatures (canonical JSON)", async () => {
     const secret = "test-attest-secret";
     const record = { jobId: "j1", taskType: 400, status: "done", results: [{ volunteer: "v1", did: "did:key:z6Mk", result: "{}" }] };
     const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret),
       { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-    const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(JSON.stringify(record)));
-    const signed = { ...record, sig: [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("") };
+    const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(canonicalJson(record)));
+    const signed = { ...record, sig: `hmac-sha256:${[...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("")}` };
     expect(await verifyJobRecordSig(fakeEnv(), signed)).toBe(true);
     expect(await verifyJobRecordSig(fakeEnv(), { ...signed, status: "failed" })).toBe(false);
+    // unsigned record fails when a secret is configured
+    expect(await verifyJobRecordSig(fakeEnv(), { ...record, sig: null })).toBe(false);
   });
 });
 
@@ -215,7 +231,7 @@ describe("validateForgeSubmission dispatch", () => {
   it("routes rcpt:// refs to receipt validation", async () => {
     const { receipt } = await makeReceipt();
     const { failures } = await validateForgeSubmission(fakeEnv(), {
-      forgeRef: "rcpt://rcpt-test-1", evidence: { receipt },
+      forgeRef: `rcpt://${receipt.id}`, evidence: { receipt },
       market: RESOURCE_MARKET,
     });
     expect(failures).toEqual([]);

@@ -14,7 +14,7 @@
 //   challenge log      → that metered service was actually delivered
 
 import type { Env } from "./types";
-import { verifyDidKey } from "./coordinator/didkey";
+import { verifyDidKey, didKeyFromPublicKey } from "./coordinator/didkey";
 import { verifyUpstreamRef, UPSTREAM_NETWORKS } from "./upstream";
 
 export type ArtifactRef =
@@ -133,30 +133,62 @@ export async function validateCidArtifact(
 // -------------------------------------------------------------- receipts
 
 export interface MeteredReceipt {
-  id: string;
-  node_did: string;              // did:key:z… — signs the receipt
+  id: string;                    // sha256 of the canonical body — recomputed, never trusted
+  node_did: string;              // did:key:z… — identity the pubkey must derive to
   meter_kind: string;            // bandwidth_gb | storage_gb_mo | compute_hrs | tokens | …
   units: Record<string, number>;
   period_secs: number;
   upstream_refs?: string[];      // net:opaque-id — see upstream.ts
   coordinator_job?: string;      // jobId when issued inside a coordinator job
-  issued_at: number;
-  sig_hex: string;               // ed25519 over canonical receipt
+  job?: string | null;           // runner's alias for coordinator_job
+  issued_at: number;             // unix seconds (ms tolerated)
+  challenge_only?: boolean;
+  pubkey: string;                // hex ed25519 public key — signs the receipt
+  sig: string;                   // hex ed25519 sig over `widespread-receipt:<id>`
+  [k: string]: unknown;
 }
 
-/** Canonical receipt payload: `widespread-receipt\n<id>\n<sha256(payloadJson)>`
- * where payloadJson is the receipt minus sig_hex (insertion-order JSON). */
+/** Sorted-keys canonical JSON — must match the runner's encoding
+ * (widespread-runner/src/reputation/receipts.js) byte for byte. */
+export function canonicalJson(v: unknown): string {
+  if (v === null || typeof v !== "object") return JSON.stringify(v);
+  if (Array.isArray(v)) return "[" + v.map(canonicalJson).join(",") + "]";
+  const keys = Object.keys(v as Record<string, unknown>).sort();
+  return "{" + keys
+    .map((k) => JSON.stringify(k) + ":" + canonicalJson((v as Record<string, unknown>)[k]))
+    .join(",") + "}";
+}
+
+function hexBytes(hex: string, len: number): Uint8Array | null {
+  if (!/^[0-9a-fA-F]+$/.test(hex) || hex.length !== len * 2) return null;
+  const out = new Uint8Array(len);
+  for (let i = 0; i < len; i++) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  return out;
+}
+
+/** Content-derived receipt id — sha256 over the canonical body minus
+ * id/sig/pubkey fields (the runner's receiptId()). */
+export async function receiptId(receipt: Record<string, unknown>): Promise<string> {
+  const { id: _i, sig: _s, signature: _x, pubkey: _p, ...body } = receipt;
+  return sha256HexBuf(new TextEncoder().encode(canonicalJson(body)));
+}
+
+/** Canonical signed payload: `widespread-receipt:<id>` — the exact string
+ * the runner signs (src/reputation/receipts.js signReceipt). */
 export async function receiptCanonical(receipt: MeteredReceipt): Promise<string> {
-  const { sig_hex: _sig, ...payload } = receipt;
-  const digest = await sha256HexBuf(new TextEncoder().encode(JSON.stringify(payload)));
-  return `widespread-receipt\n${receipt.id}\n${digest}`;
+  return `widespread-receipt:${await receiptId(receipt)}`;
 }
 
 export async function verifyReceiptSig(receipt: MeteredReceipt): Promise<boolean> {
-  if (!receipt?.sig_hex || !/^[0-9a-fA-F]{128}$/.test(receipt.sig_hex)) return false;
-  const sig = new Uint8Array(64);
-  for (let i = 0; i < 64; i++) sig[i] = parseInt(receipt.sig_hex.slice(i * 2, i * 2 + 2), 16);
-  return verifyDidKey(receipt.node_did, await receiptCanonical(receipt), sig);
+  const pub = typeof receipt?.pubkey === "string" ? hexBytes(receipt.pubkey, 32) : null;
+  const sig = typeof receipt?.sig === "string" ? hexBytes(receipt.sig, 64) : null;
+  if (!pub || !sig) return false;
+  // The embedded pubkey must derive to the declared node_did — otherwise a
+  // receipt could carry a valid sig under a key that isn't the node's.
+  if (didKeyFromPublicKey(pub) !== receipt.node_did) return false;
+  const id = await receiptId(receipt);
+  if (receipt.id !== id) return false;
+  return verifyDidKey(receipt.node_did, `widespread-receipt:${id}`, sig);
 }
 
 /** Parse `meter:<kind> threshold:<n> window:<dur>` tokens from a market spec —
@@ -219,16 +251,22 @@ async function hmacHex(secret: string, data: string): Promise<string> {
   return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-/** Verify a coordinator job record's provenance sig — HMAC over the record
- * minus `sig` (insertion-order JSON; the coordinator emits fields in stable
- * order). Unsigned records pass only when no secret is configured (dev). */
+/** Verify a coordinator job record's provenance sig — `hmac-sha256:<hex>`
+ * over canonicalJson(record minus sig). Unsigned records pass only when no
+ * secret is configured (dev); signed records always verify or fail. */
 export async function verifyJobRecordSig(env: Env, record: JobRecord): Promise<boolean> {
   const secret = env.COORDINATOR_SECRET ?? env.ATTEST_SECRET ?? env.ADMIN_TOKEN;
-  if (!record.sig) return !secret; // unsigned record acceptable only in dev
-  if (!secret) return false;       // signed record but we can't check
+  const sig = typeof record.sig === "string" ? record.sig : "";
+  const m = sig.match(/^hmac-sha256:([0-9a-f]{64})$/i);
+  if (!sig || sig === "null") return !secret; // unsigned record acceptable only in dev
+  if (!m || !secret) return false;
   const { sig: _s, ...payload } = record;
-  const expected = await hmacHex(secret, JSON.stringify(payload));
-  return expected === record.sig;
+  const expected = await hmacHex(secret, canonicalJson(payload));
+  // constant-time compare
+  if (expected.length !== m[1].length) return false;
+  let diff = 0;
+  for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ m[1].charCodeAt(i);
+  return diff === 0;
 }
 
 /** Validate a rcpt:// claim: device signature, threshold vs the market's
@@ -251,8 +289,12 @@ export async function validateReceipt(
   if (!receipt.node_did?.startsWith("did:key:")) failures.push("receipt.node_did must be a did:key");
   if (typeof receipt.units !== "object" || !receipt.units) failures.push("receipt.units missing");
   if (typeof receipt.period_secs !== "number" || receipt.period_secs <= 0) failures.push("receipt.period_secs invalid");
-  if (receipt.issued_at && Math.abs(Date.now() - receipt.issued_at) > 35 * 86400_000) {
-    failures.push("receipt is stale (>35 days old)");
+  if (receipt.issued_at) {
+    // Runner stamps unix seconds; tolerate ms too.
+    const at = receipt.issued_at > 1e12 ? receipt.issued_at : receipt.issued_at * 1000;
+    if (Math.abs(Date.now() - at) > 35 * 86400_000) {
+      failures.push("receipt is stale (>35 days old)");
+    }
   }
   if (failures.length) return { failures, evidence: out };
 
@@ -300,7 +342,8 @@ export async function validateReceipt(
   const upstreamVerified = upstream.some((u) => u.verified);
 
   let challengeOk = false;
-  const jobId = receipt.coordinator_job ?? (typeof evidence.coordinator_job === "string" ? evidence.coordinator_job : null);
+  const jobId = receipt.coordinator_job ?? (typeof receipt.job === "string" ? receipt.job : null)
+    ?? (typeof evidence.coordinator_job === "string" ? evidence.coordinator_job : null);
   if (jobId) {
     const job = await loadJobRecord(env, jobId);
     if (job) {

@@ -85,6 +85,30 @@ export interface Env {
   /** Optional X API bearer — upgrades x-post verification + timelines to
    * proof tier (oembed fallback stays weak without it). */
   X_BEARER_TOKEN?: string;
+  // ── CoordinatorDO — volunteer-compute pool (LocalChimera port) ──
+  /** Admin bearer for coordinator /api/jobs + /audit + /drill (falls back
+   *  to ADMIN_TOKEN). */
+  COORDINATOR_ADMIN?: string;
+  /** Fallback public base for the feed-ingest alarm step (PUBLIC_BASE wins). */
+  BRIDGE_BASE?: string;
+  /** Optional shared secret gating volunteer websocket connects. */
+  VOLUNTEER_TOKEN?: string;
+  /** Feed-market ingest cadence (default 120000). */
+  MARKET_INGEST_INTERVAL_MS?: string;
+  /** Resource-job challenge cadence (default 300000). */
+  CHALLENGE_INTERVAL_MS?: string;
+  /** DO alarm cadence (default 15000). */
+  POLL_INTERVAL_MS?: string;
+  /** Job result timeout (default 60000). */
+  JOB_RESULT_TIMEOUT_MS?: string;
+  /** Honesty-canary cadence (default 30 min). */
+  CANARY_INTERVAL_MS?: string;
+  /** Undispatchable pending-job TTL (default 1h). */
+  PENDING_TTL_MS?: string;
+  /** Job payload size cap in bytes (default 8192). */
+  MAX_PAYLOAD_BYTES?: string;
+  /** Registered-volunteer pool cap (default 5000). */
+  MAX_VOLUNTEERS?: string;
 }
 
 /** Normalized discovery record — one funded work item from any source.

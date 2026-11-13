@@ -43,7 +43,12 @@ import { handleMirrorClaimPost, handleMirrorClaimsList, handleMirrorClaimTimeout
 import { scanMirrorSubmissions } from "./ingest";
 import { agentCard, createDispatch, handleA2a, listDispatches, markDispatch, settleCalldata } from "./dispatch";
 import { listDispatchSubmissions, scanDispatchChannels } from "./collect";
+import { handleCoordinatorRequest } from "./coordinator/index";
 import type { FeedRecord, Bounty, Env } from "./types";
+
+// Durable Object class must be exported from the worker entry for the
+// wrangler `class_name` binding to resolve.
+export { CoordinatorDO } from "./coordinator/coordinator-do";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body, null, 2), {
@@ -197,6 +202,16 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
     const url = new URL(req.url);
     const { pathname } = url;
 
+    // CoordinatorDO surface — volunteer nodes connect over ws at /api/nodes,
+    // jobs are created via POST /api/jobs and their signed public records
+    // read via GET /api/jobs/:id; /api/coordinator/* forwards the read
+    // endpoints (/status, /leaderboard, /rep, /operator, /earnings, /audit).
+    if (pathname === "/api/nodes" || pathname.startsWith("/api/jobs") ||
+        pathname.startsWith("/api/coordinator")) {
+      const res = handleCoordinatorRequest(req, env);
+      if (res) return res;
+      return bad("coordinator not configured", 503);
+    }
     if (pathname === "/" || pathname === "/index.html") {
       return cachedPage(url, req, () => homePage(env, ctx));
     }

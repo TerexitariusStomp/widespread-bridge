@@ -146,6 +146,33 @@ identity statements — instances configurable via `LEMMY_INSTANCES`,
 public timeline on any of these platforms feeds the soft style/history signal —
 a scoring input, never an authorship gate.
 
+### Universal artifacts & machine-resource markets
+
+`POST /api/claims` accepts four artifact kinds — a forge PR is one shape, not
+the only one:
+
+| `forgeRef` | Deliverable | Verification |
+|---|---|---|
+| `github.com/o/r/pull/N` | code | patch fingerprint + author binding |
+| `btfs://<cid>` · `ipfs://<cid>` | any content-addressed artifact — files, datasets, research, inference output (no forge account needed) | CID shape + gateway resolvability, or inline content hash |
+| `job:<id>` / `/api/jobs/<id>` | coordinator-dispatched work | signed job record (HMAC), replica tally, challenge log |
+| `rcpt://<id>` + `evidence.receipt` | metered machine service — compute, bandwidth, storage, inference | did:key signature + `meter:X threshold:N` vs the market spec + upstream proofs or coordinator challenges |
+
+Resource markets are declared with `wide_bounty_declare
+{deliverable_class:"resource", meter, threshold, window}` — the acceptance
+rule is objective (e.g. `meter:bandwidth_gb threshold:10 window:7d`), not a
+judgment call. Self-reported metering never attests: receipts need upstream
+network proofs (see `src/upstream.ts` prover registry) or a clean
+coordinator challenge log. Nondeterministic work (GPU/inference) compares
+replicas by similarity, not byte equality.
+
+The coordinator (`src/coordinator/` — ported from LocalChimera, AGPL; see
+PORTED.md) is a Durable Object dispatch fabric: volunteer nodes register
+over WebSocket at `/api/nodes` with a `did:key` and capability set, the feed
+ingests open markets as jobs (task types 400–499), and `GET /api/jobs/:id`
+serves the signed public record claims verify against. Nodes are
+[widespread-runner](https://github.com/TerexitariusStomp/widespread-runner).
+
 ## Deploy your own
 
 ```bash

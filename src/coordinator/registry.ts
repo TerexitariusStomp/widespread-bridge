@@ -56,7 +56,7 @@ export const RESOURCE_KIND_TASK: Record<string, number> = {
 /** Task types whose results are deterministic — replica agreement is a
  *  normalized-equality check. 402 (inference) is compared by similarity
  *  on the bridge side instead. */
-export const DETERMINISTIC_TASKS = new Set([
+export const DETERMINISTIC_TASKS = new Set<number>([
   WIDESPREAD.TASK_CLAIM,
   WIDESPREAD.TASK_VERIFY,
   WIDESPREAD.TASK_ARTIFACT,
