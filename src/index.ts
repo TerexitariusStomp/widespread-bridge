@@ -578,7 +578,8 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
       });
     }
     if (pathname === "/poe" && req.method === "POST") {
-      const body = await req.json().catch(() => ({})) as { query?: Array<{ role: string; content: string }> };
+      const body = await req.json().catch(() => ({})) as { type?: string; query?: Array<{ role: string; content: string }> };
+      if (body.type && body.type !== "query") return new Response("{}", { headers: { "content-type": "application/json" } });
       const last = body.query?.slice(-1)[0]?.content ?? "";
       const doc = await feedDoc(env, ctx);
       let text: string;

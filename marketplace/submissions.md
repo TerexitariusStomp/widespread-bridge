@@ -51,3 +51,22 @@ None required — the read surface is fully public; state "no credentials needed
 - **LobeHub**: lhm.plugin.json + `npx @lobehub/market-cli` (browser login + github connect)
 - **Claude Directory** (claude.ai/directory/manage): needs paid plan; all assets ready
 - **Pipedream**: components/widespread/ scaffold PR
+
+## Coding-agent libraries (2026-02)
+
+| Surface | Artifact | State |
+|---|---|---|
+| Canonical skill repo | `TerexitariusStomp/widespread-skills` (SKILL.md + marketplace.json + .mcp.json + rules) | live |
+| Claude Code marketplace | `/plugin marketplace add TerexitariusStomp/widespread-skills` | live (self-hosted) |
+| skills.sh | `npx skills add TerexitariusStomp/widespread-skills` | live (telemetry-indexed) |
+| cursor.directory | `cursor.directory/plugins/widespread-skills` | submitted — security agent scan |
+| ClawHub | `clawhub install widespread` | `widespread@1.0.0` submitted — security scan |
+| wshobson/agents | plugins/widespread | PR #826 |
+| VoltAgent subagents | categories/07-specialized-domains/widespread-agent.md | PR #342 |
+| anthropics/skills | skills/widespread | PR #2203 |
+| github/awesome-copilot | agents/widespread.agent.md + instructions | PR #6405 |
+
+Convention files (AGENTS.md/CONVENTIONS.md/.openhands/.junie/amazonq) cover
+Codex, Jules, Aider, Amp, OpenCode, Factory, Copilot agent, OpenHands, Junie,
+Amazon Q CLI. No public registry exists for Devin, Roo, Kilo, Zed, Trae, Warp —
+covered by `.agents/`, `.devin/skills/`, and MCP config docs.
