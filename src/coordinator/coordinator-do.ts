@@ -49,7 +49,7 @@ import {
   normalizeTaskTypes, stripGatedClaims, selectVolunteer, validateJobResult,
   WIDESPREAD, RESOURCE_KIND_TASK, DETERMINISTIC_TASKS,
 } from "./registry";
-import { verifyDidKey, decodeSig } from "./didkey";
+import { verifyDidKey, decodeSig, didKeyFromPublicKey } from "./didkey";
 import { verifyMessage } from "viem";
 import type { Hex } from "viem";
 import { getMarket } from "./nearview";
@@ -122,6 +122,19 @@ interface JobEnvelope {
   result?: string;
   resultSig?: string;
   reason?: string;
+  offers?: unknown[];
+  sessionId?: string;
+  seq?: number;
+  op?: string;
+  params?: unknown;
+  units?: Record<string, number>;
+  cumulative?: Record<string, number>;
+  upstream_refs?: string[];
+  endpoint_hint?: string;
+  final_units?: Record<string, number>;
+  calls?: number;
+  ok?: boolean;
+  error?: string;
 }
 
 interface JobPostBody {
@@ -136,8 +149,117 @@ interface JobPostBody {
   domain?: string;
 }
 
+/** A provider-priced resource offer, Ed25519-signed by the node (same scheme
+ *  as metered receipts): id = sha256 of the canonical body, sig over
+ *  `widespread-offer:<id>`. `node` is set coordinator-side to the volunteerId
+ *  that presented the offer — the connection is authoritative. */
+interface Offer {
+  id: string;
+  node_did: string;
+  node: string;
+  network: string;
+  kind: string;
+  unit: string;
+  price_near_per_unit: string;
+  quota_max: number;
+  endpoint_hint: string | null;
+  terms: string | null;
+  tee: boolean;
+  issued_at: number;
+  pubkey: string;
+  sig: string;
+}
+
+interface SessionRecord {
+  id: string;
+  offer_id: string;
+  node: string;
+  node_did: string | null;
+  requester: string;
+  kind: string;
+  network: string;
+  unit: string;
+  price_near_per_unit: string;
+  quota: number | null;
+  quota_unit: string | null;
+  used: Record<string, number>;
+  calls: number;
+  funding: { type: "market" | "x402" | "mandate"; market_id?: string };
+  status: "opening" | "open" | "closed" | "failed" | "expired";
+  opened_at: number;
+  closed_at?: number;
+  close_reason?: string;
+  deadline?: number;
+  upstream_refs: string[];
+  endpoint_hint?: string | null;
+  /** Raced open: volunteerIds still pending; a late accept gets told to
+   *  close so only the first accepter serves. */
+  pending_nodes?: string[];
+}
+
+interface SessionTick {
+  seq: number;
+  at: number;
+  units: Record<string, number>;
+  cumulative: Record<string, number>;
+  upstream_refs: string[];
+  sig?: string;
+  /** true when the node's did:key signature verified over the tick body;
+   *  false when present-but-invalid; absent when unverifiable (non-did:key
+   *  node or no sig). */
+  sig_ok?: boolean;
+  acked?: boolean;
+  disputed?: boolean;
+}
+
+interface RequestPostBody {
+  offer_id?: string;
+  spec?: {
+    kind?: string;
+    network?: string;
+    max_price_near_per_unit?: string;
+    min_rep?: number;
+    deadline_secs?: number;
+  };
+  quota?: number;
+  market_id?: string;
+  requester?: string;
+  raced?: number;
+  deadline_secs?: number;
+  params?: unknown;
+}
+
+interface CallPostBody {
+  op?: string;
+  params?: unknown;
+}
+
+interface OfferPostBody {
+  id?: string;
+  node_did?: string;
+  network?: string;
+  kind?: string;
+  unit?: string;
+  price_near_per_unit?: string;
+  quota_max?: number;
+  endpoint_hint?: string | null;
+  terms?: string | null;
+  tee?: boolean;
+  issued_at?: number;
+  pubkey?: string;
+  sig?: string;
+}
+
 const MAX_RESULT_BYTES = 256 * 1024;
+/** Session call params carry payloads (e.g. store data_b64) — larger than
+ *  job results but still bounded against memory exhaustion. */
+const MAX_CALL_PARAMS_BYTES = 4 * 1024 * 1024;
 const MAX_REPLICAS = 4;
+const MAX_SESSIONS_PER_MARKET = 8;
+const SESSION_OPEN_TIMEOUT_MS = 10000;
+const SESSION_CALL_TIMEOUT_MS = 60000;
+const MAX_SESSION_TICKS = 10000;
+const MAX_OFFERS_PER_NODE = 64;
 
 /** Deterministic JSON — object keys sorted recursively — so the signed
  *  job record's `sig` is over a canonical encoding anyone can recompute. */
@@ -157,6 +279,17 @@ export class CoordinatorDO implements DurableObject {
   /** jobId → resolve — in-memory; the alarm's flushPending redispatches
    *  anything still pending after a hibernate/wake cycle. */
   private awaiting = new Map<string, { resolve: (ok: boolean) => void }>();
+  /** sessionId → pending SESSION_OPEN resolution (raced opens resolve on
+   *  the first SESSION_ACCEPTED). */
+  private pendingOpens = new Map<string, {
+    resolve: (node: string | null) => void;
+    timer: ReturnType<typeof setTimeout>;
+  }>();
+  /** `${sessionId}:${seq}` → pending SESSION_CALL resolution. */
+  private pendingCalls = new Map<string, {
+    resolve: (r: { ok: boolean; result?: unknown; error?: string; units?: Record<string, number>; cumulative?: Record<string, number>; upstream_refs?: string[] }) => void;
+    timer: ReturnType<typeof setTimeout>;
+  }>();
   private migrated = false;
 
   constructor(state: DurableObjectState, env: Env) {
@@ -315,6 +448,33 @@ export class CoordinatorDO implements DurableObject {
       if (!id) return this.json({ error: "receipt id required" }, 400);
       return this.handleReceiptGet(id);
     }
+
+    // ── Resource offers + request sessions (the requesting data plane) ──
+    if (path === "/offers" || path === "/api/offers") {
+      if (req.method === "GET") return this.handleOffersList(url);
+      if (req.method === "POST") return this.handleOfferPost(req);
+      return this.json({ error: "method not allowed" }, 405);
+    }
+    if ((path === "/offers/stats" || path === "/api/offers/stats") && req.method === "GET") {
+      return this.handleOfferStats();
+    }
+    if ((path === "/requests" || path === "/api/requests") && req.method === "POST") {
+      return this.handleRequestPost(req);
+    }
+    if (path.startsWith("/requests/") || path.startsWith("/api/requests/")) {
+      const rest = decodeURIComponent(path.slice(path.indexOf("requests/") + 9));
+      const [id, action, seqStr, verdict] = rest.split("/");
+      if (!id || id.length > 128) return this.json({ error: "request id required" }, 400);
+      if (!action && req.method === "GET") return this.handleRequestGet(id);
+      if (action === "call" && req.method === "POST") return this.handleRequestCall(id, req);
+      if (action === "close" && req.method === "POST") return this.handleRequestClose(id, req);
+      if (action === "ticks" && req.method === "POST" && (verdict === "ack" || verdict === "dispute")) {
+        const seq = Number(seqStr);
+        if (!Number.isInteger(seq) || seq < 1) return this.json({ error: "tick seq required" }, 400);
+        return this.handleTickVerdict(id, seq, verdict, req);
+      }
+      return this.json({ error: "not found" }, 404);
+    }
     return this.json({ error: "not found" }, 404);
   }
 
@@ -407,6 +567,12 @@ export class CoordinatorDO implements DurableObject {
           registeredAt: Date.now(),
           lastHeartbeat: Date.now(),
         };
+        // Resource offers — signed by the node's own key, bound to this
+        // connection's identity so nobody posts offers for another node.
+        // Re-registration replaces the node's offer set wholesale.
+        if (Array.isArray(env.offers)) {
+          void this.storeOffers(meta.id, did ?? null, env.offers.slice(0, MAX_OFFERS_PER_NODE));
+        }
         if (meta.referrer && meta.referrer !== meta.id) {
           const rkey = `ref:${meta.id}`;
           if (!(await this.state.storage.get(rkey))) {
@@ -464,9 +630,47 @@ export class CoordinatorDO implements DurableObject {
         const meta = this.metaFor(ws);
         if (meta) {
           void this.releaseVolunteerAssignments(meta.id);
+          void this.failNodeSessions(meta.id, "node-exit");
+          void this.removeOffersFor(meta.id);
           this.registry.delete(meta.id);
         }
         try { ws.close(1000, "exit"); } catch { /* already closed */ }
+        break;
+      }
+      case "SESSION_ACCEPTED": {
+        const meta = this.metaFor(ws);
+        if (meta && typeof env.sessionId === "string") {
+          void this.onSessionAccepted(env.sessionId.slice(0, 128), meta.id,
+            typeof env.endpoint_hint === "string" ? env.endpoint_hint.slice(0, 256) : undefined);
+        }
+        break;
+      }
+      case "SESSION_REJECTED": {
+        const meta = this.metaFor(ws);
+        if (meta && typeof env.sessionId === "string") {
+          void this.onSessionRejected(env.sessionId.slice(0, 128), meta.id, env.reason);
+        }
+        break;
+      }
+      case "SESSION_RESULT": {
+        const meta = this.metaFor(ws);
+        if (meta && typeof env.sessionId === "string" && typeof env.seq === "number") {
+          void this.onSessionResult(env.sessionId.slice(0, 128), meta.id, env.seq, env);
+        }
+        break;
+      }
+      case "SESSION_TICK": {
+        const meta = this.metaFor(ws);
+        if (meta && typeof env.sessionId === "string") {
+          void this.onSessionTick(env.sessionId.slice(0, 128), meta.id, env);
+        }
+        break;
+      }
+      case "SESSION_CLOSED": {
+        const meta = this.metaFor(ws);
+        if (meta && typeof env.sessionId === "string") {
+          void this.onSessionClosed(env.sessionId.slice(0, 128), meta.id, env);
+        }
         break;
       }
       default:
@@ -479,8 +683,11 @@ export class CoordinatorDO implements DurableObject {
     if (meta) {
       // Unannounced drop — same release path as honest EXIT so a crashed
       // node's jobs re-dispatch promptly rather than waiting out
-      // JOB_RESULT_TIMEOUT_MS.
+      // JOB_RESULT_TIMEOUT_MS. Its offers stop being served and its open
+      // sessions fail fast rather than hanging until the deadline.
       await this.releaseVolunteerAssignments(meta.id);
+      await this.failNodeSessions(meta.id, "node-disconnected");
+      await this.removeOffersFor(meta.id);
       this.registry.delete(meta.id);
     }
     try { ws.close(); } catch { /* already closed */ }
@@ -524,6 +731,7 @@ export class CoordinatorDO implements DurableObject {
       await this.flushPending();
       await this.canaryTick();
       await this.challengeTick();
+      await this.expireSessions();
     } catch (e) {
       console.error("[coordinator] alarm error:", e);
     }
@@ -1409,6 +1617,673 @@ export class CoordinatorDO implements DurableObject {
     const receipt = await this.state.storage.get(`receipt:${id}`);
     if (!receipt) return this.json({ error: "not found" }, 404);
     return this.json(receipt);
+  }
+
+  // ── Resource offers + request sessions ──
+
+  /** Verify a signed offer: canonical-body id, ed25519 sig over
+   *  `widespread-offer:<id>`, and the signing pubkey must derive to the
+   *  claimed node_did. Returns the unsigned offer fields or an error. */
+  private async verifyOffer(raw: unknown): Promise<{ offer?: Offer; error?: string }> {
+    if (!raw || typeof raw !== "object") return { error: "offer must be an object" };
+    const o = raw as OfferPostBody & { id?: string; pubkey?: string; sig?: string };
+    const { id, sig, pubkey, ...body } = o as Record<string, unknown>;
+    for (const f of ["node_did", "network", "kind", "unit"]) {
+      if (typeof body[f] !== "string" || !(body[f] as string).length) {
+        return { error: `offer.${f} required` };
+      }
+    }
+    // Price arrives as a JSON number from the runner (or a numeric string
+    // from hand-built offers) — both are fine; canonical-id covers the raw
+    // value either way.
+    const priceNum = Number(body.price_near_per_unit);
+    if (!Number.isFinite(priceNum) || priceNum < 0 ||
+        (typeof body.price_near_per_unit !== "number" && typeof body.price_near_per_unit !== "string")) {
+      return { error: "offer.price_near_per_unit must be a non-negative number" };
+    }
+    if (!["compute", "inference", "storage", "bandwidth"].includes(body.kind as string)) {
+      return { error: "offer.kind must be compute|inference|storage|bandwidth" };
+    }
+    if (typeof pubkey !== "string" || typeof sig !== "string") {
+      return { error: "unsigned offer" };
+    }
+    const pub = this.hexToBytes(pubkey);
+    const sigBytes = this.hexToBytes(sig);
+    if (!pub || pub.length !== 32 || !sigBytes || sigBytes.length !== 64) {
+      return { error: "bad pubkey or sig encoding" };
+    }
+    if (didKeyFromPublicKey(pub) !== body.node_did) {
+      return { error: "pubkey does not match node_did" };
+    }
+    const computedId = await this.sha256Hex(canonicalJson(body));
+    if (id && id !== computedId) return { error: "offer id mismatch" };
+    let ok = false;
+    try {
+      const key = await crypto.subtle.importKey("raw", pub as BufferSource, "Ed25519", false, ["verify"]);
+      ok = await crypto.subtle.verify("Ed25519", key, sigBytes as BufferSource,
+        new TextEncoder().encode(`widespread-offer:${computedId}`) as BufferSource);
+    } catch { ok = false; }
+    if (!ok) return { error: "bad signature" };
+    return { offer: {
+      id: computedId,
+      node_did: body.node_did as string,
+      node: "",
+      network: body.network as string,
+      kind: body.kind as string,
+      unit: body.unit as string,
+      price_near_per_unit: String(body.price_near_per_unit),
+      quota_max: Number.isFinite(Number(body.quota_max)) ? Number(body.quota_max) : 0,
+      endpoint_hint: typeof body.endpoint_hint === "string" ? body.endpoint_hint.slice(0, 256) : null,
+      terms: typeof body.terms === "string" ? body.terms.slice(0, 500) : null,
+      tee: body.tee === true,
+      issued_at: Number.isFinite(Number(body.issued_at)) ? Number(body.issued_at) : Date.now(),
+      pubkey, sig,
+    } };
+  }
+
+  /** Replace a node's offer set with freshly verified signed offers. */
+  private async storeOffers(nodeId: string, did: string | null, rawOffers: unknown[]) {
+    await this.removeOffersFor(nodeId);
+    let stored = 0;
+    for (const raw of rawOffers) {
+      const { offer, error } = await this.verifyOffer(raw);
+      if (!offer) { void this.audit("offer.rejected", { node: nodeId, error }); continue; }
+      // A node presenting a did:key DID must sign offers under that exact
+      // key — otherwise offers are just bound to this connection's identity.
+      if (did && did.startsWith("did:key:") && offer.node_did !== did) {
+        void this.audit("offer.rejected", { node: nodeId, error: "node_did mismatch" });
+        continue;
+      }
+      offer.node = nodeId;
+      await this.state.storage.put(`offer:${nodeId}:${offer.id}`, offer);
+      stored++;
+    }
+    if (stored) void this.audit("offer.publish", { node: nodeId, count: stored });
+  }
+
+  private async removeOffersFor(nodeId: string) {
+    for (const key of await this.keys(`offer:${nodeId}:`)) {
+      await this.state.storage.delete(key);
+    }
+  }
+
+  private async findOffer(id: string): Promise<Offer | null> {
+    for (const key of await this.keys("offer:")) {
+      const o = (await this.state.storage.get(key)) as Offer | undefined;
+      if (o?.id === id) return o;
+    }
+    return null;
+  }
+
+  private async listOffers(): Promise<Offer[]> {
+    const out: Offer[] = [];
+    for (const key of await this.keys("offer:")) {
+      const o = (await this.state.storage.get(key)) as Offer | undefined;
+      if (o) out.push(o);
+    }
+    return out;
+  }
+
+  /** Per-node ranking inputs — all coordinator-measured (rep ledger,
+   *  canary trust, challenge RTT). Nodes can't inflate rank by self-report. */
+  private async nodeStats(node: string): Promise<{ rep: number; trust: number; benchRttMs: number | null }> {
+    const rep = (await this.state.storage.get(`rep:${node}`)) as { points?: number } | undefined;
+    const meta = this.registry.get(node);
+    const bench = (await this.state.storage.get(`bench:${node}`)) as
+      | { count?: number; total_rtt_ms?: number } | undefined;
+    return {
+      rep: rep?.points ?? 0,
+      trust: meta?.trust ?? 0,
+      benchRttMs: bench?.count ? Math.round((bench.total_rtt_ms ?? 0) / bench.count) : null,
+    };
+  }
+
+  /** Deterministic, auditable ranking: lowest price first, then reputation,
+   *  then coordinator-measured challenge latency. `score` is attached so the
+   *  ranking is explainable, not a black box. */
+  private async rankOffers(offers: Offer[]): Promise<(Offer & { score: Record<string, number | null> })[]> {
+    const scored = [];
+    for (const o of offers) {
+      const st = await this.nodeStats(o.node);
+      scored.push({
+        ...o,
+        score: {
+          price: Number(o.price_near_per_unit),
+          rep: st.rep,
+          trust: st.trust,
+          bench_rtt_ms: st.benchRttMs,
+        },
+      });
+    }
+    scored.sort((a, b) =>
+      a.score.price! - b.score.price! ||
+      b.score.rep! - a.score.rep! ||
+      b.score.trust! - a.score.trust! ||
+      (a.score.bench_rtt_ms ?? Infinity) - (b.score.bench_rtt_ms ?? Infinity) ||
+      a.node.localeCompare(b.node));
+    return scored;
+  }
+
+  private async handleOffersList(url: URL): Promise<Response> {
+    const kind = url.searchParams.get("kind");
+    const network = url.searchParams.get("network");
+    const node = url.searchParams.get("node");
+    let offers = await this.listOffers();
+    if (kind) offers = offers.filter((o) => o.kind === kind);
+    if (network) offers = offers.filter((o) => o.network === network);
+    if (node) offers = offers.filter((o) => o.node === node);
+    // Only offers from currently-connected nodes can actually serve.
+    offers = offers.filter((o) => this.registry.has(o.node));
+    const ranked = await this.rankOffers(offers);
+    return this.json({ offers: ranked.slice(0, 500) });
+  }
+
+  private async handleOfferStats(): Promise<Response> {
+    const offers = (await this.listOffers()).filter((o) => this.registry.has(o.node));
+    const byKey: Record<string, { count: number; prices: number[] }> = {};
+    for (const o of offers) {
+      const k = `${o.kind}:${o.unit}`;
+      const p = Number(o.price_near_per_unit);
+      if (!Number.isFinite(p)) continue;
+      (byKey[k] ??= { count: 0, prices: [] }).count++;
+      byKey[k].prices.push(p);
+    }
+    const stats: Record<string, { count: number; min: number; max: number; avg: number }> = {};
+    for (const [k, v] of Object.entries(byKey)) {
+      v.prices.sort((a, b) => a - b);
+      stats[k] = {
+        count: v.count,
+        min: v.prices[0],
+        max: v.prices[v.prices.length - 1],
+        avg: Math.round(v.prices.reduce((a, b) => a + b, 0) / v.prices.length * 1e6) / 1e6,
+      };
+    }
+    return this.json({ offers: offers.length, price_index: stats });
+  }
+
+  /** POST /api/offers — publish a signed offer outside the WS path. The
+   *  offering node must be registered AND currently connected (its DID must
+   *  match offer.node_did). */
+  private async handleOfferPost(req: Request): Promise<Response> {
+    const body = (await req.json().catch(() => null)) as OfferPostBody | null;
+    if (!body) return this.json({ error: "json body required" }, 400);
+    const { offer, error } = await this.verifyOffer(body);
+    if (!offer) return this.json({ error: error ?? "invalid offer" }, 400);
+    const node = [...this.registry.values()].find((v) => v.did === offer.node_did);
+    if (!node) return this.json({ error: "offering node not connected" }, 409);
+    offer.node = node.id;
+    await this.state.storage.put(`offer:${node.id}:${offer.id}`, offer);
+    void this.audit("offer.publish", { node: node.id, offerId: offer.id, via: "http" });
+    return this.json({ ok: true, offerId: offer.id });
+  }
+
+  private async routeSpec(spec: NonNullable<RequestPostBody["spec"]>): Promise<Offer[]> {
+    let offers = await this.listOffers();
+    if (spec.kind) offers = offers.filter((o) => o.kind === spec.kind);
+    if (spec.network) offers = offers.filter((o) => o.network === spec.network);
+    offers = offers.filter((o) => this.registry.has(o.node));
+    const maxPrice = Number(spec.max_price_near_per_unit);
+    if (Number.isFinite(maxPrice)) offers = offers.filter((o) => Number(o.price_near_per_unit) <= maxPrice);
+    if (spec.min_rep !== undefined) {
+      const minRep = Number(spec.min_rep);
+      const kept: Offer[] = [];
+      for (const o of offers) {
+        const st = await this.nodeStats(o.node);
+        if (st.rep >= minRep) kept.push(o);
+      }
+      offers = kept;
+    }
+    const ranked = await this.rankOffers(offers);
+    return ranked.map(({ score: _score, ...o }) => o);
+  }
+
+  /** POST /api/requests — open a resource session. Funding in phase 1 is a
+   *  funded open NEAR market (market_id); x402/AP2 land in phase 3. The
+   *  request blocks until the first candidate node accepts (raced) or the
+   *  open timeout elapses. */
+  private async handleRequestPost(req: Request): Promise<Response> {
+    const body = (await req.json().catch(() => null)) as RequestPostBody | null;
+    if (!body) return this.json({ error: "json body required" }, 400);
+    const admin = this.bearerOk(req, this.env.COORDINATOR_ADMIN || this.env.ADMIN_TOKEN);
+
+    let funding: SessionRecord["funding"];
+    let marketPayer: string | undefined;
+    const marketId = typeof body.market_id === "string" ? body.market_id.slice(0, 128) : undefined;
+    if (marketId) {
+      const m = await getMarket(this.env, marketId);
+      if (!m || m.status !== "open") return this.json({ error: "market not open" }, 402);
+      funding = { type: "market", market_id: marketId };
+      marketPayer = typeof m.payer === "string" ? m.payer : undefined;
+    } else if (admin) {
+      funding = { type: "market", market_id: marketId };
+    } else {
+      return this.json({ error: "funding required: open market_id escrow (x402/AP2 pending)" }, 401);
+    }
+
+    let candidates: Offer[] = [];
+    if (body.offer_id) {
+      const o = await this.findOffer(body.offer_id.slice(0, 128));
+      if (!o) return this.json({ error: "offer not found" }, 404);
+      candidates = [o];
+    } else if (body.spec) {
+      candidates = await this.routeSpec(body.spec);
+      if (!candidates.length) return this.json({ error: "no offer matches spec" }, 404);
+    } else {
+      return this.json({ error: "offer_id or spec required" }, 400);
+    }
+
+    const online = candidates.filter((o) => this.wsFor(o.node));
+    if (!online.length) return this.json({ error: "no candidate node online" }, 409);
+
+    // Budget ledger — one market funds at most MAX_SESSIONS_PER_MARKET
+    // concurrent sessions. Amount-unit math is deferred (market amount is
+    // not safely NEAR-denominated); the claim path settles actual delivered
+    // units, and this cap bounds exposure per escrow.
+    if (marketId) {
+      const reserved = ((await this.state.storage.get(`reserved:${marketId}`)) || {}) as Record<string, number>;
+      if (Object.keys(reserved).length >= MAX_SESSIONS_PER_MARKET && !admin) {
+        return this.json({ error: `market session cap (${MAX_SESSIONS_PER_MARKET}) reached` }, 409);
+      }
+    }
+
+    const raced = Math.min(Math.max(Math.round(Number(body.raced ?? 1)) || 1, 1), MAX_REPLICAS);
+    const chosen: Offer[] = [];
+    const seenNodes = new Set<string>();
+    for (const o of online) {
+      if (seenNodes.has(o.node)) continue;
+      seenNodes.add(o.node);
+      chosen.push(o);
+      if (chosen.length >= raced) break;
+    }
+
+    const sessionId = `sess-${crypto.randomUUID()}`;
+    const requester = (typeof body.requester === "string" ? body.requester.slice(0, 128) : "")
+      || marketPayer || "anonymous";
+    const deadlineSecs = Number(body.deadline_secs ?? body.spec?.deadline_secs ?? 0);
+    const deadline = deadlineSecs > 0 ? Math.floor(Date.now() / 1000) + Math.floor(deadlineSecs) : undefined;
+    const quota = Number.isFinite(Number(body.quota)) ? Number(body.quota) : null;
+    const primary = chosen[0];
+    const session: SessionRecord = {
+      id: sessionId,
+      offer_id: primary.id,
+      node: "",
+      node_did: primary.node_did,
+      requester,
+      kind: primary.kind,
+      network: primary.network,
+      unit: primary.unit,
+      price_near_per_unit: primary.price_near_per_unit,
+      quota,
+      quota_unit: primary.unit,
+      used: {},
+      calls: 0,
+      funding,
+      status: "opening",
+      opened_at: Date.now(),
+      deadline,
+      upstream_refs: [],
+      pending_nodes: chosen.map((o) => o.node),
+    };
+    await this.state.storage.put(`sess:${sessionId}`, session);
+    if (marketId) {
+      const reserved = ((await this.state.storage.get(`reserved:${marketId}`)) || {}) as Record<string, number>;
+      reserved[sessionId] = quota ?? 0;
+      await this.state.storage.put(`reserved:${marketId}`, reserved);
+    }
+
+    for (const o of chosen) {
+      const ws = this.wsFor(o.node);
+      ws?.send(JSON.stringify({
+        type: "SESSION_OPEN", sessionId, offer: o,
+        requester, quota, quota_unit: o.unit, deadline, market_id: marketId,
+        params: body.params ?? null,
+      }));
+    }
+    void this.audit("session.open", { sessionId, marketId, raced: chosen.length });
+
+    const winner = await new Promise<string | null>((resolve) => {
+      const timer = setTimeout(() => {
+        this.pendingOpens.delete(sessionId);
+        resolve(null);
+      }, SESSION_OPEN_TIMEOUT_MS);
+      this.pendingOpens.set(sessionId, { resolve, timer });
+    });
+
+    if (!winner) {
+      session.status = "failed";
+      session.close_reason = "no-accept";
+      session.closed_at = Date.now();
+      await this.state.storage.put(`sess:${sessionId}`, session);
+      if (marketId) await this.releaseReservation(marketId, sessionId);
+      return this.json({ error: "no candidate accepted the session" }, 409);
+    }
+
+    session.status = "open";
+    session.node = winner;
+    session.pending_nodes = [];
+    await this.state.storage.put(`sess:${sessionId}`, session);
+    return this.json({ session: await this.publicSession(session), candidates: chosen.map((o) => ({ offer: o.id, node: o.node })) }, 201);
+  }
+
+  private async handleRequestGet(id: string): Promise<Response> {
+    const session = (await this.state.storage.get(`sess:${id}`)) as SessionRecord | undefined;
+    if (!session) return this.json({ error: "not found" }, 404);
+    return this.json({ session: await this.publicSession(session) });
+  }
+
+  private async handleRequestCall(id: string, req: Request): Promise<Response> {
+    const body = (await req.json().catch(() => null)) as CallPostBody | null;
+    if (!body || typeof body.op !== "string" || !body.op.length) {
+      return this.json({ error: "op required" }, 400);
+    }
+    if (JSON.stringify(body.params ?? null).length > MAX_CALL_PARAMS_BYTES) {
+      return this.json({ error: "params too large" }, 413);
+    }
+    const session = (await this.state.storage.get(`sess:${id}`)) as SessionRecord | undefined;
+    if (!session) return this.json({ error: "not found" }, 404);
+    if (session.status !== "open") return this.json({ error: `session ${session.status}` }, 409);
+    const ws = this.wsFor(session.node);
+    if (!ws) return this.json({ error: "serving node offline" }, 409);
+    const seq = session.calls + 1;
+    session.calls = seq;
+    await this.state.storage.put(`sess:${id}`, session);
+
+    const key = `${id}:${seq}`;
+    const reply = await new Promise<{ ok: boolean; result?: unknown; error?: string; units?: Record<string, number>; cumulative?: Record<string, number>; upstream_refs?: string[] }>((resolve) => {
+      const timer = setTimeout(() => {
+        this.pendingCalls.delete(key);
+        resolve({ ok: false, error: "call timeout" });
+      }, SESSION_CALL_TIMEOUT_MS);
+      this.pendingCalls.set(key, { resolve, timer });
+      ws.send(JSON.stringify({
+        type: "SESSION_CALL", sessionId: id, seq,
+        op: body.op, params: body.params ?? {},
+      }));
+    });
+    if (!reply.ok) return this.json({ ok: false, seq, error: reply.error ?? "call failed" }, 504);
+    return this.json({
+      ok: true, sessionId: id, seq,
+      result: reply.result ?? null,
+      units: reply.units ?? {},
+      cumulative: reply.cumulative ?? session.used,
+      upstream_refs: reply.upstream_refs ?? [],
+    });
+  }
+
+  private async handleRequestClose(id: string, req: Request): Promise<Response> {
+    const session = (await this.state.storage.get(`sess:${id}`)) as SessionRecord | undefined;
+    if (!session) return this.json({ error: "not found" }, 404);
+    if (session.status === "closed" || session.status === "failed" || session.status === "expired") {
+      return this.json({ session: await this.publicSession(session) });
+    }
+    void req; // body optional — close is idempotent
+    await this.finalizeSession(id, "requester");
+    const updated = (await this.state.storage.get(`sess:${id}`)) as SessionRecord;
+    return this.json({ session: await this.publicSession(updated) });
+  }
+
+  /** POST /api/requests/:id/ticks/:seq/ack|dispute — requester verdict on a
+   *  metered tick. The session id is the bearer capability for now; SIWX
+   *  wallet auth lands with the funding rails. */
+  private async handleTickVerdict(id: string, seq: number, verdict: "ack" | "dispute", req: Request): Promise<Response> {
+    const body = (await req.json().catch(() => null)) as { requester?: string } | null;
+    const session = (await this.state.storage.get(`sess:${id}`)) as SessionRecord | undefined;
+    if (!session) return this.json({ error: "not found" }, 404);
+    if (body?.requester && session.requester !== "anonymous" && body.requester !== session.requester) {
+      return this.json({ error: "requester mismatch" }, 403);
+    }
+    const key = `sesstick:${id}:${seq}`;
+    const tick = (await this.state.storage.get(key)) as SessionTick | undefined;
+    if (!tick) return this.json({ error: "tick not found" }, 404);
+    tick.acked = verdict === "ack" ? true : tick.acked;
+    tick.disputed = verdict === "dispute" ? true : tick.disputed;
+    await this.state.storage.put(key, tick);
+    return this.json({ ok: true, seq, verdict });
+  }
+
+  // ── Session WS handlers ──
+
+  private async onSessionAccepted(sessionId: string, nodeId: string, endpointHint?: string) {
+    const session = (await this.state.storage.get(`sess:${sessionId}`)) as SessionRecord | undefined;
+    if (!session) { this.sendTo(nodeId, { type: "SESSION_CLOSE", sessionId }); return; }
+    if (session.status !== "opening" || !(session.pending_nodes ?? []).includes(nodeId)) {
+      // Late/losing accept in a race — tell the node to stand down.
+      this.sendTo(nodeId, { type: "SESSION_CLOSE", sessionId });
+      return;
+    }
+    session.status = "open";
+    session.node = nodeId;
+    if (endpointHint) session.endpoint_hint = endpointHint;
+    session.pending_nodes = (session.pending_nodes ?? []).filter((n) => n !== nodeId);
+    await this.state.storage.put(`sess:${sessionId}`, session);
+    // Losers stand down; the winner keeps the session.
+    for (const loser of session.pending_nodes) {
+      this.sendTo(loser, { type: "SESSION_CLOSE", sessionId });
+    }
+    const pending = this.pendingOpens.get(sessionId);
+    if (pending) {
+      clearTimeout(pending.timer);
+      this.pendingOpens.delete(sessionId);
+      pending.resolve(nodeId);
+    }
+    void this.audit("session.accepted", { sessionId, node: nodeId });
+  }
+
+  private async onSessionRejected(sessionId: string, nodeId: string, reason?: string) {
+    const session = (await this.state.storage.get(`sess:${sessionId}`)) as SessionRecord | undefined;
+    if (!session || session.status !== "opening") return;
+    session.pending_nodes = (session.pending_nodes ?? []).filter((n) => n !== nodeId);
+    if (session.pending_nodes.length === 0) {
+      session.status = "failed";
+      session.close_reason = `rejected: ${String(reason ?? "").slice(0, 120)}`;
+      session.closed_at = Date.now();
+      if (session.funding.market_id) await this.releaseReservation(session.funding.market_id, sessionId);
+      const pending = this.pendingOpens.get(sessionId);
+      if (pending) {
+        clearTimeout(pending.timer);
+        this.pendingOpens.delete(sessionId);
+        pending.resolve(null);
+      }
+    }
+    await this.state.storage.put(`sess:${sessionId}`, session);
+  }
+
+  private async onSessionResult(sessionId: string, nodeId: string, seq: number, env: JobEnvelope) {
+    const session = (await this.state.storage.get(`sess:${sessionId}`)) as SessionRecord | undefined;
+    if (!session || session.status !== "open" || session.node !== nodeId) return;
+    const key = `${sessionId}:${seq}`;
+    const pending = this.pendingCalls.get(key);
+    if (!pending) return; // late/duplicate result — idempotent
+    clearTimeout(pending.timer);
+    this.pendingCalls.delete(key);
+    if (env.ok === false) {
+      pending.resolve({ ok: false, error: typeof env.error === "string" ? env.error : "call failed" });
+      return;
+    }
+    await this.applySessionUnits(sessionId, seq, env.units, env.cumulative, env.upstream_refs, env.sig ?? env.resultSig);
+    // Session results arrive as objects (serve() output); JOB_RESULT uses a
+    // JSON string. Handle both without double-parsing.
+    let result: unknown = env.result ?? null;
+    if (typeof result === "string") {
+      try { result = JSON.parse(result); } catch { /* keep raw string */ }
+    }
+    pending.resolve({
+      ok: true,
+      result,
+      units: env.units ?? {},
+      cumulative: env.cumulative ?? {},
+      upstream_refs: env.upstream_refs ?? [],
+    });
+    await this.maybeQuotaClose(sessionId);
+  }
+
+  private async onSessionTick(sessionId: string, nodeId: string, env: JobEnvelope) {
+    const session = (await this.state.storage.get(`sess:${sessionId}`)) as SessionRecord | undefined;
+    if (!session || session.status !== "open" || session.node !== nodeId) return;
+    const seq = Number.isInteger(env.seq) ? env.seq! : session.calls + 1;
+    await this.applySessionUnits(sessionId, seq, env.units, env.cumulative, env.upstream_refs, env.sig ?? env.resultSig);
+    await this.maybeQuotaClose(sessionId);
+  }
+
+  private async onSessionClosed(sessionId: string, nodeId: string, env: JobEnvelope) {
+    const session = (await this.state.storage.get(`sess:${sessionId}`)) as SessionRecord | undefined;
+    if (!session || session.node !== nodeId) return;
+    if (session.status !== "closed" && session.status !== "failed" && session.status !== "expired") {
+      await this.finalizeSession(sessionId, typeof env.reason === "string" ? env.reason : "node-closed");
+    }
+  }
+
+  /** Accumulate node-reported units into the session ledger + a signed tick
+   *  record. Deltas are summed — a node can't rewrite history. */
+  private async applySessionUnits(
+    sessionId: string, seq: number,
+    units: Record<string, number> | undefined,
+    _cumulative: Record<string, number> | undefined,
+    refs: string[] | undefined,
+    sig: string | undefined,
+  ) {
+    const session = (await this.state.storage.get(`sess:${sessionId}`)) as SessionRecord | undefined;
+    if (!session) return;
+    const delta: Record<string, number> = {};
+    for (const [k, v] of Object.entries(units ?? {})) {
+      if (Number.isFinite(v) && v > 0) {
+        delta[k] = v;
+        session.used[k] = (session.used[k] ?? 0) + v;
+      }
+    }
+    for (const r of refs ?? []) {
+      if (typeof r === "string" && r.length <= 256 && !session.upstream_refs.includes(r)) {
+        session.upstream_refs.push(r);
+      }
+    }
+    await this.state.storage.put(`sess:${sessionId}`, session);
+    const tick: SessionTick = {
+      seq, at: Date.now(), units: delta,
+      cumulative: { ...session.used },
+      upstream_refs: refs ?? [], sig,
+    };
+    // Verify the node's tick signature when its DID is a did:key we can
+    // decode — the runner signs
+    //   widespread-tick:<sessionId>:<seq>:<sha256(JSON({sessionId,seq,units,cumulative}))>
+    // Reconstructing with the *reported* cumulative (not our ledger) keeps
+    // the signed bytes identical to what the node hashed.
+    if (sig && session.node_did?.startsWith("did:key:")) {
+      try {
+        const body = JSON.stringify({
+          sessionId, seq,
+          units: units ?? {},
+          cumulative: _cumulative ?? {},
+        });
+        const hash = await this.sha256Hex(body);
+        const msg = `widespread-tick:${sessionId}:${seq}:${hash}`;
+        tick.sig_ok = await verifyDidKey(session.node_did, msg, this.hexToBytes(sig) ?? new Uint8Array());
+      } catch { tick.sig_ok = false; }
+    }
+    await this.state.storage.put(`sesstick:${sessionId}:${seq}`, tick);
+    if (session.upstream_refs.length > 200) session.upstream_refs = session.upstream_refs.slice(-200);
+    await this.state.storage.put(`sess:${sessionId}`, session);
+  }
+
+  private async maybeQuotaClose(sessionId: string) {
+    const session = (await this.state.storage.get(`sess:${sessionId}`)) as SessionRecord | undefined;
+    if (!session || session.status !== "open" || session.quota == null || !session.quota_unit) return;
+    if ((session.used[session.quota_unit] ?? 0) >= session.quota) {
+      this.sendTo(session.node, { type: "SESSION_CLOSE", sessionId });
+      await this.finalizeSession(sessionId, "quota");
+    }
+  }
+
+  private async finalizeSession(sessionId: string, reason: string) {
+    const session = (await this.state.storage.get(`sess:${sessionId}`)) as SessionRecord | undefined;
+    if (!session || session.status === "closed" || session.status === "failed" || session.status === "expired") return;
+    session.status = reason === "deadline" ? "expired" : "closed";
+    session.close_reason = reason;
+    session.closed_at = Date.now();
+    await this.state.storage.put(`sess:${sessionId}`, session);
+    if (session.funding.market_id) await this.releaseReservation(session.funding.market_id, sessionId);
+    void this.audit("session.closed", { sessionId, reason, used: session.used });
+  }
+
+  private async releaseReservation(marketId: string, sessionId: string) {
+    const reserved = ((await this.state.storage.get(`reserved:${marketId}`)) || {}) as Record<string, number>;
+    if (sessionId in reserved) {
+      delete reserved[sessionId];
+      await this.state.storage.put(`reserved:${marketId}`, reserved);
+    }
+  }
+
+  /** Node went away — fail its opening/open sessions and resolve waiters. */
+  private async failNodeSessions(nodeId: string, reason: string) {
+    for (const key of await this.keys("sess:")) {
+      const s = (await this.state.storage.get(key)) as SessionRecord | undefined;
+      if (!s || (s.status !== "opening" && s.status !== "open")) continue;
+      const involved = s.node === nodeId || (s.pending_nodes ?? []).includes(nodeId);
+      if (!involved) continue;
+      s.pending_nodes = (s.pending_nodes ?? []).filter((n) => n !== nodeId);
+      if (s.status === "opening" && s.node !== nodeId && s.pending_nodes.length > 0) continue;
+      s.status = "failed";
+      s.close_reason = reason;
+      s.closed_at = Date.now();
+      await this.state.storage.put(key, s);
+      if (s.funding.market_id) await this.releaseReservation(s.funding.market_id, s.id);
+      const po = this.pendingOpens.get(s.id);
+      if (po) { clearTimeout(po.timer); this.pendingOpens.delete(s.id); po.resolve(null); }
+      for (const [k, pc] of this.pendingCalls) {
+        if (k.startsWith(`${s.id}:`)) { clearTimeout(pc.timer); this.pendingCalls.delete(k); pc.resolve({ ok: false, error: "node disconnected" }); }
+      }
+    }
+  }
+
+  /** Deadline sweep — sessions past `deadline` expire and release quota. */
+  private async expireSessions() {
+    const nowSec = Math.floor(Date.now() / 1000);
+    for (const key of await this.keys("sess:")) {
+      const s = (await this.state.storage.get(key)) as SessionRecord | undefined;
+      if (!s || (s.status !== "opening" && s.status !== "open")) continue;
+      if (s.deadline && s.deadline < nowSec) {
+        this.sendTo(s.node, { type: "SESSION_CLOSE", sessionId: s.id });
+        await this.finalizeSession(s.id, "deadline");
+      }
+    }
+  }
+
+  private sendTo(volunteerId: string, msg: Record<string, unknown>) {
+    const ws = this.wsFor(volunteerId);
+    if (ws) ws.send(JSON.stringify(msg));
+  }
+
+  /** Public session record — used units, tick count, funding, upstream refs.
+   *  Signed like job records so anyone can verify coordinator provenance. */
+  private async publicSession(s: SessionRecord): Promise<Record<string, unknown>> {
+    const ticks = await this.keys(`sesstick:${s.id}:`);
+    const rec: Record<string, unknown> = {
+      sessionId: s.id,
+      offer_id: s.offer_id,
+      node: s.node || null,
+      node_did: s.node_did,
+      requester: s.requester,
+      kind: s.kind,
+      network: s.network,
+      unit: s.unit,
+      price_near_per_unit: s.price_near_per_unit,
+      quota: s.quota,
+      quota_unit: s.quota_unit,
+      used: s.used,
+      calls: s.calls,
+      funding: s.funding,
+      status: s.status,
+      close_reason: s.close_reason ?? null,
+      opened_at: s.opened_at,
+      closed_at: s.closed_at ?? null,
+      deadline: s.deadline ?? null,
+      ticks: ticks.length,
+      upstream_refs: s.upstream_refs.slice(-50),
+    };
+    const secret = this.env.COORDINATOR_SECRET || this.env.ATTEST_SECRET || this.env.ADMIN_TOKEN;
+    rec.sig = secret
+      ? `hmac-sha256:${await this.hmacHex(secret, canonicalJson(rec))}`
+      : null;
+    return rec;
   }
 
   private hexToBytes(hex: string): Uint8Array | null {

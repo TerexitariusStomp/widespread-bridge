@@ -6,7 +6,8 @@ import {
   validateJobResult, WIDESPREAD,
   type VolunteerMeta,
 } from "../src/coordinator/registry";
-import { base58Decode, didKeyPublicKey, verifyDidKey, decodeSig } from "../src/coordinator/didkey";
+import { base58Decode, didKeyPublicKey, verifyDidKey, decodeSig, didKeyFromPublicKey } from "../src/coordinator/didkey";
+import { canonicalJson } from "../src/artifacts";
 import { CoordinatorDO } from "../src/coordinator/coordinator-do";
 import { fakeEnv } from "./mock";
 import type { Env } from "../src/types";
@@ -436,5 +437,240 @@ describe("CoordinatorDO", () => {
     expect(badId.status).toBe(400);
     const missing = await doo.fetch(new Request("https://x/api/coordinator/receipts/nope"));
     expect(missing.status).toBe(404);
+  });
+});
+
+// ── resource offers + request sessions ──
+
+const sha256Hex = async (s: string) =>
+  [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)))]
+    .map((b) => b.toString(16).padStart(2, "0")).join("");
+
+const hexOf = (b: Uint8Array | ArrayBuffer) =>
+  [...new Uint8Array(b as ArrayBuffer)].map((x) => x.toString(16).padStart(2, "0")).join("");
+
+async function sessionKey() {
+  const kp = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"]);
+  const pub = new Uint8Array(await crypto.subtle.exportKey("raw", kp.publicKey));
+  const prefixed = new Uint8Array(34);
+  prefixed[0] = 0xed; prefixed[1] = 0x01; prefixed.set(pub, 2);
+  const did = `did:key:z${base58Encode(prefixed)}`;
+  expect(didKeyFromPublicKey(pub)).toBe(did);
+  const sign = async (msg: string) =>
+    hexOf(await crypto.subtle.sign("Ed25519", kp.privateKey, new TextEncoder().encode(msg)));
+  return { did, pubHex: hexOf(pub), sign };
+}
+
+async function signedOffer(k: Awaited<ReturnType<typeof sessionKey>>, over: Record<string, unknown> = {}) {
+  const body = {
+    node_did: k.did, network: "btfs", kind: "storage", unit: "bytes_month",
+    price_near_per_unit: 0.001, quota_max: 0, endpoint_hint: null, terms: null,
+    tee: false, issued_at: 1700000000, ...over,
+  };
+  const id = await sha256Hex(canonicalJson(body));
+  const sig = await k.sign(`widespread-offer:${id}`);
+  return { ...body, id, pubkey: k.pubHex, sig };
+}
+
+async function flush() { for (let i = 0; i < 12; i++) await tick(); }
+
+async function registerWithOffer(
+  doo: CoordinatorDO, state: FakeState,
+  k: Awaited<ReturnType<typeof sessionKey>>, offer: Record<string, unknown>,
+  volunteerId = "v1",
+) {
+  const ws = fakeWS();
+  state.sockets.push(ws);
+  const sig = await k.sign(`widespread-bind:${volunteerId}`);
+  await doo.webSocketMessage(ws as unknown as WebSocket, JSON.stringify({
+    type: "REGISTER", volunteerId, did: k.did, sig,
+    taskTypes: [412], networks: ["btfs"], offers: [offer],
+  }));
+  await flush();
+  return ws;
+}
+
+describe("resource sessions", () => {
+  const adminEnv = { COORDINATOR_ADMIN: "adm" } as Partial<Env>;
+  const adminHeaders = { "content-type": "application/json", authorization: "Bearer adm" };
+
+  it("offer → request → call → close round-trips units into a signed tick ledger", async () => {
+    const { doo, state } = makeDO(adminEnv);
+    const k = await sessionKey();
+    const offer = await signedOffer(k);
+    const ws = await registerWithOffer(doo, state, k, offer);
+
+    // Offer is listed and ranked.
+    const list = await doo.fetch(new Request("https://x/api/offers?kind=storage"));
+    expect(list.status).toBe(200);
+    const offers = (await list.json() as { offers: { id: string; node: string }[] }).offers;
+    expect(offers.map((o) => o.id)).toContain(offer.id);
+    expect(offers[0].node).toBe("v1");
+
+    // Open a session — admin-funded (market escrow path covered separately).
+    const openP = doo.fetch(new Request("https://x/api/requests", {
+      method: "POST", headers: adminHeaders,
+      body: JSON.stringify({ offer_id: offer.id, requester: "tester" }),
+    }));
+    await flush();
+    const openMsg = JSON.parse(ws.sent.at(-1)!) as { type: string; sessionId: string };
+    expect(openMsg.type).toBe("SESSION_OPEN");
+    await doo.webSocketMessage(ws as unknown as WebSocket, JSON.stringify({
+      type: "SESSION_ACCEPTED", sessionId: openMsg.sessionId, endpoint_hint: "btfs://QmNode",
+    }));
+    const openRes = await openP;
+    expect(openRes.status).toBe(201);
+    const { session } = await openRes.json() as { session: { sessionId: string; status: string } };
+    expect(session.status).toBe("open");
+
+    // Call → SESSION_CALL dispatched, SESSION_RESULT accumulates units.
+    const callP = doo.fetch(new Request(`https://x/api/requests/${session.sessionId}/call`, {
+      method: "POST", headers: adminHeaders,
+      body: JSON.stringify({ op: "store", params: { data_b64: "aGk=" } }),
+    }));
+    await flush();
+    const callMsg = JSON.parse(ws.sent.at(-1)!) as { type: string; seq: number };
+    expect(callMsg.type).toBe("SESSION_CALL");
+    expect(callMsg.seq).toBe(1);
+
+    const units = { bytes_stored: 2 };
+    const cumulative = { bytes_stored: 2 };
+    const body = JSON.stringify({ sessionId: session.sessionId, seq: callMsg.seq, units, cumulative });
+    const hash = await sha256Hex(body);
+    const tickSig = await k.sign(`widespread-tick:${session.sessionId}:${callMsg.seq}:${hash}`);
+    await doo.webSocketMessage(ws as unknown as WebSocket, JSON.stringify({
+      type: "SESSION_RESULT", sessionId: session.sessionId, seq: callMsg.seq, ok: true,
+      result: { cid: "bafyTest" }, units, cumulative,
+      upstream_refs: ["btfs:bafyTest"], sig: tickSig,
+    }));
+    const callRes = await callP;
+    expect(callRes.status).toBe(200);
+    const callJson = await callRes.json() as { cumulative: { bytes_stored: number }; result: { cid: string } };
+    expect(callJson.cumulative.bytes_stored).toBe(2);
+    expect(callJson.result.cid).toBe("bafyTest");
+
+    // Tick ledger recorded with a verified node signature.
+    const tickRec = state.storage.map.get(`sesstick:${session.sessionId}:1`) as { sig_ok?: boolean; units: Record<string, number> };
+    expect(tickRec.units.bytes_stored).toBe(2);
+    expect(tickRec.sig_ok).toBe(true);
+
+    // Session view shows accumulated units + upstream refs.
+    const get = await doo.fetch(new Request(`https://x/api/requests/${session.sessionId}`));
+    const view = (await get.json() as { session: { used: Record<string, number>; ticks: number; status: string } }).session;
+    expect(view.used.bytes_stored).toBe(2);
+    expect(view.ticks).toBe(1);
+
+    // Close is idempotent.
+    const close = await doo.fetch(new Request(`https://x/api/requests/${session.sessionId}/close`, {
+      method: "POST", headers: adminHeaders, body: "{}",
+    }));
+    expect(((await close.json()) as { session: { status: string } }).session.status).toBe("closed");
+    const again = await doo.fetch(new Request(`https://x/api/requests/${session.sessionId}/close`, {
+      method: "POST", headers: adminHeaders, body: "{}",
+    }));
+    expect(((await again.json()) as { session: { status: string } }).session.status).toBe("closed");
+    // Calls on a closed session are rejected.
+    const late = await doo.fetch(new Request(`https://x/api/requests/${session.sessionId}/call`, {
+      method: "POST", headers: adminHeaders, body: JSON.stringify({ op: "fetch", params: {} }),
+    }));
+    expect(late.status).toBe(409);
+  });
+
+  it("spec routing ranks by price and filters by kind/price ceiling", async () => {
+    const { doo, state } = makeDO(adminEnv);
+    const k1 = await sessionKey();
+    const k2 = await sessionKey();
+    const cheap = await signedOffer(k1, { price_near_per_unit: 0.0005, network: "btfs" });
+    const pricey = await signedOffer(k2, { price_near_per_unit: 0.01, network: "btfs" });
+    await registerWithOffer(doo, state, k1, cheap, "cheap-node");
+    await registerWithOffer(doo, state, k2, pricey, "pricey-node");
+
+    const list = await doo.fetch(new Request("https://x/api/offers?kind=storage"));
+    const ranked = (await list.json() as { offers: { id: string; score: { price: number } }[] }).offers;
+    expect(ranked[0].id).toBe(cheap.id);
+    expect(ranked[0].score.price).toBe(0.0005);
+
+    // Price ceiling excludes the pricey offer → spec routes only to cheap.
+    const openP = doo.fetch(new Request("https://x/api/requests", {
+      method: "POST", headers: adminHeaders,
+      body: JSON.stringify({ spec: { kind: "storage", max_price_near_per_unit: "0.001" }, requester: "t" }),
+    }));
+    await flush();
+    const openMsg = JSON.parse((state.sockets.find((s) => s.sent.some((m) => m.includes("SESSION_OPEN")))!.sent.at(-1)!)) as { sessionId: string };
+    // Whichever node got it, accept and confirm close-out works.
+    const ws = state.sockets.find((s) => s.sent.some((m) => m.includes(openMsg.sessionId)))!;
+    await doo.webSocketMessage(ws as unknown as WebSocket, JSON.stringify({
+      type: "SESSION_ACCEPTED", sessionId: openMsg.sessionId,
+    }));
+    const res = await openP;
+    expect(res.status).toBe(201);
+    const { session } = await res.json() as { session: { node: string; network: string } };
+    expect(session.node).toBe("cheap-node");
+    expect(session.network).toBe("btfs");
+  });
+
+  it("rejects unsigned/forged offers and requests without funding", async () => {
+    const { doo, state } = makeDO(adminEnv);
+    const k = await sessionKey();
+    const good = await signedOffer(k);
+    // Tampered sig → offer must not be stored.
+    const bad = { ...good, sig: "0".repeat(128) };
+    const ws = fakeWS();
+    state.sockets.push(ws);
+    const sig = await k.sign(`widespread-bind:v1`);
+    await doo.webSocketMessage(ws as unknown as WebSocket, JSON.stringify({
+      type: "REGISTER", volunteerId: "v1", did: k.did, sig,
+      taskTypes: [412], networks: ["btfs"], offers: [bad],
+    }));
+    await flush();
+    const list = await doo.fetch(new Request("https://x/api/offers"));
+    expect(((await list.json()) as { offers: unknown[] }).offers).toHaveLength(0);
+
+    // No market_id and no admin → 401.
+    const denied = await doo.fetch(new Request("https://x/api/requests", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ offer_id: good.id }),
+    }));
+    expect(denied.status).toBe(401);
+    // Unknown offer → 404 even for admin.
+    const missing = await doo.fetch(new Request("https://x/api/requests", {
+      method: "POST", headers: adminHeaders,
+      body: JSON.stringify({ offer_id: "f".repeat(64) }),
+    }));
+    expect(missing.status).toBe(404);
+  });
+
+  it("raced open: first accept wins, loser is told to close", async () => {
+    const { doo, state } = makeDO(adminEnv);
+    const k1 = await sessionKey();
+    const k2 = await sessionKey();
+    // Same offer content signed by two different nodes → two offers.
+    const offer1 = await signedOffer(k1, { issued_at: 1700000001 });
+    const offer2 = await signedOffer(k2, { issued_at: 1700000001 });
+    const ws1 = await registerWithOffer(doo, state, k1, offer1, "node-a");
+    const ws2 = await registerWithOffer(doo, state, k2, offer2, "node-b");
+
+    const openP = doo.fetch(new Request("https://x/api/requests", {
+      method: "POST", headers: adminHeaders,
+      body: JSON.stringify({ spec: { kind: "storage" }, raced: 2, requester: "t" }),
+    }));
+    await flush();
+    const opens = state.sockets.filter((s) => s.sent.some((m) => (JSON.parse(m) as { type?: string }).type === "SESSION_OPEN"));
+    expect(opens.length).toBe(2);
+    const sessionId = (JSON.parse(opens[0].sent.find((m) => m.includes("SESSION_OPEN"))!) as { sessionId: string }).sessionId;
+    // First accepter wins.
+    await doo.webSocketMessage(opens[0] as unknown as WebSocket, JSON.stringify({
+      type: "SESSION_ACCEPTED", sessionId,
+    }));
+    const res = await openP;
+    expect(res.status).toBe(201);
+    const { session } = await res.json() as { session: { node: string } };
+    const winner = session.node;
+    // The loser received SESSION_CLOSE.
+    const loserWs = opens.find((s) => !s.sent.some((m) => m.includes(`"node":"${winner}"`))) ?? opens[1];
+    const loserGotClose = state.sockets.some((s) =>
+      s.sent.some((m) => { try { const j = JSON.parse(m) as { type?: string; sessionId?: string }; return j.type === "SESSION_CLOSE" && j.sessionId === sessionId; } catch { return false; } }));
+    expect(loserGotClose).toBe(true);
+    void ws1; void ws2; void loserWs;
   });
 });
