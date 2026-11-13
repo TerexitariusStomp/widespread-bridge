@@ -1,19 +1,26 @@
 // Domain router: market.domain picks the pack. `auto` sniffs the ref —
 // a claim can always fall back to platform-url or payer-accept.
 import { packs } from "./social";
+import { computePacks } from "./compute";
 import type { DomainPack, MarketRef, ClaimRef, ValidateResult } from "./types";
+
+const allPacks = [...packs, ...computePacks];
 
 export function getDomain(name: string | undefined): DomainPack | null {
   if (!name) return null;
   const n = name.toLowerCase();
-  return packs.find((p) => p.name === n || p.name.startsWith(n)) ?? null;
+  return allPacks.find((p) => p.name === n || p.name.startsWith(n)) ?? null;
 }
 
-const pack = (name: string) => packs.find((p) => p.name === name)!;
+const pack = (name: string) => allPacks.find((p) => p.name === name)!;
 
 /** Guess the pack from the artifact ref when the market doesn't declare one. */
 export function sniffDomain(ref: string): DomainPack {
   const r = ref.toLowerCase();
+  if (/^btfs:\/\//.test(r) || /\/btfs\/[a-z0-9]{20,}/.test(r)) return pack("btfs-artifact");
+  if (/^ipfs:\/\//.test(r) || /\/ipfs\/(qm|b[a-z2-7])[a-z0-9]{20,}/.test(r)) return pack("ipfs-artifact");
+  if (/^rcpt:\/\//.test(r)) return pack("resource-receipt");
+  if (/^widespread:\/\/job\/|^job:|\/api\/jobs\//.test(r)) return pack("runner-job");
   if (/bsky\.app\/profile|at:\/\//.test(r)) return pack("bluesky-post");
   if (/(x|twitter)\.com\/\w+\/status/.test(r)) return pack("x-post");
   if (/youtube\.com|youtu\.be/.test(r)) return pack("youtube");

@@ -93,7 +93,7 @@ export async function handleMcpRequest(req: Request, env: Env, ctx: ExecutionCon
 
   server.registerTool("wide_claim", {
     annotations: { title: 'Claim Market', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
-    description: "Claim intent on a funded market — validated against the on-chain market (open status, spec hash) and the forge submission, returns shipClaim args + attestation token.",
+    description: "Claim intent on a funded market — validated against the on-chain market (open status, spec hash) and the submitted artifact: github PR/issue URL, btfs://cid or ipfs://cid (any deliverable, no forge account), rcpt://<id> + evidence.receipt (metered resource service), or a /api/jobs/ coordinator record. Returns shipClaim args + attestation token.",
     inputSchema: {
       marketId: z.string(), forgeRef: z.string(), forgeUserId: z.string().optional(),
       commits: z.array(z.string()).optional(), specHash: z.string().optional(),
@@ -129,14 +129,15 @@ export async function handleMcpRequest(req: Request, env: Env, ctx: ExecutionCon
   // --------------------------------------------------- funder-side (write)
   server.registerTool("wide_bounty_declare", {
     annotations: { title: 'Declare Bounty', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
-    description: "Post a task: create a declared bounty market for ANY work domain (code, social-media, writing, research, data, other). Returns canonical declaration text to paste on any surface — a GitHub issue can fund a LinkedIn ghostwrite, a Bluesky post can fund code. Feed scanners bind the post to the market.",
+    description: "Post a task: create a declared bounty market for ANY work domain (code, social-media, writing, research, data, other). Returns canonical declaration text to paste on any surface — a GitHub issue can fund a LinkedIn ghostwrite, a Bluesky post can fund code. Feed scanners bind the post to the market. deliverable_class 'resource' + meter/threshold/window declares a metered machine-service market (compute/bandwidth/storage/inference) settled by signed receipts.",
     inputSchema: {
       domain: z.string().optional(), spec: z.string(), amount: z.string(),
       currency: z.string().optional(),
       verification: z.object({ class: z.string().optional(), params: z.record(z.string(), z.unknown()).optional() }).optional(),
       payer_email: z.string().optional(), funder_handle: z.string().optional(), funder_did: z.string().optional(),
       target_platform: z.string().optional(), target_handle: z.string().optional(),
-      deliverable_class: z.enum(["draft", "publish"]).optional(),
+      deliverable_class: z.enum(["draft", "publish", "resource"]).optional(),
+      meter: z.string().optional(), threshold: z.number().optional(), window: z.string().optional(),
     },
   }, async (a) => json(await bountyDeclare(env, a)));
 
@@ -149,7 +150,8 @@ export async function handleMcpRequest(req: Request, env: Env, ctx: ExecutionCon
       verification: z.object({ class: z.string().optional(), params: z.record(z.string(), z.unknown()).optional() }).optional(),
       payer_email: z.string().optional(), funder_handle: z.string().optional(), funder_did: z.string().optional(),
       target_platform: z.string().optional(), target_handle: z.string().optional(),
-      deliverable_class: z.enum(["draft", "publish"]).optional(),
+      deliverable_class: z.enum(["draft", "publish", "resource"]).optional(),
+      meter: z.string().optional(), threshold: z.number().optional(), window: z.string().optional(),
     },
   }, async (a) => json(await bountyBroadcast(env, a)));
 

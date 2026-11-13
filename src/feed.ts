@@ -985,6 +985,14 @@ export const RUNNERS = [
     endpoint: null,
     note: "agent's own omarchy-compartment / gVisor / E2B instance — register via POST /api/runners",
   },
+  {
+    id: "widespread-node", kind: "widespread-node",
+    isolation: "hardened container (sealed exec) + provider daemons",
+    attestation: "did:key-signed results + metered receipts",
+    capabilities: ["task-artifacts", "inference", "compute", "bandwidth", "storage", "resource-metering"],
+    endpoint: "/api/nodes",
+    note: "widespread-runner node — registers to the coordinator, serves task markets (btfs://cid artifacts) and resource markets (signed metered receipts, upstream proofs or challenges)",
+  },
 ] as const;
 
 export async function listRunners(env: Env): Promise<unknown[]> {

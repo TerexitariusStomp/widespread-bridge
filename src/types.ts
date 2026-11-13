@@ -63,6 +63,13 @@ export interface Env {
   CLAIM_TIMEOUT_MS?: string;
   /** HMAC secret for /api/claims attestation tokens (falls back to ADMIN_TOKEN). */
   ATTEST_SECRET?: string;
+  /** Volunteer-node coordinator (absorbed chimera dispatch fabric). */
+  COORDINATOR?: DurableObjectNamespace;
+  /** HMAC secret for signed coordinator job records (falls back to
+   *  ATTEST_SECRET → ADMIN_TOKEN). */
+  COORDINATOR_SECRET?: string;
+  /** Preferred content-addressed artifact gateway (overrides defaults). */
+  ARTIFACT_GATEWAY?: string;
   /** Markup (bps) applied when mirroring third-party bounties into our
    * markets — our spread, skimmed on-chain to platformTo at release. */
   CUT_BPS?: string;
@@ -121,7 +128,7 @@ export interface FeedRecord {
   for?: { platform: string; handle: string; bound?: boolean };
   /** draft = deliverable is text reviewed before publication (ghostwriting);
    * publish = deliverable must be a published artifact on the target. */
-  deliverable_class?: "draft" | "publish";
+  deliverable_class?: "draft" | "publish" | "resource";
   created_at?: number;
   updated_at: number;
 }
@@ -314,7 +321,7 @@ export interface Bounty {
   /** Cross-surface target profile (verified via idbind when bound). */
   target?: { platform: string; handle: string };
   /** draft (default for ghostwriting) | publish (target must publish). */
-  deliverable_class?: "draft" | "publish";
+  deliverable_class?: "draft" | "publish" | "resource";
   /** Funder's DID when the market is declared by a bound identity. */
   funder_did?: string;
   created_at: number;

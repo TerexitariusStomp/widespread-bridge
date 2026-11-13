@@ -24,8 +24,17 @@ export interface DeclareArgs {
   target_platform?: string;
   target_handle?: string;
   /** draft (default for ghostwriting — text reviewed, target publishes) |
-   * publish (deliverable must appear on the target profile). */
-  deliverable_class?: "draft" | "publish";
+   * publish (deliverable must appear on the target profile) |
+   * resource (metered machine service — compute/bandwidth/storage; requires
+   * meter + threshold so claims verify deterministically). */
+  deliverable_class?: "draft" | "publish" | "resource";
+  /** resource markets: the measured unit (bandwidth_gb, storage_gb_mo,
+   *  compute_hrs, tokens, …), the acceptance threshold, and the service
+   *  window (e.g. "7d", "720h"). Emitted into the canonical spec so the
+   *  receipt verifier can read the objective acceptance rule. */
+  meter?: string;
+  threshold?: number;
+  window?: string;
 }
 
 async function specHash(s: string) {
@@ -40,6 +49,9 @@ export async function bountyDeclare(env: Env, a: DeclareArgs) {
   const repo = `widespread/${domain}`;   // forge repo that logs this vertical's attestations
   const id = `decl:${hash}`;
   const deliverable = a.deliverable_class ?? (domain === "social-media" || domain === "writing" ? "draft" : "publish");
+  if (deliverable === "resource" && (!a.meter || a.threshold == null)) {
+    return { error: "resource markets require meter + threshold — objective acceptance is the point" };
+  }
   const target = a.target_platform && a.target_handle
     ? { platform: a.target_platform.toLowerCase(), handle: a.target_handle.replace(/^@/, "") }
     : null;
@@ -49,6 +61,7 @@ export async function bountyDeclare(env: Env, a: DeclareArgs) {
     `domain: ${domain}`,
     `amount: ${a.amount} ${a.currency ?? "USD"}`,
     `spec: ${a.spec}`,
+    deliverable === "resource" ? `meter:${a.meter} threshold:${a.threshold}${a.window ? ` window:${a.window}` : ""}` : null,
     target ? `for: ${target.platform} @${target.handle}` : null,
     target && deliverable === "draft" ? `deliverable: draft text (you publish)` : null,
     a.verification?.params?.nonce ? `nonce: ${a.verification.params.nonce}` : null,
@@ -63,7 +76,7 @@ export async function bountyDeclare(env: Env, a: DeclareArgs) {
     domain: domain === "code" ? undefined : domain,
     work_id: hash,
     target: target ?? undefined,
-    deliverable_class: target ? deliverable : undefined,
+    deliverable_class: deliverable === "resource" ? "resource" : (target ? deliverable : undefined),
     funder_did: a.funder_did,
     created_at: Date.now(),
   };
@@ -75,12 +88,20 @@ export async function bountyDeclare(env: Env, a: DeclareArgs) {
     title: a.spec.slice(0, 120), spec: a.spec,
     amount: a.amount, currency: a.currency ?? "USD",
     escrow: { state: "label-only" },
-    verification: { required: domain === "code" ? "forge ship op" : deliverable === "draft" ? "text-draft" : "platform-url", spec_hash: hash },
+    verification: {
+      required: domain === "code" ? "forge ship op"
+        : deliverable === "resource" ? "metered-receipt"
+        : deliverable === "draft" ? "text-draft" : "platform-url",
+      spec_hash: hash,
+      ...(deliverable === "resource" ? {
+        params: { meter: a.meter, threshold: a.threshold, ...(a.window ? { window: a.window } : {}) },
+      } : {}),
+    },
     url: `https://widespread-bridge.widespread.workers.dev/api/declarations/${hash}`,
     claim: { how: `reply "widespread claim ${hash}" or via MCP wide_claim`, grammar: "widespread claim <hash>" },
     domain,
     for: target ? { ...target, bound: !!bound } : undefined,
-    deliverable_class: target ? deliverable : undefined,
+    deliverable_class: deliverable === "resource" ? "resource" : (target ? deliverable : undefined),
     created_at: Date.now(),
     updated_at: Date.now(),
   };

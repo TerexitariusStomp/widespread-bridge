@@ -20,13 +20,19 @@
 
 import { nearView } from "./near";
 import type { Env } from "./types";
+import {
+  parseArtifactRef, validateCidArtifact, validateReceipt,
+  loadJobRecord, verifyJobRecordSig, type ArtifactRef,
+} from "./artifacts";
 
 const GH_API = "https://api.github.com";
 const TOKEN_TTL_MS = 7 * 24 * 3600 * 1000;
 
 export interface ClaimBody {
   marketId?: string;
-  forgeRef?: string;          // https://github.com/o/r/pull/12 | /issues/3 | o/r#12
+  /** Artifact locator — github PR/issue URL, btfs://cid, ipfs://cid,
+   *  rcpt://<receiptId> (+ evidence.receipt), or a coordinator job ref. */
+  forgeRef?: string;
   claimant?: string;          // NEAR account that receives payout
   actor?: string;             // agent/did label
   commits?: string[];
@@ -140,19 +146,41 @@ export async function verifyAttestation(env: Env, token: string): Promise<
   }
 }
 
-/** Shared forge-artifact validation — used by both NEAR market claims and
- * fiat mirror claims. Returns failures[] plus enriched evidence (patch
- * fingerprint, forge ids) on success. */
+/** Shared artifact validation — used by both NEAR market claims and
+ * fiat mirror claims. Dispatches on the artifact ref kind: github PR/issue
+ * (original path), content-addressed CID, coordinator job record, or a
+ * signed metered receipt. Returns failures[] plus enriched evidence. */
 export async function validateForgeSubmission(
   env: Env,
-  body: { forgeRef: string; forgeUserId?: string; commits?: string[]; evidence?: Record<string, unknown> },
+  body: {
+    forgeRef: string; forgeUserId?: string; commits?: string[];
+    evidence?: Record<string, unknown>;
+    market?: { spec?: string; specHash?: string; verification?: { params?: Record<string, unknown> } };
+  },
 ): Promise<{ failures: string[]; evidence: Record<string, unknown> }> {
   const failures: string[] = [];
   const evidence = { ...(body.evidence ?? {}) };
-  const ref = parseForgeRef(body.forgeRef);
-  if (!ref) {
-    return { failures: ["forgeRef must be a github.com owner/repo/(issues|pull)/N or owner/repo#N"], evidence };
+  const art = parseArtifactRef(body.forgeRef);
+  if (!art) {
+    return { failures: ["forgeRef must be a github.com owner/repo/(issues|pull)/N, owner/repo#N, btfs://cid, ipfs://cid, rcpt://id, or a /api/jobs/ ref"], evidence };
   }
+  evidence.artifact_kind = art.kind;
+
+  if (art.kind === "cid") {
+    return validateCidArtifact(env, art, evidence);
+  }
+  if (art.kind === "receipt") {
+    if (!body.market) {
+      return { failures: ["rcpt:// claims require the market spec (meter/threshold) in context"], evidence };
+    }
+    return validateReceipt(env, art, body.market, evidence);
+  }
+  if (art.kind === "job") {
+    return validateJobArtifact(env, art, evidence);
+  }
+
+  // github kind — original forge path
+  const ref = { owner: art.owner, repo: art.repo, kind: art.issueKind, number: art.number };
   const issueRes = await gh<GhIssue>(env, `/repos/${ref.owner}/${ref.repo}/issues/${ref.number}`);
   const issue = issueRes.data;
   if (!issue) {
@@ -190,6 +218,38 @@ export async function validateForgeSubmission(
   return { failures, evidence };
 }
 
+/** Coordinator-dispatched job artifacts — the signed public job record is
+ * the evidence: who ran it (device did), what it returned, replica tally,
+ * and challenge log. Record sig proves coordinator provenance. */
+async function validateJobArtifact(
+  env: Env, art: Extract<ArtifactRef, { kind: "job" }>, evidence: Record<string, unknown>,
+): Promise<{ failures: string[]; evidence: Record<string, unknown> }> {
+  const failures: string[] = [];
+  const out: Record<string, unknown> = { ...evidence, artifact: "coordinator-job", job_id: art.jobId, forge: "coordinator" };
+  const job = await loadJobRecord(env, art.jobId);
+  if (!job) return { failures: [`job ${art.jobId} not found or coordinator unreachable`], evidence: out };
+  const sigOk = await verifyJobRecordSig(env, job);
+  out.job_sig_verified = sigOk;
+  if (!sigOk) failures.push("job record signature does not verify — provenance unknown");
+  if (job.status !== "done") failures.push(`job status is ${job.status}, not done`);
+  if (job.flag === "challenge-failed") failures.push("job has a failed verification challenge");
+  const results = job.results ?? [];
+  if (!results.length) failures.push("job has no results");
+  const required = job.tally?.required ?? 1;
+  if (results.length < required) failures.push(`replica tally ${results.length}/${required} — verification quorum unmet`);
+  if (required > 1) {
+    if (job.tally?.comparison === "similarity") {
+      out.replica_comparison = "similarity"; // nondeterministic (GPU/inference) — judge compares, not byte-exact
+    } else if (job.tally && job.tally.agreement === false) {
+      failures.push("replica results disagree — deterministic work must byte-match");
+    }
+  }
+  const dids = [...new Set(results.map((r) => r.did).filter(Boolean))];
+  if (dids.length) out.device_dids = dids;
+  out.job = { taskType: job.taskType, results: results.length, required, market_id: job.market_id ?? null };
+  return { failures, evidence: out };
+}
+
 export async function handleClaimPost(req: Request, env: Env): Promise<Response> {
   const body = (await req.json().catch(() => null)) as ClaimBody | null;
   if (!body?.marketId || !body.forgeRef) {
@@ -209,12 +269,14 @@ export async function handleClaimPost(req: Request, env: Env): Promise<Response>
     failures.push("specHash does not match market specHash");
   }
 
-  // 2-4. forge artifact validation (shared with fiat mirror claims)
+  // 2-4. artifact validation (shared with fiat mirror claims) — github PRs,
+  // content-addressed CIDs, coordinator job records, or metered receipts.
   const fv = await validateForgeSubmission(env, {
     forgeRef: body.forgeRef,
     forgeUserId: body.forgeUserId,
     commits: body.commits,
     evidence: body.evidence,
+    market: market as { spec?: string; specHash?: string },
   });
   failures.push(...fv.failures);
   const evidence = fv.evidence;
@@ -240,8 +302,8 @@ export async function handleClaimPost(req: Request, env: Env): Promise<Response>
     commits: body.commits ?? [],
     evidence: fullEvidence,
     claimant: body.claimant ?? "",
-    forgeId: "github",
-    forgeUserId: String(evidence.forgeUserId ?? ""),
+    forgeId: String(evidence.artifact_kind ?? "github"),
+    forgeUserId: String(evidence.forgeUserId ?? evidence.device_did ?? ""),
     relayer: "widespread-bridge",
     attested: !!token,
   };
