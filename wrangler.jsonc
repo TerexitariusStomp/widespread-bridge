@@ -3,6 +3,7 @@
   "name": "widespread-bridge",
   "account_id": "46966abcfb8f1245ec055842177edcb2",
   "main": "src/index.ts",
+  "assets": { "directory": "./public", "binding": "ASSETS" },
   "compatibility_date": "2025-10-01",
   "compatibility_flags": ["nodejs_compat"],
   "vars": {

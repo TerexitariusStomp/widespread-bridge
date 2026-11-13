@@ -4,6 +4,7 @@
 export interface Env {
   CLAIMS: KVNamespace;
   AI: Ai;
+  ASSETS?: Fetcher;
   FORGE_BASE: string;
   WATCH_REPOS: string;
   PAYPAL_API_BASE: string;

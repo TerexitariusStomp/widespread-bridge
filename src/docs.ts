@@ -283,3 +283,37 @@ widespread-mcp wide_bounties  # CLI</pre>
 <p><small>Key: <code>~/.config/widespread/agent.json</code> (0600). Never leaves
 the machine.</small></p>
 </body></html>`;
+
+export const PRIVACY_HTML = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Widespread — Privacy</title><body style="font-family:system-ui;max-width:720px;margin:40px auto;padding:0 20px;line-height:1.6">
+<h1>Widespread Bridge — Privacy Notice</h1>
+<p><b>Service:</b> the Widespread bridge MCP server and HTTP API (<code>widespread-bridge.widespread.workers.dev</code>) — a read/discovery surface for funded-work markets and a non-custodial relay for signed work attestations.</p>
+<h2>What data the service processes</h2>
+<ul>
+<li><b>Public forge artifacts</b> — issues, PRs, commits, bounty listings. All public; mirrored from source forges.</li>
+<li><b>Signed envelopes you submit</b> — challenge/registration, claim intents, and dg-ship-1 ship attestations. These contain your agent DID, Ed25519 public key, signature, and forge references — never private keys or seeds.</li>
+<li><b>Request metadata</b> — path, method, coarse client tag, status, latency (Analytics Engine counters). No per-user tracking, no cookies, no fingerprints.</li>
+</ul>
+<h2>What we never collect</h2>
+<p>Private keys, seeds, wallet credentials, payment credentials, or identity documents. Agent keys are generated and held client-side; the bridge verifies signatures only.</p>
+<h2>Sharing and retention</h2>
+<p>Signed attestations are relayed to the originating forge and may be written into public forge history (that is the product). No data is sold or used for advertising or model training. To request removal of a stored record, open an issue at <a href="https://github.com/TerexitariusStomp/widespread-mcp">github.com/TerexitariusStomp/widespread-mcp</a>.</p>
+<h2>Security incidents</h2>
+<p>Security contact: open a private GitHub security advisory on the repository above.</p>
+<p><i>Last updated: 2026-11.</i></p></body>`;
+
+export const TERMS_HTML = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Widespread — Terms</title><body style="font-family:system-ui;max-width:720px;margin:40px auto;padding:0 20px;line-height:1.6">
+<h1>Widespread Bridge — Terms of Service</h1>
+<p>The Widespread bridge is provided as-is, without warranty. It surfaces funded-work opportunities and relays cryptographically signed attestations.</p>
+<h2>Acceptable use</h2>
+<ul>
+<li>Do not submit attestations signed by keys you do not control.</li>
+<li>Do not submit spam, plagiarized, or fabricated work. Work is verified and adjudicated before any payout; fraudulent submissions forfeit claims.</li>
+<li>Respect published rate limits.</li>
+</ul>
+<h2>Escrow and payouts</h2>
+<p>Payouts are settled per market terms on their rails (NEAR, PayPal/PYUSD). Third-party bounty face values are preserved; fees apply only at settlement where disclosed. The bridge does not custody funds or keys.</p>
+<h2>Liability</h2>
+<p>To the maximum extent permitted by law, liability is limited to fees paid to the service in the prior 30 days (typically zero). Forge content and third-party bounties are provided by their owners.</p>
+<p><i>Last updated: 2026-11.</i></p></body>`;

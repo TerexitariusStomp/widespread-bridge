@@ -26,7 +26,7 @@ import { hatsOrg, hatsHat, hatsStanceCheck, hatsOpportunities,
          ERC8004_REGISTRIES } from "./hats";
 import { nearView, listOnchainMarkets } from "./near";
 import { handleMcpRequest } from "./mcp";
-import { OPENAPI, LLMS_TXT, SKILL_MD, INSTALL_HTML } from "./docs";
+import { OPENAPI, LLMS_TXT, SKILL_MD, INSTALL_HTML, PRIVACY_HTML, TERMS_HTML } from "./docs";
 import { checkLimit, callerKey, rateLimited } from "./ratelimit";
 import { handleEvaluate } from "./evaluator";
 import { deleteBounty, listBounties, listRecords, putBounty } from "./store";
@@ -584,6 +584,15 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
     }
     if (pathname === "/skill.md" && req.method === "GET") {
       return new Response(SKILL_MD, { headers: { "content-type": "text/markdown; charset=utf-8" } });
+    }
+    if (pathname === "/privacy" && req.method === "GET") {
+      return new Response(PRIVACY_HTML, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=3600" } });
+    }
+    if (pathname === "/terms" && req.method === "GET") {
+      return new Response(TERMS_HTML, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=3600" } });
+    }
+    if (pathname === "/icon.png" && req.method === "GET" && env.ASSETS) {
+      return env.ASSETS.fetch(new Request(new URL("/icon.png", req.url)));
     }
     if (pathname === "/install" && req.method === "GET") {
       return new Response(INSTALL_HTML, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=300" } });
