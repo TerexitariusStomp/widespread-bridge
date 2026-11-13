@@ -39,7 +39,15 @@
     // verification of golem (Polygon) and hopr (Gnosis) upstream refs.
     "UPSTREAM_GOLEM_RPC": "https://polygon-rpc.com",
     "UPSTREAM_HOPR_RPC": "https://rpc.gnosischain.com",
-    "UPSTREAM_BEE_RPC": "https://rpc.gnosischain.com"
+    "UPSTREAM_BEE_RPC": "https://rpc.gnosischain.com",
+    // x402 facilitator — NEAR testnet rail. PAYTO is the ops account that
+    // already receives protocol funds; RELAYER_KEYS (secret) is a
+    // dedicated implicit account that pays gas — fund it with testnet
+    // NEAR from https://docs.near.org/getting-started/faucet until
+    // settlement goes live. RATE is a demo USDC-per-NEAR quote.
+    "X402_PAYTO": "wide-ops-328424.testnet",
+    "X402_USDC_PER_NEAR": "0.5",
+    "X402_NETWORK": "near:testnet"
   },
   "kv_namespaces": [
     {
