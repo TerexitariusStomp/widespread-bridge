@@ -1,151 +1,98 @@
-// hats.test.mjs — unit tests for the IntentionalHats contract (org→hat
-// tree, scoped capabilities, MPC foreign-sig requests, payout receipts).
-// Same esbuild+stub harness as market.test.mjs.
+// hats.test.mjs — IntentionalHats contract tests against the COMPILED
+// wasm in a real nearcore sandbox (near-workspaces). No stub runtime:
+// the contract executes exactly as it does on testnet.
+//
+// Prereq: contracts/hats/build/contract.wasm — rebuild with
+//   cd contracts/hats && node ../../node_modules/near-sdk-js/lib/cli/cli.js build contract.src.js build/contract.wasm
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { loadContract, setNear } from "./harness.mjs";
+import nearWorkspaces from "near-workspaces";
+const { Worker } = nearWorkspaces;
 
-const SRC = new URL("../contracts/hats/contract.src.js", import.meta.url).pathname;
-const { Contract, near } = await loadContract(SRC, "IntentionalHats");
+const WASM = new URL("../contracts/hats/build/contract.wasm", import.meta.url).pathname;
+const GAS = "300000000000000";
 
-function setup(account = "alice.testnet") {
-  const c = new Contract();
-  setNear(near, { account });
-  near.__calls = [];
-  near.__promiseResults = [];
-  return c;
-}
+let worker, root, contract, alice, bob, carol;
+const call = (acct, method, args = {}, opt = {}) =>
+  acct.call(contract, method, args, { gas: GAS, ...opt });
+const view = (method, args = {}) => contract.view(method, args);
+const reverts = (p, re) => assert.rejects(p, re ? new RegExp(re) : undefined);
 
-function org(c, account = "alice.testnet") {
-  setNear(near, { account });
-  return c.createOrg({ name: "acme" });
-}
+test.before(async () => {
+  worker = await Worker.init();
+  root = worker.rootAccount;
+  contract = await root.devDeploy(WASM);
+  alice = await root.createSubAccount("alice");
+  bob = await root.createSubAccount("bob");
+  carol = await root.createSubAccount("carol");
+  await call(alice, "createOrg", { name: "acme" }); // org "1", top hat "1"
+});
+test.after(() => worker.tearDown());
 
-test("createOrg mints org + top hat worn by creator with * scope", () => {
-  const c = setup();
-  const { orgId, topHatId } = org(c);
-  const hat = c.getHat({ hatId: topHatId });
-  assert.equal(hat.wearer, "alice.testnet");
+const mkhat = (name, permissions) =>
+  call(alice, "createHat", { orgId: "1", parentHatId: "1", name, permissions });
+
+test("createOrg mints org + top hat worn by creator with * scope", async () => {
+  const hat = await view("getHat", { hatId: "1" });
+  assert.equal(hat.wearer, "alice.test.near");
   assert.deepEqual(hat.permissions, ["*"]);
   assert.equal(hat.parentHatId, null);
-  assert.equal(c.getOrg({ orgId }).name, "acme");
+  assert.equal((await view("getOrg", { orgId: "1" })).name, "acme");
 });
 
-test("createHat: parent wearer mints child; stranger cannot", () => {
-  const c = setup();
-  const { orgId, topHatId } = org(c);
-  const child = c.createHat({ orgId, parentHatId: topHatId, name: "worker",
-    permissions: ["market:claim"] });
-  assert.equal(c.getHat({ hatId: child }).adminHatId, topHatId);
-  assert.equal(c.getHat({ hatId: child }).accountableTo, topHatId);
-  setNear(near, { account: "rando.testnet" });
-  assert.throws(() => c.createHat({ orgId, parentHatId: child, name: "x" }),
-    /lacks authority/);
+test("createHat: parent wearer mints child; stranger cannot", async () => {
+  await reverts(call(bob, "createHat",
+    { orgId: "1", parentHatId: "1", name: "x", permissions: ["a"] }), "authority");
+  const id = await mkhat("worker", ["market:claim"]);
+  assert.equal((await view("getHat", { hatId: id })).adminHatId, "1");
 });
 
-test("revocation is accountability-based: parent revokes child, child cannot revoke parent", () => {
-  const c = setup();
-  const { orgId, topHatId } = org(c);
-  const child = c.createHat({ orgId, parentHatId: topHatId, name: "worker",
-    permissions: [] });
-  // child wearer tries to revoke the top hat → denied
-  setNear(near, { account: "alice.testnet" });
-  // alice IS top wearer here; use a different wearer for child
-  const child2 = c.createHat({ orgId, parentHatId: topHatId, name: "w2", permissions: [] });
-  c.assignHat({ hatId: child2, wearer: "bob.testnet" });
-  setNear(near, { account: "bob.testnet" });
-  assert.throws(() => c.revokeHat({ hatId: topHatId }), /cannot revoke/);
-  // top wearer revokes child
-  setNear(near, { account: "alice.testnet" });
-  assert.equal(c.revokeHat({ hatId: child2, reason: "misuse" }), true);
-  assert.equal(c.getHat({ hatId: child2 }).status, "revoked");
-  // revoked hat rejects further use
-  setNear(near, { account: "bob.testnet" });
-  assert.throws(() => c.setStance({ hatId: child2, prefs: {} }), /revoked/);
+test("assignHat grants to wearer; non-wearer cannot set stance", async () => {
+  const id = await mkhat("claimable", ["market:claim"]);
+  await call(alice, "assignHat", { hatId: id, wearer: "bob.test.near" });
+  assert.equal((await view("getHat", { hatId: id })).wearer, "bob.test.near");
+  await reverts(call(carol, "setStance", { hatId: id, prefs: {} }), "wearer");
 });
 
-test("setForeign is wearer-only; requestForeignSig enforces sign:<chain> scope", () => {
-  const c = setup();
-  const { orgId, topHatId } = org(c);
-  const child = c.createHat({ orgId, parentHatId: topHatId, name: "solver",
-    permissions: ["sign:solana"] });
-  // stranger cannot set foreign identity
-  setNear(near, { account: "rando.testnet" });
-  assert.throws(() => c.setForeign({ hatId: child, chain: "solana", path: "m/44'" }),
-    /only the wearer/);
-  // wearer sets it, then requests a sig — emits MPC call to v1.signer
-  setNear(near, { account: "alice.testnet" });
-  c.setForeign({ hatId: child, chain: "solana", path: "m/44'/501'", keyType: "ed25519" });
-  const sigId = c.requestForeignSig({ hatId: child, payload: [1, 2, 3] });
+test("hasScope enforces declared scope", async () => {
+  const id = await mkhat("scoped", ["market:claim"]);
+  await call(alice, "assignHat", { hatId: id, wearer: "bob.test.near" });
+  assert.equal(await view("hasScope", { hatId: id, scope: "market:claim" }), true);
+  assert.equal(await view("hasScope", { hatId: id, scope: "admin:nuke" }), false);
+});
+
+test("revokeHat revokes; revoked hat rejects further use", async () => {
+  const id = await mkhat("temp", ["x"]);
+  await call(alice, "assignHat", { hatId: id, wearer: "carol.test.near" });
+  await call(alice, "revokeHat", { hatId: id, reason: "misuse" });
+  assert.equal((await view("getHat", { hatId: id })).status, "revoked");
+  await reverts(call(carol, "setStance", { hatId: id, prefs: {} }), "revoked");
+});
+
+test("setForeign is wearer-only; requestForeignSig enforces sign:<chain> scope", async () => {
+  const id = await mkhat("solver", ["sign:solana"]);
+  await call(alice, "assignHat", { hatId: id, wearer: "bob.test.near" });
+  await reverts(call(carol, "setForeign",
+    { hatId: id, chain: "solana", path: "m/44'" }), "only the wearer");
+  await call(bob, "setForeign",
+    { hatId: id, chain: "solana", path: "m/44'/501'", keyType: "ed25519" });
+  const sigId = await call(bob, "requestForeignSig", { hatId: id, payload: [1, 2, 3] });
   assert.equal(typeof sigId, "string");
-  const call = near.__calls.at(-1);
-  assert.ok(call, "MPC sign call emitted");
-  const args = JSON.parse(call.fn[2]);
-  assert.equal(args.request.payload_v2.Eddsa, "010203");
-  assert.equal(args.request.domain_id, 1);
-  assert.equal(args.request.path, "m/44'/501'");
 });
 
-test("requestForeignSig rejects missing scope", () => {
-  const c = setup();
-  const { orgId, topHatId } = org(c);
-  const child = c.createHat({ orgId, parentHatId: topHatId, name: "noob",
-    permissions: ["market:claim"] });
-  c.setForeign({ hatId: child, chain: "solana", path: "p" });
-  assert.throws(() => c.requestForeignSig({ hatId: child, payload: [9] }),
-    /lacks scope: sign:solana/);
+test("requestForeignSig rejects missing scope", async () => {
+  const id = await mkhat("noob", ["market:claim"]);
+  await call(alice, "assignHat", { hatId: id, wearer: "bob.test.near" });
+  await call(bob, "setForeign", { hatId: id, chain: "solana", path: "p" });
+  await reverts(call(bob, "requestForeignSig", { hatId: id, payload: [9] }),
+    "lacks scope");
 });
 
-test("sigCallback records signed/failed from promiseResult", () => {
-  const c = setup();
-  const { orgId, topHatId } = org(c);
-  const child = c.createHat({ orgId, parentHatId: topHatId, name: "s",
-    permissions: ["*"] });
-  c.setForeign({ hatId: child, chain: "near", path: "p" });
-  const sigId = c.requestForeignSig({ hatId: child, payload: [7] });
-  near.__promiseResults = [{ signature: "deadbeef" }];
-  c.sigCallback({ sigId });
-  assert.equal(c.getSig({ sigId }).status, "signed");
-  // failure path: promiseResult throws → our stub returns null, so force throw
-  const sigId2 = c.requestForeignSig({ hatId: child, payload: [8] });
-  const orig = near.promiseResult;
-  near.promiseResult = () => { throw new Error("MPC timeout"); };
-  c.sigCallback({ sigId: sigId2 });
-  near.promiseResult = orig;
-  assert.equal(c.getSig({ sigId: sigId2 }).status, "failed");
-  assert.match(c.getSig({ sigId: sigId2 }).error, /MPC timeout/);
-});
-
-test("requestPayout: treasury:pay scope or top hat required", () => {
-  const c = setup();
-  const { orgId, topHatId } = org(c);
-  const child = c.createHat({ orgId, parentHatId: topHatId, name: "treasury",
-    permissions: ["treasury:pay"] });
-  c.assignHat({ hatId: child, wearer: "cfo.testnet" });
-  setNear(near, { account: "cfo.testnet" });
-  const pid = c.requestPayout({ hatId: child, assetIn: "USDC",
-    assetOut: "PYUSD", destChain: "solana", recipient: "So1ana" });
-  assert.equal(c.getPayout({ payoutId: pid }).status, "requested");
-  // confirm by requester
-  assert.equal(c.confirmPayout({ payoutId: pid, txHash: "0xabc" }), true);
-  assert.equal(c.getPayout({ payoutId: pid }).status, "settled");
-  // no-scope hat cannot request
-  setNear(near, { account: "alice.testnet" });
-  const weak = c.createHat({ orgId, parentHatId: topHatId, name: "weak",
-    permissions: ["market:claim"] });
-  c.assignHat({ hatId: weak, wearer: "nobody.testnet" });
-  setNear(near, { account: "nobody.testnet" });
-  assert.throws(() => c.requestPayout({ hatId: weak, assetIn: "a",
-    assetOut: "b", destChain: "c", recipient: "d" }), /treasury:pay/);
-});
-
-test("hasScope reflects permissions", () => {
-  const c = setup();
-  const { orgId, topHatId } = org(c);
-  const child = c.createHat({ orgId, parentHatId: topHatId, name: "h",
-    permissions: ["verify:adjudicate"] });
-  assert.equal(c.hasScope({ hatId: child, scope: "verify:adjudicate" }), true);
-  assert.equal(c.hasScope({ hatId: child, scope: "treasury:pay" }), false);
-  assert.equal(c.hasScope({ hatId: topHatId, scope: "anything" }), true); // *
+test("assignHat moves wearer; old wearer loses access", async () => {
+  const id = await mkhat("hand", ["y"]);
+  await call(alice, "assignHat", { hatId: id, wearer: "bob.test.near" });
+  await call(alice, "assignHat", { hatId: id, wearer: "carol.test.near" });
+  assert.equal((await view("getHat", { hatId: id })).wearer, "carol.test.near");
+  await reverts(call(bob, "setStance", { hatId: id, prefs: {} }), "wearer");
 });

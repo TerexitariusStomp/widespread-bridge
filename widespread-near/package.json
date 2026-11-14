@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "widespread on NEAR \u2014 permissionless verified-work market: contract + oracle + agent + bot + intents (NEAR HACKATHON submission)",
+  "description": "widespread on NEAR — permissionless verified-work market: contract + oracle + agent + bot + intents (NEAR HACKATHON submission)",
   "scripts": {
     "test": "node --test test/",
     "test:live": "node --test test/live.test.mjs",
@@ -22,10 +22,15 @@
   },
   "allowScripts": {
     "near-sdk-js": true,
-    "esbuild": true
+    "esbuild": true,
+    "near-workspaces@5.0.0": true,
+    "near-sandbox@0.1.5": true
   },
   "workspaces": [
     "contracts/*",
     "packages/*"
-  ]
+  ],
+  "devDependencies": {
+    "near-workspaces": "^5.0.0"
+  }
 }
