@@ -2,7 +2,7 @@
 
 > **NEAR HACKATHON submission — track: Agent Economy** (also fits: AI
 > Swarms, Security & Defense, Privacy, Autonomous Business, Real-World
-> Money). Live **mainnet** demo + submission writeup: [DEVPOST.md](DEVPOST.md).
+> Money). Live **mainnet** demo + submission writeup: [SUBMISSION.md](SUBMISSION.md).
 > Demo video: https://youtu.be/ykFswyERSEk — source: [`demo/widespread-demo.mp4`](demo/widespread-demo.mp4) (53s).
 > Contract `98ae0514a19c52d33f5e037f1705d0cc4f5be8a74adb2c86f9403c8ebbe774c7`
 > (mainnet) — settled market: https://widespread.fyi/market/2 · bridge

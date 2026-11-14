@@ -221,7 +221,7 @@ needs *outcome* ("did capacity actually rise?"). The implemented shape
   need *measurement before internalisation* is what the bridge
   provides — sightings index + typed verdicts make θ observable. The
   DAO pool + floor gate is "moving θ from ≈0" in production.
-- **DEVPOST**: "agent labor market with a legible objective" — the only
+- **SUBMISSION**: "agent labor market with a legible objective" — the only
   market that can answer what coordination is *for*.
 
 ## 3. Tensions and honest limits
