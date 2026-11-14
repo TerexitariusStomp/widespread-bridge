@@ -105,10 +105,15 @@ def main() -> None:
         description="Local MCP server + CLI for Widespread bounties")
     sub = p.add_subparsers(dest="cmd")
     sub.add_parser("serve", help="stdio MCP server (default)")
+    sub.add_parser("docs", help="print the remote MCP endpoint and exit")
     for name in _tools():
         sp = sub.add_parser(name, help=w._SCHEMAS.get(name, {}).get("description", "")[:80])  # noqa: SLF001
         sp.add_argument("args", nargs="?", default="{}", help="JSON arguments")
     a = p.parse_args()
+    if a.cmd == "docs":
+        from ._widespread import BRIDGE
+        print(f"{BRIDGE}/mcp")
+        return
     if a.cmd in (None, "serve"):
         make_server().run(transport="stdio")
         return
