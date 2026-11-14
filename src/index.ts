@@ -1070,27 +1070,19 @@ app.delete("/api/bounties/:owner{[a-z0-9-]+}/:repo{[a-z0-9-]+}", async (c) => {
   return json({ ok: true });
 });
 
-app.notFound((c) => route(c.req.raw, c.env, c.executionCtx as unknown as ExecutionContext));
+// CoordinatorDO surface — volunteer nodes connect over ws at /api/nodes,
+// jobs are created via POST /api/jobs and their signed public records
+// read via GET /api/jobs/:id; /api/coordinator/* forwards the read
+// endpoints (/status, /leaderboard, /rep, /operator, /earnings, /audit).
+// Wildcard suffixes preserve the legacy startsWith prefix semantics.
+app.on(["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
+  ["/api/nodes", "/api/jobs*", "/api/offers*", "/api/requests*",
+  "/api/adapters*", "/api/x402*", "/api/coordinator*"], (c) => {
+  const res = handleCoordinatorRequest(c.req.raw, c.env);
+  return res ?? bad("coordinator not configured", 503);
+});
 
-async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    const url = new URL(req.url);
-    const { pathname } = url;
-
-    // CoordinatorDO surface — volunteer nodes connect over ws at /api/nodes,
-    // jobs are created via POST /api/jobs and their signed public records
-    // read via GET /api/jobs/:id; /api/coordinator/* forwards the read
-    // endpoints (/status, /leaderboard, /rep, /operator, /earnings, /audit).
-    if (pathname === "/api/nodes" || pathname.startsWith("/api/jobs") ||
-        pathname.startsWith("/api/offers") || pathname.startsWith("/api/requests") ||
-        pathname.startsWith("/api/adapters") ||
-        pathname.startsWith("/api/x402") ||
-        pathname.startsWith("/api/coordinator")) {
-      const res = handleCoordinatorRequest(req, env);
-      if (res) return res;
-      return bad("coordinator not configured", 503);
-    }
-    return bad("not found", 404);
-}
+app.notFound(() => bad("not found", 404));
 
 export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {

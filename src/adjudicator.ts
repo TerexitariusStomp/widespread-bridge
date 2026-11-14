@@ -282,6 +282,150 @@ export async function adjudicate(env: Env, input: AdjudicatorInput): Promise<Adj
  * rubber-stamp; per-judge verdicts are recorded for calibration against
  * human-labeled outcomes. PANEL_MODELS overrides the default seat list;
  * PANEL_SEATS caps the draw. */
+const CONTEST_SYSTEM = `You are one judge in a panel adjudicating competing submissions for a paid work market.
+
+You are shown the work spec and several candidate deliverables, each labeled C1, C2, … in an order chosen only for you. Judge every candidate against the spec: substance, completeness, evidence integrity, and spec-fit. Then pick the SINGLE best deliverable — the one the escrow should pay — or "none" if no candidate is acceptable.
+
+Do not prefer the first or last candidate: their order is random per judge and carries no signal.
+
+Reply with ONLY a JSON object, no prose, no markdown fence:
+{"winner":"C1"|"C2"|…|"none","reasoning":"<2-4 sentences citing concrete evidence>","confidence":<0..1>}`;
+
+/** Deterministic per-seat shuffle — each judge sees the candidates in a
+ * different order, so submission order can't create a shared position
+ * bias across the panel. Seeded by seat index so a judge's own re-runs
+ * stay stable. */
+function seatShuffle<T>(items: T[], seatSeed: number): T[] {
+  const a = [...items];
+  let h = (2166136261 ^ seatSeed) >>> 0;
+  for (let i = a.length - 1; i > 0; i--) {
+    h ^= h << 13; h >>>= 0; h ^= h >>> 17; h ^= h << 5; h >>>= 0;
+    const j = h % (i + 1);
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function buildContestPrompt(inputs: AdjudicatorInput[], order: number[]): string {
+  const first = inputs[0];
+  const candidates = order.map((idx, i) => {
+    const inp = inputs[idx];
+    return {
+      id: `C${i + 1}`,
+      claim: {
+        seq: inp.entry.seq,
+        kind: inp.entry.kind,
+        hash: inp.entry.hash,
+        payload: inp.entry.payload,
+      },
+      hash_chain: { valid: inp.chain.valid, checked: inp.chain.checked },
+      crosscheck: inp.check,
+      sealed_deliverable: inp.sealed_text ?? null,
+      commits: inp.commits.map((c) => ({
+        sha: c.sha, message: c.message, files: c.files,
+        lines_added: c.lines_added, lines_removed: c.lines_removed,
+        diff_excerpt: c.diff_excerpt,
+      })),
+    };
+  });
+  return JSON.stringify({
+    spec: first.bounty?.spec ?? null,
+    bounty_amount: first.bounty ? `${first.bounty.amount} ${first.bounty.currency}` : null,
+    candidates,
+  }, null, 2);
+}
+
+/** Competitive adjudication: the panel sees ALL pending claims at once
+ * and picks the single best deliverable — matching the contract's
+ * winner-selection semantics (verdicts name a winning claim, losers
+ * build reputation). Every judge gets the candidates in a different
+ * seat-seeded order with claimant identity stripped, so neither
+ * submission order nor authorship leaks into the call.
+ *
+ * Returns the winning candidate's index into `inputs` plus the panel
+ * record; winnerIndex -1 means the panel majority said "none". */
+export async function adjudicateContest(
+  env: Env, inputs: AdjudicatorInput[],
+): Promise<Adjudication & { winnerIndex: number }> {
+  const seats = Math.max(3, Math.min(7, parseInt(env.PANEL_SEATS ?? "3", 10) || 3));
+  const roster = (env.PANEL_MODELS ??
+    `${env.NEAR_AI_MODEL || "deepseek-ai/DeepSeek-V4.1-Flash-1017"},${env.LLM_MODEL || "@cf/meta/llama-3.3-70b-instruct-fp8-fast"}`)
+    .split(",").map((m: string) => m.trim()).filter(Boolean);
+  const useNearAi = !!(env as { NEAR_AI_API_KEY?: string }).NEAR_AI_API_KEY;
+
+  const judges = await Promise.all(Array.from({ length: seats }, async (_, i) => {
+    const model = roster[i % roster.length];
+    const order = seatShuffle(inputs.map((_, idx) => idx), i + 1);
+    const prompt = buildContestPrompt(inputs, order);
+    try {
+      let raw = "";
+      if (useNearAi) {
+        const r = await nearAiCall(env, inputs[0], prompt);
+        raw = r.raw;
+      } else {
+        const out = (await env.AI.run(model as keyof AiModels, {
+          messages: [
+            { role: "system", content: CONTEST_SYSTEM },
+            { role: "user", content: prompt },
+          ],
+          max_tokens: 4096, temperature: 0,
+        })) as { response?: string; choices?: { message?: { content?: string } }[] };
+        raw = (typeof out?.response === "string" && out.response) ||
+          out?.choices?.[0]?.message?.content || JSON.stringify(out);
+      }
+      const parsed = extractJson(raw);
+      const label = typeof parsed?.winner === "string" ? parsed.winner.trim() : "none";
+      const winnerPos = /^C(\d+)$/i.exec(label);
+      // Map the shuffled label back to the original inputs index.
+      const winnerIndex = winnerPos && order[+winnerPos[1] - 1] !== undefined
+        ? order[+winnerPos[1] - 1]
+        : -1;
+      return {
+        model,
+        winnerIndex,
+        confidence: typeof parsed?.confidence === "number" && Number.isFinite(parsed.confidence)
+          ? Math.max(0, Math.min(1, parsed.confidence)) : 0,
+        reasoning: typeof parsed?.reasoning === "string" ? parsed.reasoning : "",
+      };
+    } catch (e) {
+      return { model, winnerIndex: -1, confidence: 0,
+        reasoning: `judge call failed: ${String(e).slice(0, 120)}` };
+    }
+  }));
+
+  // Tally: plurality pick wins; "none" votes count toward no-winner.
+  const tally = new Map<number, number>();
+  let noneVotes = 0;
+  for (const j of judges) {
+    if (j.winnerIndex < 0) noneVotes++;
+    else tally.set(j.winnerIndex, (tally.get(j.winnerIndex) ?? 0) + 1);
+  }
+  let winnerIndex = -1, winnerVotes = 0;
+  for (const [idx, n] of tally) {
+    if (n > winnerVotes) { winnerIndex = idx; winnerVotes = n; }
+  }
+  const hasWinner = winnerVotes > noneVotes;
+  const win = hasWinner ? winnerIndex : -1;
+  const top = hasWinner ? judges.find((j) => j.winnerIndex === win) : undefined;
+  const confidence = hasWinner ? winnerVotes / judges.length : noneVotes / judges.length;
+  return {
+    verdict: hasWinner ? "accept" : "reject",
+    winnerIndex: win,
+    reasoning: hasWinner
+      ? `contest: ${winnerVotes}/${judges.length} judges picked C${win + 1} — ${top?.reasoning ?? ""}`
+      : `contest: ${noneVotes}/${judges.length} judges said no acceptable candidate`,
+    confidence,
+    model: `contest(${roster.join("|")})`,
+    panel: judges.map((j) => ({
+      model: j.model,
+      verdict: j.winnerIndex === win && win >= 0 ? "accept" : "reject",
+      confidence: j.confidence,
+      pick: j.winnerIndex,
+    })),
+    panel_escalated: hasWinner && winnerVotes <= judges.length / 2,
+  };
+}
+
 export async function adjudicatePanel(env: Env, input: AdjudicatorInput): Promise<Adjudication> {
   const seats = Math.max(3, Math.min(7, parseInt(env.PANEL_SEATS ?? "3", 10) || 3));
   const roster = (env.PANEL_MODELS ??
