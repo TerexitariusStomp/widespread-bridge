@@ -101,7 +101,7 @@ binding. No framework, no build step.
 | `src/evidence.ts`    | recompute each commit's diff (forge diff endpoint or upstream `.patch`) |
 | `src/adjudicator.ts` | **AI seat** — Workers AI LLM returns the accept/reject verdict       |
 | `src/oracle.ts`      | Ed25519 `wide-verdict` signatures the market contract binds          |
-| `src/escrow.ts`      | ops-account `createMarket` for mirror bounties (idempotent, reconciled) |
+| `src/escrow.ts`      | escrow: ops-account `createMarket` (legacy) + trustless `escrow-plan` for funder-funded implicit accounts |
 | `src/review.ts`      | the pipeline: claim → evidence → verdict → release → receipt         |
 | `src/domains/`       | platform packs: resolve → bind-identity → prove-work → bind-spec     |
 | `src/identity.ts`    | cross-surface `widespread-bind:v1` identity layer                    |

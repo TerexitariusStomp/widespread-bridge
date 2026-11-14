@@ -104,9 +104,30 @@ export const OPENAPI = {
     "/api/declarations/{hash}/escrow": {
       post: {
         operationId: "escrowDeclaration",
-        summary: "C4 blind funder — ops-pool escrow for a confidential market (on-chain payer = ops account, spec = redacted stub). Ops-authorized.",
+        summary: "C4 blind funder — ops-pool escrow for a confidential market (on-chain payer = ops account, spec = redacted stub). Ops-authorized. DEPRECATED for new markets — prefer escrow-plan (no ops custody).",
         parameters: [{ name: "hash", in: "path", required: true, schema: { type: "string" } }],
         responses: { "200": { description: "escrow result" }, "401": { description: "unauthorized" } },
+      },
+    },
+    "/api/declarations/{hash}/escrow-plan": {
+      get: {
+        operationId: "escrowPlan",
+        summary: "Trustless blind funding — returns the createMarket args + 4-step guide so the funder escrows from a FRESH implicit account funded via NEAR Intents/1Click. Ops never sees the key or holds funds. POST adds a live 1Click quote.",
+        parameters: [
+          { name: "hash", in: "path", required: true, schema: { type: "string" } },
+          { name: "near_amount", in: "query", schema: { type: "string" } },
+          { name: "quorum_m", in: "query", schema: { type: "integer" } },
+          { name: "recipient", in: "query", schema: { type: "string" } },
+          { name: "origin_asset", in: "query", schema: { type: "string" } },
+          { name: "refund_to", in: "query", schema: { type: "string" } },
+        ],
+        responses: { "200": { description: "createMarket args + guide + optional quote" } },
+      },
+      post: {
+        operationId: "escrowPlanQuote",
+        summary: "Same plan + a live 1Click quote (origin_asset/refund_to/recipient in the body).",
+        parameters: [{ name: "hash", in: "path", required: true, schema: { type: "string" } }],
+        responses: { "200": { description: "createMarket args + guide + quote" } },
       },
     },
     "/api/evaluate": {
@@ -234,17 +255,25 @@ or the deliverable.
   markets.
 - Adjudication: the bridge opens its copy in-request only; the panel
   judges plaintext; the record stores ciphertext + hash, never content.
-- Fund: POST /api/declarations/{hash}/escrow (ops-auth) — escrow via the
-  ops pool so on-chain payer ≠ the real funder.
+- Fund (trustless): GET/POST /api/declarations/{hash}/escrow-plan —
+  returns the createMarket args; the funder generates a fresh implicit
+  account (keypair → hex(ed25519_pubkey)), funds it via NEAR
+  Intents/1Click (any origin chain in, NEAR out — POST for a live
+  quote), and broadcasts createMarket itself. On-chain payer = an
+  account with no history; ops never sees the key or holds funds.
+  quorum_m + oracle_allowlist params select the jury on-chain.
+- Fund (legacy): POST /api/declarations/{hash}/escrow (ops-auth) —
+  escrow via the ops pool. Deprecated for new markets; kept for
+  in-flight ones.
 
 Honest limits: market id, amount, specHash, verdict, claimant, and payout
-stay public — metadata, not content or linkage. On-chain payer is the
-ops pool when escrowed via the declarations endpoint. The ghostwrite
+stay public — metadata, not content or linkage. The ghostwrite
 target, funder DID, and spec-derived flags never reach public surfaces
 (canonical, feed, declaration GET, review records). What remains: the
 account that posts the canonical is the funder's choice (post from a
 throwaway if linkage matters), amount+timing correlation on a public
-chain, and the ops pool knows who's settling it. The bridge and judge
+chain, and Intents solvers see the origin→destination flow (the solver
+market, not the bridge). The bridge and judge
 read plaintext in memory; the public never does.
 
 ## Money

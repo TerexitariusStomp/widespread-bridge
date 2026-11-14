@@ -47,7 +47,7 @@ import { bindStatement, bindInstructions, registerBinding, listBindings, resolve
 import { putFeedDoc } from "./feedstore";
 import { bountiesList, marketsList } from "./mcpearn";
 import { handleClaimPost, handleClaimVerify } from "./claims";
-import { tryOpsEscrow, tryDeclEscrow } from "./escrow";
+import { tryOpsEscrow, tryDeclEscrow, declEscrowPlan } from "./escrow";
 import { handleMirrorClaimPost, handleMirrorClaimsList, handleMirrorClaimTimeout, handleMirrorRequestChanges, handleMirrorVerdict, handleMirrorPayout } from "./mirrorclaims";
 import { scanMirrorSubmissions } from "./ingest";
 import { agentCard, createDispatch, handleA2a, listDispatches, markDispatch, settleCalldata } from "./dispatch";
@@ -645,6 +645,26 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
       const body = (await req.json().catch(() => ({}))) as Parameters<typeof specReveal>[1];
       return json(await specReveal(env, body));
     }
+    // Trustless escrow plan: everything a funder needs to escrow from a
+    // FRESH implicit account funded via Intents — we never see the key,
+    // never custody funds. GET returns args; POST adds a live 1Click quote.
+    const declPlan = pathname.match(/^\/api\/declarations\/([0-9a-f]{8,16})\/escrow-plan$/i);
+    if (declPlan && (req.method === "GET" || req.method === "POST")) {
+      const p = req.method === "POST"
+        ? (await req.json().catch(() => ({}))) as Parameters<typeof declEscrowPlan>[2]
+        : {
+            recipient: url.searchParams.get("recipient") ?? undefined,
+            origin_asset: url.searchParams.get("origin_asset") ?? undefined,
+            refund_to: url.searchParams.get("refund_to") ?? undefined,
+            near_amount: url.searchParams.get("near_amount") ?? undefined,
+            quorum_m: url.searchParams.get("quorum_m") ? Number(url.searchParams.get("quorum_m")) : undefined,
+          };
+      try {
+        return json(await declEscrowPlan(env, declPlan[1], p ?? {}));
+      } catch (e) {
+        return bad(`escrow-plan failed: ${e instanceof Error ? e.message : e}`, 500);
+      }
+    }
     if (pathname.startsWith("/api/declarations/") && req.method === "GET") {
       const hash = pathname.split("/").pop() ?? "";
       const [bounty, claims, sights] = await Promise.all([
@@ -962,6 +982,7 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
     // C4 blind funder: ops-pool escrow for a confidential declared
     // market — on-chain payer = NEAR_OPS_ACCOUNT, on-chain spec = stub.
     // Ops-gated: the real funder settles ops off-chain first.
+    // DEPRECATED for new markets: escrow-plan is the trustless lane.
     const declEscrow = pathname.match(/^\/api\/declarations\/([0-9a-f]{8,16})\/escrow$/i);
     if (declEscrow && req.method === "POST") {
       if (!isAuthorized(req, env)) return bad("unauthorized", 401);

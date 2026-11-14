@@ -216,6 +216,12 @@ export async function bountyDeclare(env: Env, a: DeclareArgs) {
   }
   return {
     hash, repo, canonical, record, warnings: warnings.length ? warnings : undefined, intent_urls: intentUrls(canonical),
+    ...(a.confidential ? {
+      // Trustless blind funding: the funder escrows from a FRESH
+      // implicit account via Intents — ops custody never involved.
+      escrow_plan: `/api/declarations/${hash}/escrow-plan`,
+      escrow_note: "self-funded path preferred — fresh implicit account + 1Click deposit; on-chain payer has no history and ops never sees the funder",
+    } : {}),
     ...(poolMatch ? { pool_match: poolMatch } : {}),
     watch_hint: "After posting, run surf_watch on the thread (or POST sightings) so claims/receipts on this declaration are ingested — watchers earn sighting_bps when it funds.",
   };

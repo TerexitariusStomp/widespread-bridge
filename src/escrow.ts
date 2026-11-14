@@ -264,3 +264,100 @@ export async function tryDeclEscrow(env: Env, hash: string): Promise<unknown> {
   await putEscrowState(env, state);
   return { escrowed: false, status: state.status, txHash: res.txHash, attempts: state.attempts };
 }
+
+/* ---------- self-funded confidential escrow (no ops custody) ---------- */
+
+/** The trustless alternative to tryDeclEscrow: returns everything the
+ * funder needs to escrow a confidential market from a FRESH NEAR account
+ * they generate themselves — the bridge never sees the key and never
+ * holds the funds.
+ *
+ * Flow (all funder-side):
+ *   1. generate ed25519 keypair; implicit account = hex(pubkey)
+ *   2. request a 1Click quote with recipient=that account (any origin
+ *      chain in, NEAR out — funds the implicit account into existence)
+ *   3. that fresh account calls createMarket with the returned args
+ *      (attaching `deposit_yocto`)
+ *
+ * On-chain payer = a fresh account with no history — better blindness
+ * than the ops pool (a known protocol wallet) AND zero custody: ops
+ * never learns the funder exists. Intents solvers see the origin→dest
+ * flow (honest residual); timing/amount correlation persists on a
+ * public chain.
+ */
+export async function declEscrowPlan(env: Env, hash: string, opts: {
+  origin_asset?: string; refund_to?: string; recipient?: string;
+  near_amount?: string; quorum_m?: number; oracle_allowlist?: string[];
+}): Promise<unknown> {
+  const { getDeclared } = await import("./declare");
+  const bounty = await getDeclared(env, hash);
+  if (!bounty) return { error: "declaration not found" };
+  const contract = env.NEAR_CONTRACT;
+  if (!contract) return { error: "NEAR_CONTRACT not configured" };
+
+  const { sha256Hex } = await import("./sealed");
+  const specHash = `sha256:${await sha256Hex(new TextEncoder().encode(bounty.spec))}`;
+  const spec = bounty.confidential
+    ? `[confidential:${bounty.domain ?? "other"}] decl=${hash}`
+    : bounty.spec;
+
+  // Amount: caller supplies NEAR directly, or USD → NEAR via Intents price.
+  let nearAmount = parseFloat(opts.near_amount ?? "");
+  if (!Number.isFinite(nearAmount) || nearAmount <= 0) {
+    const usd = parseFloat(bounty.amount ?? "");
+    const price = await nearPriceUsd();
+    if (!Number.isFinite(usd) || usd <= 0) {
+      return { error: "supply near_amount (USD conversion needs a numeric amount)" };
+    }
+    if (!price) return { error: "NEAR price unavailable" };
+    nearAmount = usd / price;
+  }
+  const deposit = BigInt(Math.round(nearAmount * 1e24));
+
+  const createMarketArgs = {
+    receiver: contract, method: "createMarket",
+    args: {
+      specHash, spec,
+      deadline: String(BigInt(Date.now()) * 1000000n + 30n * 24n * 3600n * 1000000000n),
+      acceptanceRule: "best sealed claim wins (attested submissions only)",
+      platformBps: 0, platformTo: null,
+      oracleQuorumM: opts.quorum_m ?? 1,
+      oracleAllowlist: opts.oracle_allowlist ?? null,
+      payToHat: null, claimTtlNs: null, acceptanceHash: null,
+    },
+    deposit_yocto: deposit.toString(),
+  };
+
+  // Live 1Click quote when the funder supplies their fresh recipient +
+  // origin asset — the deposit address funds THEIR key, never ours.
+  let quote: unknown = null;
+  if (opts.origin_asset && opts.refund_to && opts.recipient) {
+    try {
+      const { quoteSwap } = await import("./oneclick");
+      quote = await quoteSwap({
+        originAsset: opts.origin_asset,
+        destinationAsset: "nep141:wrap.near",
+        amount: nearAmount.toFixed(6),
+        refundTo: opts.refund_to,
+        recipient: opts.recipient,
+      });
+    } catch (e) {
+      quote = { error: e instanceof Error ? e.message.slice(0, 160) : "quote unavailable" };
+    }
+  }
+
+  return {
+    createMarket: createMarketArgs,
+    quote,
+    spec_hash: specHash,
+    confidential: !!bounty.confidential,
+    guide: [
+      "1. client-side: keypair → implicit account = hex(ed25519_pubkey)",
+      "2. 1Click quote → deposit address (recipient = your implicit account)",
+      "3. send origin asset → implicit account activates funded",
+      "4. sign + broadcast createMarket with these args + deposit_yocto",
+      "payer on-chain = your fresh account — no ops custody, no history",
+    ],
+    honest_limits: "intents solvers see origin→dest flow; amount+timing correlation persists on a public chain; the fresh account must retain its key for refund",
+  };
+}
