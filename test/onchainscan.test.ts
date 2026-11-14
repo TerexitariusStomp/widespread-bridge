@@ -25,8 +25,10 @@ function envWithOracle(kv: ReturnType<typeof fakeEnv>["CLAIMS"], aiVerdict = "ac
     ORACLE_SECRET_KEY: fakeSecretKey,
     ORACLE_SEED_HEX: "cd".repeat(32),
     ORACLE_PUBKEY_HEX: PK,
+    // Contest ballots: winner label C1..Cn (or "none"), not per-claim verdicts
     AI: { run: async () => ({ response: JSON.stringify({
-      verdict: aiVerdict, reasoning: "test verdict", confidence: 0.92 }) }) },
+      winner: aiVerdict === "accept" ? "C1" : "none",
+      reasoning: "test verdict", confidence: 0.92 }) }) },
   } as Partial<Env>);
 }
 
@@ -97,9 +99,9 @@ describe("scanOnchain", () => {
       claims: { "9": [{ claimId: "1", claimHash: "ch9", status: "pending", attested: true }] },
     }));
     const r1 = await scanOnchain(env);
-    expect(r1.voted).toBe(1); // reject votes are still cast — public signal
+    expect(r1.voted).toBe(0); // panel said none — the seat abstains, no reject vote
     const rec = await env.CLAIMS.get("ocv:9:1", "json") as Record<string, unknown>;
-    expect(rec.verdict).toBe("reject");
+    expect(rec.verdict).toBe("none-acceptable");
     const r2 = await scanOnchain(env);
     expect(r2.reviewed).toBe(0); // deduped
   });

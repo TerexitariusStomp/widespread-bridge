@@ -113,7 +113,7 @@ async function pollNearChain(env: Env): Promise<FeedRecord[]> {
       payout: { rails: ["near", "intents"], note: "verdict names winningClaimId; oracle settles attested claims only" },
       verification: { required: "attested-real-submission+oracle-verdict", ...(m.specHash ? { spec_hash: m.specHash } : {}) },
       url: `https://testnet.nearblocks.io/address/${acct}`,
-      claim: { how: "POST /api/claims → shipClaimArgs → shipClaim on-chain (unbounded, free)", grammar: "@widespread <amount> <spec>" },
+      claim: { how: "POST /api/claims → shipClaimArgs → shipClaim on-chain (unbounded; refundable storage deposit via depositYocto)", grammar: "@widespread <amount> <spec>" },
       ...(comp && comp.pending > 0 ? { competition: {
         pending_claims: comp.pending,
         unique_claimants: comp.claimants.size,

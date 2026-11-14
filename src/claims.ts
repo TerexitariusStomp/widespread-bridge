@@ -335,13 +335,20 @@ export async function handleClaimPost(req: Request, env: Env): Promise<Response>
     payoutIntent: body.payoutIntent ?? null,
   };
 
+  // shipClaim is payable: the caller stakes storage for its record bytes
+  // (refunded on withdraw/expiry; overpay returns). Estimate at 1.5× the
+  // serialized-args size — the claimId/storage fields are contract-side.
+  const estBytes = JSON.stringify(shipClaimArgs).length + 64;
+  const depositYocto = (BigInt(estBytes) * 10_000_000_000_000_000_000n * 150n / 100n).toString();
+
   return Response.json({
     ok: true,
     attested: !!token,
     ...(token ? {} : { warning: "no ATTEST_SECRET configured — claim ships unattested (ineligible for oracle verdict)" }),
     verification: { endpoint: "/api/claims/verify", token },
     shipClaimArgs,
-    next: `Sign + broadcast shipClaim(${acct}) with shipClaimArgs from any NEAR account.`,
+    depositYocto,
+    next: `Sign + broadcast shipClaim(${acct}) with shipClaimArgs + deposit ${depositYocto} yocto from any NEAR account.`,
   }, { status: 201 });
 }
 

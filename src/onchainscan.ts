@@ -17,10 +17,10 @@
 //      payout tx → ops ships the winning claim on-chain and releases
 //      as payer — replaces the old "a human runs release.js" queue.
 
-import type { Env, Bounty, OpLogEntry, ChainVerification, CommitEvidence, Crosscheck, Adjudication } from "./types";
+import type { Env, Bounty, OpLogEntry, ChainVerification, CommitEvidence, Crosscheck } from "./types";
 import { nearFunctionCall, nearViewCall } from "./nearops";
-import { oracleEnv, oracleVote, signVerdict } from "./oracle";
-import { adjudicate, adjudicatePanel } from "./adjudicator";
+import { oracleEnv, oracleVote, signVerdict, type OracleVoteResult } from "./oracle";
+import { adjudicateContest } from "./adjudicator";
 
 const SCAN_MARKETS = 20;
 const CLAIMS_PER_MARKET = 5;
@@ -41,6 +41,7 @@ interface OnchainClaim {
 interface OnchainMarket {
   marketId: string; payer: string; specHash: string; spec?: string;
   locked: string; deadline?: string | null; oracleQuorumM?: number; status: string;
+  commitReveal?: boolean;
 }
 
 const voteKey = (marketId: string, claimId: string) => `ocv:${marketId}:${claimId}`;
@@ -53,13 +54,11 @@ async function putJudged(env: Env, marketId: string, claimId: string, rec: Recor
   await env.CLAIMS.put(voteKey(marketId, claimId), JSON.stringify({ ...rec, judged_at: Date.now() }));
 }
 
-/** Adjudicate one on-chain claim against its market spec, then cast this
- * oracle's vote. On-chain claims have no forge chain to replay — the
- * contract record is consensus-verified — so the hash-chain field is an
- * honest stub and the judge weighs spec-fit + claim payload directly. */
-async function reviewOnchainClaim(
-  env: Env, market: OnchainMarket, claim: OnchainClaim,
-): Promise<{ entry: OpLogEntry; adjudication: Adjudication }> {
+/** Build the judge input for one on-chain claim. On-chain claims have no
+ * forge chain to replay — the contract record is consensus-verified — so
+ * the hash-chain field is an honest stub and the judge weighs spec-fit +
+ * claim payload directly. */
+function onchainInput(market: OnchainMarket, claim: OnchainClaim) {
   const entry: OpLogEntry = {
     seq: Number(claim.claimId), hash: claim.claimHash, prev_hash: "",
     kind: "ship", actor: claim.actor ?? claim.shippedBy ?? "unknown",
@@ -89,12 +88,7 @@ async function reviewOnchainClaim(
     domain: "other", floor_flags: [],
     created_at: Number(market.marketId) || Date.now(),
   } as Bounty;
-
-  const input = { repo: bounty.repo, entry, chain, bounty, commits, check };
-  const adjudication = commits.length
-    ? await adjudicate(env, input)
-    : await adjudicatePanel(env, input);
-  return { entry, adjudication };
+  return { repo: bounty.repo, entry, chain, bounty, commits, check };
 }
 
 export async function scanOnchain(env: Env): Promise<{ reviewed: number; voted: number }> {
@@ -105,41 +99,63 @@ export async function scanOnchain(env: Env): Promise<{ reviewed: number; voted: 
   if (!Array.isArray(markets)) return { reviewed: 0, voted: 0 };
 
   const minConf = Number(env.MIN_CONFIDENCE ?? "0.6");
+  // Contest candidate cap: bounds prompt size — and therefore inference
+  // cost — regardless of how many pending claims a market attracts.
+  const contestMax = Number((env as { CONTEST_MAX_CLAIMS?: string }).CONTEST_MAX_CLAIMS ?? CLAIMS_PER_MARKET);
   let reviewed = 0, voted = 0;
   for (const market of markets.slice(0, SCAN_MARKETS)) {
     // Confidential markets carry a stub spec — the judge can't weigh a
     // spec it can't read; those claims adjudicate through the sealed
     // claim lane where the funder's collective key opens them.
     if (market.spec?.startsWith("[confidential:")) continue;
+    // Commit-reveal markets refuse submitVerdict — independent oracle
+    // runners handle the blind lane; this seat skips them.
+    if (market.commitReveal) continue;
     const bag = (await nearViewCall(env, oc.contract, "getClaims",
       { marketId: market.marketId, from: 0, limit: 50 }).catch(() => null)) as
       { claims?: OnchainClaim[] } | null;
-    const pendingAttested = (bag?.claims ?? [])
-      .filter((c) => c.status === "pending" && c.attested)
-      .slice(0, CLAIMS_PER_MARKET);
-    for (const claim of pendingAttested) {
+    const candidates: OnchainClaim[] = [];
+    for (const claim of bag?.claims ?? []) {
+      if (claim.status !== "pending" || !claim.attested) continue;
       if (await judgedAlready(env, market.marketId, claim.claimId)) continue;
-      reviewed++;
-      try {
-        const { adjudication } = await reviewOnchainClaim(env, market, claim);
-        const verdict: "accept" | "reject" =
-          adjudication.verdict === "accept" && adjudication.confidence >= minConf
-            ? "accept" : "reject";
-        const { sig } = await signVerdict(oc, market.marketId, claim.claimHash,
-          verdict, String(market.deadline ?? "")).catch(() => ({ sig: "", pubkey: "" }));
-        const res = await oracleVote(env, oc, {
-          marketId: market.marketId, claimId: claim.claimId,
-          verdict, verdictSig: sig || undefined,
+      candidates.push(claim);
+      if (candidates.length >= contestMax) break;
+    }
+    if (!candidates.length) continue;
+    reviewed += candidates.length;
+    try {
+      // One panel call per market: judges pick the single best claim,
+      // matching the contract's winner-selection semantics — and one
+      // verdict slot per seat per market on-chain.
+      const inputs = candidates.map((c) => onchainInput(market, c));
+      const adj = await adjudicateContest(env, inputs);
+      const winner = adj.winnerIndex >= 0 ? candidates[adj.winnerIndex] : null;
+      let res: OracleVoteResult | null = null;
+      if (winner && adj.confidence >= minConf) {
+        const { sig } = await signVerdict(oc, market.marketId, winner.claimHash,
+          "accept", String(market.deadline ?? "")).catch(() => ({ sig: "", pubkey: "" }));
+        res = await oracleVote(env, oc, {
+          marketId: market.marketId, claimId: winner.claimId,
+          verdict: "accept", verdictSig: sig || undefined,
         });
         if (res.voted) voted++;
+      }
+      for (const claim of candidates) {
+        const isWinner = claim === winner;
         await putJudged(env, market.marketId, claim.claimId, {
-          verdict, confidence: adjudication.confidence, model: adjudication.model,
-          reasoning: adjudication.reasoning?.slice(0, 300),
-          voted: res.voted, released_tx: res.released?.txHash ?? null,
-          quorum_pending: res.quorum_pending ?? false,
-          error: res.error ?? null,
+          verdict: isWinner && res?.voted ? "accept"
+            : winner ? "not-picked" : "none-acceptable",
+          picked: winner?.claimId ?? null,
+          confidence: adj.confidence, model: adj.model,
+          reasoning: adj.reasoning?.slice(0, 300),
+          voted: isWinner ? res?.voted ?? false : false,
+          released_tx: isWinner ? res?.released?.txHash ?? null : null,
+          quorum_pending: isWinner ? res?.quorum_pending ?? false : false,
+          error: isWinner ? res?.error ?? null : null,
         });
-      } catch (e) {
+      }
+    } catch (e) {
+      for (const claim of candidates) {
         await putJudged(env, market.marketId, claim.claimId, {
           verdict: "error", error: String(e).slice(0, 200),
         });
