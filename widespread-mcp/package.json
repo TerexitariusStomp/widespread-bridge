@@ -1,0 +1,7 @@
+{
+  "name": "widespread-mcp",
+  "private": true,
+  "scripts": {
+    "smoke": "node smoke.mjs"
+  }
+}

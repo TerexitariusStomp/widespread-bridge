@@ -55,7 +55,7 @@ def _write_secret(path: str, obj) -> None:
         json.dump(obj, f)
 
 BRIDGE = os.environ.get(
-    "WIDE_BRIDGE", "https://widespread-bridge.widespread.workers.dev"
+    "WIDE_BRIDGE", "https://widespread.fyi"
 ).rstrip("/")
 FORGE = os.environ.get(
     "WIDE_FORGE", "https://code.widespread.fyi"

@@ -1,0 +1,12 @@
+README.md
+pyproject.toml
+widespread_mcp/__init__.py
+widespread_mcp/_widespread.py
+widespread_mcp/cli.py
+widespread_mcp/server.py
+widespread_mcp.egg-info/PKG-INFO
+widespread_mcp.egg-info/SOURCES.txt
+widespread_mcp.egg-info/dependency_links.txt
+widespread_mcp.egg-info/entry_points.txt
+widespread_mcp.egg-info/requires.txt
+widespread_mcp.egg-info/top_level.txt

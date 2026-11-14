@@ -1,0 +1,2 @@
+[console_scripts]
+widespread-mcp = widespread_mcp.server:main
