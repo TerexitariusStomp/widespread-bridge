@@ -42,6 +42,7 @@
     <h2>Identity</h2>
     <div id="id-new" class="row">
       <button class="primary" id="btn-gen">Generate keypair</button>
+      <button id="btn-nip07">Use Nostr signer (NIP-07)</button>
       <span class="meta" style="color:var(--dim);font-size:12px">stored in this browser only — export to move devices</span>
     </div>
     <div id="id-have" class="hidden">
@@ -73,6 +74,7 @@
       <input id="grammar" placeholder="default: widespread" size="40">
       <button id="btn-poll">Poll now</button>
       <label><input type="checkbox" id="auto"> auto-poll 60s</label>
+      <button id="btn-wake">keep-awake</button>
     </div>
     <div class="log" id="watch-log"></div>
   </section>
@@ -105,6 +107,11 @@
     <div id="feed"></div>
   </section>
 </main>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0d1117">
+<script>
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js");
+</script>
 <script src="nostr.bundle.js"></script>
 <script type="module" src="app.js"></script>
 </body>

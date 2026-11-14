@@ -35,6 +35,16 @@ wsd sync-out / wsd sync-in                # encrypted cross-device state
 
 Env: `WSD_RELAYS="wss://a,wss://b"` overrides the default relay set.
 
+## Resilience
+
+- Publish is per-relay isolated — one dead relay can't sink a batch;
+  success = ≥1 acceptance, failures are reported per-relay.
+- **Offline outbox** (`~/.widespread-discovery/outbox.json`): sightings that
+  fail to publish are queued and flushed automatically on the next `watch`
+  run or successful publish — relay flakiness never loses work.
+- `wsd serve` exposes the same index over localhost HTTP for non-Node
+  clients; `wsd mcp` for MCP hosts.
+
 ## Library
 
 ```js

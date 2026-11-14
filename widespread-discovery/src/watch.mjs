@@ -1,10 +1,8 @@
 // watch.mjs — surface polling: json (generic array extractor), rss, hn-algolia.
 // Grammar filter: text must match /widespread/i by default (or custom regex
 // passed via opts.grammar). Read-only — watchers never write to surfaces.
-import { publishSighting, loadIndex, saveIndex, ingestEvents, query } from "./node.mjs";
+import { publishSighting, loadIndex, saveIndex, ingestEvents, query, queueSighting, flushOutbox, loadIdentity } from "./node.mjs";
 import { textHash, dedupeKey } from "./core.mjs";
-import { loadIdentity } from "./node.mjs";
-
 const DECL_RE = /widespread\s+(declare|bounty|task)/i;
 
 function findArray(o, depth = 0) {
@@ -63,6 +61,7 @@ const seenCache = new Set();
 export async function watchOnce(surfaces, opts = {}) {
   const id = loadIdentity();
   if (!id) throw new Error("no identity — run `wsd keygen`");
+  try { const f = await flushOutbox(); if (f) console.error(`flushed ${f} queued sightings`); } catch {}
   const grammar = new RegExp(opts.grammar || "widespread", "i");
   const idx = loadIndex();
   let published = 0, seen = 0;
@@ -80,7 +79,9 @@ export async function watchOnce(surfaces, opts = {}) {
         const sig = `${key}|${th}`;
         if (seenCache.has(sig) || idx.sightings[key]?.text_hash === th) continue;
         seenCache.add(sig);
-        await publishSighting({ platform: surface.platform, native_id: it.id, url: it.url, author: it.author, text: it.text.slice(0, 4000), ts: it.ts });
+        const sight = { platform: surface.platform, native_id: it.id, url: it.url, author: it.author, text: it.text.slice(0, 4000), ts: it.ts };
+        try { await publishSighting(sight); }
+        catch (e) { await queueSighting(sight); console.error(`queued (relay fail): ${surface.platform}:${it.id}`); }
         idx.sightings[key] = { platform: surface.platform, native_id: it.id, url: it.url, author: it.author, text: it.text.slice(0, 4000), ts: it.ts, watcher_id: id.pk, text_hash: th, first_seen: Date.now(), last_seen: Date.now() };
         published++;
       }

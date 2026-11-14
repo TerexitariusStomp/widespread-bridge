@@ -2,7 +2,14 @@
 // sighting candidates, dedupes, and asks background.js to sign+publish.
 // Read-only: never clicks, never submits, never touches page state.
 (() => {
-  const GRAMMAR = /widespread\s+(declare|bounty|task|claim|receipt|bind)/i;
+  const DEFAULT_GRAMMAR = /widespread\s+(declare|bounty|task|claim|receipt|bind)/i;
+  let GRAMMAR = DEFAULT_GRAMMAR;
+  // pull user config (relays/grammar) from background once at startup
+  try {
+    chrome.runtime.sendMessage({ type: "wsd:config-get" }, (r) => {
+      if (r?.grammar) { try { GRAMMAR = new RegExp(r.grammar, "i"); } catch {} }
+    });
+  } catch {}
   const SEEN_KEY = "wsd_seen";
   const seen = new Set(JSON.parse(localStorage.getItem(SEEN_KEY) || "[]"));
   const saveSeen = () => { const a = [...seen].slice(-2000); localStorage.setItem(SEEN_KEY, JSON.stringify(a)); };

@@ -1,0 +1,13 @@
+{
+  "name": "Widespread Watcher",
+  "short_name": "WS Watcher",
+  "description": "Permissionless cross-surface work discovery — watch, sign, publish sightings to public Nostr relays. No account.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0d1117",
+  "theme_color": "#0d1117",
+  "icons": [
+    { "src": "icon-400.png", "sizes": "400x400", "type": "image/png", "purpose": "any" }
+  ]
+}

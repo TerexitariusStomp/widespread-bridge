@@ -51,8 +51,15 @@ switch (cmd) {
   case "publish": {
     needId();
     if (!a.platform || !a.id || !a.text) { console.error("--platform --id --text required"); process.exit(1); }
-    const r = await publishSighting({ platform: a.platform, native_id: a.id, url: a.url, author: a.author, text: a.text, ts: a.ts ? Number(a.ts) : undefined });
-    console.log(`published ${r.event.id} → ${JSON.stringify(r.oks)}`);
+    const sight = { platform: a.platform, native_id: a.id, url: a.url, author: a.author, text: a.text, ts: a.ts ? Number(a.ts) : undefined };
+    try {
+      const r = await publishSighting(sight);
+      console.log(`published ${r.event.id} → ${JSON.stringify(r.oks)}`);
+    } catch (e) {
+      const { queueSighting } = await import("./node.mjs");
+      await queueSighting(sight);
+      console.log(`queued for retry (relays unreachable): ${e.message}`);
+    }
     closePool(); setTimeout(()=>process.exit(0),300); break;
   }
   case "query": {

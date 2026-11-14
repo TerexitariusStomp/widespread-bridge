@@ -143,7 +143,11 @@ last-writer-wins by event timestamp:
 1. Payload: `{v:1, watermark, watch_config:{surfaces,ops,cadence},
    seen_tail:[≤500 dedupe hashes], relays:[…]}`
 2. AES key: `HKDF-SHA256(ikm=nostr_secret_key_bytes, salt="widespread-watcher-state", info="v1")` → AES-256-GCM, random 12-byte nonce prepended to ciphertext.
-3. Publish as kind-30078, `t=widespread-watcher-state`, author = watcher pubkey.
+3. Publish as kind-30078, `t=widespread-watcher-state`, `d=state`,
+   author = watcher pubkey. **NIP-33 note**: kind 30078 is
+   parameterized-replaceable — a `d` tag is REQUIRED or relays drop the
+   event; `d=state` also gives correct latest-wins semantics per pubkey.
+   Snapshots use `d=snapshot` for the same reason.
 4. New device with same keypair: query `authors:[pk]` + `#t` filter → latest
    event → derive same AES key → decrypt → resume from `watermark`.
 

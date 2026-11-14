@@ -23,14 +23,27 @@ async function loadIdentity() {
 }
 function showIdentity() {
   $("id-new").classList.add("hidden"); $("id-have").classList.remove("hidden");
-  $("id-pill").textContent = "watcher"; $("id-pill").classList.add("on");
+  $("id-pill").textContent = useNip07 ? "watcher (NIP-07)" : "watcher"; $("id-pill").classList.add("on");
   $("npub").textContent = N.nip19.npubEncode(pk);
+  if (useNip07) { $("nsec").value = "(external signer — key never leaves the extension)"; return; }
   try { $("nsec").value = N.nip19.nsecEncode(sk); } catch { $("nsec").value = bytesToHex(sk); }
 }
 $("btn-gen").onclick = async () => {
+  useNip07 = false;
   sk = N.generateSecretKey(); pk = N.getPublicKey(sk);
   await store.putKV("nsec", bytesToHex(sk));
   showIdentity(); connectRelays(); loadSurfaces();
+};
+// NIP-07: adopt the user's existing Nostr signer extension (Alby/nos2x/Amber)
+// — no key material touches this page; state sync disabled (can't export).
+$("btn-nip07").onclick = async () => {
+  if (!window.nostr) return alert("no window.nostr — install a NIP-07 signer extension (Alby, nos2x, Amber) first");
+  try {
+    useNip07 = true;
+    pk = await window.nostr.getPublicKey();
+    showIdentity(); connectRelays(); loadSurfaces();
+    log("relay-log", "using NIP-07 signer — no local key stored");
+  } catch (e) { useNip07 = false; alert("NIP-07 failed: " + e.message); }
 };
 $("btn-copy-nsec").onclick = () => navigator.clipboard.writeText($("nsec").value);
 $("btn-export").onclick = async () => {
@@ -54,21 +67,71 @@ $("file-import").onchange = async (e) => {
 
 // ---------- relays ----------
 let pool = null;
+// signer abstraction: local keypair (default) or NIP-07 window.nostr
+let useNip07 = false;
+async function currentPubkey() { return useNip07 ? (await window.nostr.getPublicKey()) : pk; }
+async function signTemplate(template) {
+  if (useNip07) {
+    const ev = await window.nostr.signEvent({ ...template, pubkey: await currentPubkey() });
+    return ev;
+  }
+  return N.finalizeEvent(template, sk);
+}
 function relayList() { return $("relays").value.split(",").map((s) => s.trim()).filter(Boolean); }
 function connectRelays() {
-  if (!sk) return;
+  if (!sk && !useNip07) return;
   pool = new N.SimplePool();
   $("relay-pill").textContent = `relays: ${relayList().length}`; $("relay-pill").classList.add("on");
   log("relay-log", "pool ready — " + relayList().join(", "));
+  flushOutbox();
 }
-$("btn-connect").onclick = () => { pool = new N.SimplePool(); log("relay-log", "reconnected"); };
+$("btn-connect").onclick = () => { pool = new N.SimplePool(); log("relay-log", "reconnected"); flushOutbox(); };
+
+// relay health: track accept/fail per relay URL for honest status
+const relayHealth = new Map();
+function noteRelay(url, ok) { const h = relayHealth.get(url) ?? { ok: 0, fail: 0 }; ok ? h.ok++ : h.fail++; relayHealth.set(url, h); }
+
+async function publishRaw(template) {
+  const ev = await signTemplate(template);
+  if (!pool) pool = new N.SimplePool();
+  const rs = relayList();
+  // publish per-relay so one dead relay can't sink the batch; health-tracked
+  const results = await Promise.allSettled(rs.map(async (r) => {
+    const p = new N.SimplePool();
+    try { const o = await p.publish([r], ev); noteRelay(r, true); return o; }
+    catch (e) { noteRelay(r, false); throw e; }
+    finally { try { p.close([r]); } catch {} }
+  }));
+  const oks = results.filter((r) => r.status === "fulfilled");
+  const healthy = rs.filter((r) => (relayHealth.get(r)?.ok ?? 0) > (relayHealth.get(r)?.fail ?? 0));
+  log("relay-log", `published ${ev.id.slice(0, 12)}… accepted:${oks.length}/${rs.length} healthy:[${healthy.join(",")}]`);
+  if (!oks.length) throw new Error("no relay accepted");
+  return ev;
+}
+
+// offline outbox: sightings queue in IndexedDB when relays/online fail,
+// flushed on reconnect, 'online' event, and each successful publish.
+async function flushOutbox() {
+  const q = await store.drainOutbox();
+  for (const item of q) {
+    try { await publishRaw(item.template); }
+    catch { await store.pushOutbox(item); break; } // requeue remainder on failure
+  }
+  if (q.length) log("relay-log", `outbox flushed (${q.length} queued)`);
+}
+window.addEventListener("online", flushOutbox);
+setInterval(flushOutbox, 60000);
 
 async function publishEvent(template) {
-  const ev = N.finalizeEvent(template, sk);
-  if (!pool) pool = new N.SimplePool();
-  const oks = await pool.publish(relayList(), ev);
-  log("relay-log", `published ${ev.id.slice(0, 12)}… → ${JSON.stringify(oks)}`);
-  return ev;
+  try {
+    if (!navigator.onLine) throw new Error("offline");
+    return await publishRaw(template);
+  } catch (e) {
+    // queue the *content* so a later flush can rebuild the event
+    await store.pushOutbox({ template, queued_at: Date.now() });
+    log("relay-log", `queued offline (${e.message})`);
+    return null;
+  }
 }
 async function queryRelays(filter) {
   if (!pool) pool = new N.SimplePool();
@@ -78,17 +141,17 @@ async function queryRelays(filter) {
 // ---------- sightings ----------
 async function emitSighting({ platform, native_id, url, author, text, ts }) {
   const content = buildSighting({ platform, native_id, url, author, text, ts: ts ?? Math.floor(Date.now() / 1000) });
-  const ev = await publishEvent(sightingEventTemplate(pk, content));
+  const ev = await publishEvent(sightingEventTemplate(await currentPubkey(), content));
   // store locally
   const th = await textHash(text);
   await store.putSighting({
-    dedupe: dedupeKey(platform, native_id, pk),
+    dedupe: dedupeKey(platform, native_id, await currentPubkey()),
     platform, native_id, url, author, text, ts: content.ts,
-    watcher_id: pk, watcher_did: null, sig: null,
+    watcher_id: await currentPubkey(), watcher_did: null, sig: null,
     text_hash: th, tier: "lead", verified: true, seen_count: 1,
     first_seen: Date.now(), last_seen: Date.now(), event_id: ev.id,
   });
-  await bumpSeen(platform, native_id, pk, th);
+  await bumpSeen(platform, native_id, await currentPubkey(), th);
   renderFeed();
   return ev;
 }
@@ -194,7 +257,7 @@ async function pollSurface(surface) {
   const body = surface.kind === "rss" ? await res.text() : await res.json();
   const items = extractItems(surface, body);
   for (const it of items) {
-    const fresh = await bumpSeen(surface.platform, it.id, pk, await textHash(it.text));
+    const fresh = await bumpSeen(surface.platform, it.id, await currentPubkey(), await textHash(it.text));
     if (!fresh) continue;
     await emitSighting({ platform: surface.platform, native_id: it.id, url: it.url, author: it.author, text: it.text.slice(0, 4000), ts: it.ts });
     log("watch-log", `sighting: ${surface.platform}:${it.id}`);
@@ -202,7 +265,7 @@ async function pollSurface(surface) {
   return items.length;
 }
 async function pollAll() {
-  if (!pk) return alert("generate an identity first");
+  if (!pk && !useNip07) return alert("generate an identity first");
   const surfaces = (await store.getKV("surfaces")) ?? [];
   for (const s of surfaces) {
     try { const n = await pollSurface(s); log("watch-log", `${s.platform}: ${n} matching items`); }
@@ -218,6 +281,16 @@ async function pollAll() {
 $("btn-poll").onclick = pollAll;
 $("auto").onchange = (e) => { if (e.target.checked) setInterval(pollAll, 60000); };
 
+// keep-alive: screen wake lock reduces browser tab throttling while watching
+let wakeLock = null;
+async function toggleWakeLock() {
+  try {
+    if (wakeLock) { await wakeLock.release(); wakeLock = null; log("watch-log", "wake lock released"); }
+    else { wakeLock = await navigator.wakeLock.request("screen"); log("watch-log", "wake lock held — tab stays active"); }
+  } catch (e) { log("watch-log", "wake lock unavailable: " + e.message); }
+}
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && wakeLock === null && $("auto").checked) toggleWakeLock(); });
+
 // ---------- state sync ----------
 async function collectState() {
   const surfaces = (await store.getKV("surfaces")) ?? [];
@@ -226,6 +299,7 @@ async function collectState() {
   return { v: 1, watermark, watch_config: { surfaces, relays: relayList() }, seen_tail: seen };
 }
 $("btn-sync-out").onclick = async () => {
+  if (useNip07) return alert("state sync needs an exportable key — NIP-07 signers can't export; use the local keypair or wsd export");
   if (!sk) return;
   const state = await collectState();
   const ct = await encryptState(state, sk);
@@ -233,6 +307,7 @@ $("btn-sync-out").onclick = async () => {
   log("relay-log", "state event published");
 };
 $("btn-sync-in").onclick = async () => {
+  if (useNip07) return alert("state sync needs an exportable key — NIP-07 signers can't export");
   if (!sk) return;
   const evs = await queryRelays([{ kinds: [30078], authors: [pk], "#t": ["widespread-watcher-state"], limit: 1 }]);
   if (!evs.length) return log("relay-log", "no state events found");
@@ -289,6 +364,8 @@ $("btn-query-relay").onclick = async () => {
     log("relay-log", `relay query → ${evs.length} events`);
   } catch (e) { log("relay-log", "query failed: " + e.message); }
 };
+
+$("btn-wake").onclick = toggleWakeLock;
 
 // boot
 loadIdentity().then(() => loadSurfaces().then(renderSurfaces).then(renderFeed));

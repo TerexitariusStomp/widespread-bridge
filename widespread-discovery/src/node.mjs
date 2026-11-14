@@ -73,6 +73,35 @@ export async function publishSighting({ platform, native_id, url, author, text, 
   return publish(sightingEventTemplate(id.pk, content));
 }
 
+// offline outbox — sightings that failed to publish queue to disk and
+// flush on the next successful run (relays are flaky; never lose work).
+const OUTBOX = join(DIR, "outbox.json");
+export function loadOutbox() {
+  if (!existsSync(OUTBOX)) return [];
+  try { return JSON.parse(readFileSync(OUTBOX, "utf8")); } catch { return []; }
+}
+function saveOutbox(items) {
+  mkdirSync(DIR, { recursive: true });
+  writeFileSync(OUTBOX, JSON.stringify(items.slice(-1000)));
+}
+export async function queueSighting(s) {
+  const items = loadOutbox();
+  items.push({ ...s, queued_at: Date.now() });
+  saveOutbox(items);
+}
+export async function flushOutbox() {
+  const items = loadOutbox();
+  if (!items.length) return 0;
+  const remaining = [];
+  let flushed = 0;
+  for (const s of items) {
+    try { await publishSighting(s); flushed++; }
+    catch { remaining.push(s); }
+  }
+  saveOutbox(remaining);
+  return flushed;
+}
+
 export async function publishState(state) {
   const id = loadIdentity();
   if (!id) throw new Error("no identity");

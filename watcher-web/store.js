@@ -37,5 +37,7 @@ export const store = {
   async getKV(k) { const d = await db(); return req(d.transaction("kv").objectStore("kv").get(k)); },
   async putSeen(hashes) { const d = await db(); const t = d.transaction("seen", "readwrite"); const os = t.objectStore("seen"); for (const h of hashes) os.put({ hash: h, ts: Date.now() }); return req(t); },
   async getSeen() { const d = await db(); return (await req(d.transaction("seen").objectStore("seen").getAll())).map((x) => x.hash); },
+  async pushOutbox(item) { const d = await db(); const cur = (await req(d.transaction("kv").objectStore("kv").get("outbox"))) ?? []; cur.push({ ...item, queued_at: Date.now() }); return req(d.transaction("kv", "readwrite").objectStore("kv").put(cur.slice(-500), "outbox")); },
+  async drainOutbox() { const d = await db(); const cur = (await req(d.transaction("kv").objectStore("kv").get("outbox"))) ?? []; await req(d.transaction("kv", "readwrite").objectStore("kv").put([], "outbox")); return cur; },
   async clear() { const d = await db(); for (const s of STORES) req(d.transaction(s, "readwrite").objectStore(s).clear()); },
 };
