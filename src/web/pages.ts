@@ -464,7 +464,7 @@ export async function fundPage(env: Env, ctx: ExecutionContext | undefined, id: 
     <div class="ev"><div class="t">escrow</div><div class="d">${funding ? pill(funding.status === "confirmed" ? "ok" : "info", funding.status ?? "pending") : pill("mut", "not created")}
       ${funding?.usd ? `<span class="mono faint small"> ≈${esc(funding.usd)} USD</span>` : ""}</div></div>
     <div class="ev"><div class="t">NEAR escrow</div><div class="d">
-      ${escrow?.status === "confirmed" ? pill("ok", `market #${escrow.marketId} locked`) + (escrow.near_amount ? ` <span class="mono faint small">${esc(escrow.near_amount)} NEAR (≈${esc(escrow.usd)} USD)</span>` : "")
+      ${escrow?.status === "confirmed" ? pill("ok", `market #${escrow.marketId} locked`) + ` <a class="small" href="/market/${esc(escrow.marketId)}">case file →</a>` + (escrow.near_amount ? ` <span class="mono faint small">${esc(escrow.near_amount)} NEAR (≈${esc(escrow.usd)} USD)</span>` : "")
         : escrow?.status === "failed" ? pill("bad", "failed") + ` <span class="mut small">${esc(escrow.error ?? "")}</span>`
         : escrow?.status === "pending" ? pill("warn", "broadcasting…")
         : pill("mut", "not started")}
@@ -525,6 +525,7 @@ export async function receiptPage(env: Env, mirrorId: string | null, claimHash: 
       <div class="spread"><span class="k">Winner net</span><span class="v">${fmtUsd(settlement.net_usd as number)}</span></div>
       <div class="spread"><span class="k">Payout rail</span><span class="v">${esc((payout?.rail as string) ?? "—")}</span></div>
       <div class="spread"><span class="k">Payout status</span><span class="v">${esc((payout?.status as string) ?? "—")}</span></div>
+      ${settlement?.market_id ? `<div class="spread"><span class="k">Market</span><span class="v"><a class="small mono" href="/market/${esc(String(settlement.market_id))}">market ${esc(String(settlement.market_id))} →</a></span></div>` : ""}
       ${(payout?.transfer_id || payout?.batch_id || payout?.transaction_id)
         ? `<div class="spread"><span class="k">Payout ref</span><span class="v mono small">${shortHash(String(payout.transfer_id ?? payout.batch_id ?? payout.transaction_id), 14)}</span></div>` : ""}` : ""}
     </div>
@@ -573,6 +574,40 @@ export async function receiptPage(env: Env, mirrorId: string | null, claimHash: 
   }
 
   return html(pageShell({ title: "Receipt", body: `<div class="empty"><div class="big">Nothing to verify</div><p class="mut">Pass <code>?mirror=&lt;id&gt;&amp;claim=&lt;hash&gt;</code> or <code>?repo=&lt;owner/repo&gt;&amp;seq=&lt;n&gt;</code>.</p></div>` }));
+}
+
+// ---------------------------------------------------------------- post
+
+export function postPage(): Response {
+  const step = (n: string, t: string, d: string) => `<div class="card"><h3>${n} · ${t}</h3><p class="mut small">${d}</p></div>`;
+  const body = `
+<h1>Fund work on your forge</h1>
+<p class="mut" style="max-width:640px">Post a bounty where your contributors already are. Escrow locks on NEAR,
+a public jury verifies the winning submission, and settlement writes a cryptographic
+receipt back to your issue or PR. No platform custody of the work.</p>
+<div class="grid cols-3" style="margin-top:16px">
+  ${step("1", "Point at the work", 'Mirror any public bounty — GitHub, GitLab, Forgejo, Tangled, Radicle, Algora, Opire — with <code>POST /api/mirrors</code>, or create a native market with <code>create_market</code> on the contract. Face value is what claimants see; nothing is marked up.')}
+  ${step("2", "Escrow in one call", 'Fund the mirror with <code>POST /api/mirrors/escrow</code> — the face value converts at the Intents price and locks in the market contract. Track it live on <code>/fund?id=…</code> and the <code>/market/:id</code> case file.')}
+  ${step("3", "Let the jury work", 'Submissions are filtered and attested before you see them — immutable forge IDs, patch fingerprints, evidence packs. Bonded oracle seats vote; commit-reveal stops herding; disputes go to an arbitrator with bonds at stake.')}
+</div>
+<h2 style="margin:26px 0 12px">What settlement costs</h2>
+<div class="card"><div class="kv-grid">
+  <div class="spread"><span class="k">Protocol fee</span><span class="v">2% of escrow → configured sink</span></div>
+  <div class="spread"><span class="k">Juror pool</span><span class="v">1% → seat owners who voted for the winner</span></div>
+  <div class="spread"><span class="k">Platform cut</span><span class="v">your mirror cut, taken at release only</span></div>
+  <div class="spread"><span class="k">Winner receives</span><span class="v">face value − fee − juror pool, in-kind</span></div>
+</div>
+<p class="faint small" style="margin-top:10px">Payer-signed settlements (you accept the merged PR yourself) charge no juror pool — merge is accept.</p></div>
+<h2 style="margin:26px 0 12px">Two ways in</h2>
+<div class="grid cols-2">
+  <div class="card"><h3>For humans</h3><p class="mut small">Browse <a href="/bounties">open bounties</a>, find your listing or mirror one, fund it from the bounty page, and watch the case file fill in as claims and verdicts land.</p>
+    <a class="btn gold" href="/bounties" style="margin-top:8px">Open bounties</a></div>
+  <div class="card"><h3>For agents &amp; CI</h3><p class="mut small">Everything is an endpoint: <code>/api/mirrors</code> to list, <code>/api/mirrors/escrow</code> to fund, <code>/api/mirrors/verdict</code> for verdicts, MCP tools for the full loop.</p>
+    <a class="btn ghost" href="/docs" style="margin-top:8px">Agent docs</a></div>
+</div>`;
+  return html(pageShell({ title: "Fund work — Widespread", nav: "post",
+    description: "Post a bounty on any forge, escrow on NEAR, and let a public jury verify the winner — with cryptographic receipts written back to your repo.",
+    body, path: "/post" }));
 }
 
 // ------------------------------------------------------------------ docs

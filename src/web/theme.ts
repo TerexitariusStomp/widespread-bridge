@@ -196,6 +196,13 @@ code.inline { background: var(--bg-sunken); border: 1px solid var(--border-soft)
   nav.main a { padding: 6px 7px; font-size: .82rem; }
   main { padding: 20px 14px 60px; }
   .hero h1 { font-size: 1.5rem; }
+  .stat-row { gap: 16px; }
+  .stat .n { font-size: 1.25rem; }
+  .jury-grid { grid-template-columns: 1fr; }
+  .grid.cols-2, .grid.cols-3 { grid-template-columns: 1fr; }
+  .tbl { display: block; overflow-x: auto; white-space: nowrap; }
+  .toolbar { flex-direction: column; align-items: stretch; }
+  .toolbar .spacer { display: none; }
 }
 @media (prefers-reduced-motion: no-preference) {
   .bounty-card { transition: border-color .15s ease; }

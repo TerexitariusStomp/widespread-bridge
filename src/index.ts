@@ -13,7 +13,7 @@
 //   scheduled(*/5m)           scan WATCH_REPOS claim streams, review new work claims
 
 import { OPS_HTML } from "./ops";
-import { homePage, bountiesPage, bountyPage, fundPage, receiptPage, docsPage, bountyMarkdown, marketPage } from "./web/pages";
+import { homePage, bountiesPage, bountyPage, fundPage, receiptPage, docsPage, bountyMarkdown, marketPage, postPage } from "./web/pages";
 import { reviewOutstanding, runReview } from "./review";
 import { handleBotVerdict, type BotVerdictBody } from "./botverdict";
 import { attestClaim, ecosystem, openDispute } from "./ecosystem";
@@ -393,6 +393,7 @@ app.get("/api/funding/1click/status/:addr{.+}", async (c) => {
 const ctxOf = (c: { executionCtx: unknown }) => c.executionCtx as unknown as ExecutionContext;
 app.get("/", (c) => cachedPage(new URL(c.req.url), c.req.raw, () => homePage(c.env, ctxOf(c))));
 app.get("/index.html", (c) => cachedPage(new URL(c.req.url), c.req.raw, () => homePage(c.env, ctxOf(c))));
+app.get("/post", (c) => cachedPage(new URL(c.req.url), c.req.raw, () => Promise.resolve(postPage())));
 app.get("/bounties", (c) => cachedPage(new URL(c.req.url), c.req.raw, () => bountiesPage(c.env, ctxOf(c))));
 app.get("/bounties/:id{.+}", (c) => {
   const id = c.req.param("id");
