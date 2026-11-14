@@ -356,3 +356,115 @@ style. Citations are to the 2025–26 literature.
 | 7 | Two-stage outcome escrow, watcher attestation | M | delivery→outcome verification |
 | 8 | Trustee standing via hats | M | non-human participation |
 | 9 | Paper/hackathon writeup | S | positioning |
+
+## 7. OSS dependency inventory (license-verified, Nov 2026)
+
+Rule (same as `more/research/dependencies.md` and this repo's
+`THIRD_PARTY_NOTICES.md`): **commercial use permitted; copyleft
+acceptable; non-commercial = exclude or toolchain-only; custom code
+< 5% of executed LOC.** Verified against repo LICENSE files / package
+registries where noted; flag = re-verify at implementation.
+
+### Phase 1 — schema & grammar
+
+| Need | OSS | Licence | Notes |
+|---|---|---|---|
+| Schema validation | `zod` (already a dep) | MIT | `capacity`/`evidence_plan` are zod schemas — zero new deps |
+| Impact-claim vocab | `@hypercerts-org/lexicon` (+ `@atproto/api`, already a dep) | Apache-2.0 | Interop: express `capacity` claims hypercert-shaped so external evaluators can point at them. NOTE: `@hypercerts-org/sdk` is Apache-2.0 but **deprecated/archived** upstream — use the lexicon package directly |
+
+### Phase 2 — floor gate
+
+| Need | OSS | Licence | Notes |
+|---|---|---|---|
+| Declarative rules over market JSON | `json-rules-engine` | ISC | Floor flags = declared JSON rules (versioned, deployer-overridable per §3) — no bespoke DSL |
+| (alt, heavier) policy engine | `@open-policy-agent/opa-wasm` | Apache-2.0 | Only if floor rules grow past json-rules-engine's ceiling |
+
+### Phase 3 — verdicts & reputation
+
+| Need | OSS | Licence | Notes |
+|---|---|---|---|
+| ERC-8004 emission | existing `rep8004.ts` | — | Dimensional `tag1/tag2` is config, no new dep |
+| Calibration | `ml-logistic-regression` (already a dep) | MIT | Platt scaling for weighted-majority error rates |
+| LLM judges | Workers AI binding | platform | No dep change; mechanism upgrades are prompt/aggregation-level |
+
+### Phase 4 — life-capacity packs (the heavy lifting lives here)
+
+| Need | OSS | Licence | Notes |
+|---|---|---|---|
+| Camera-trap species ID | `google/cameratrapai` (SpeciesNet) | Apache-2.0 | MegaDetector detector + 2000-class species classifier; powers Wildlife Insights |
+| Camera-trap detection only | `microsoft/MegaDetector` v6 | MIT / Apache-2.0 / AGPL-3.0 (per-variant) | Pick MIT or Apache-2.0 variants (`MDV6-mit-yolov9-*`, `MDV6-apa-rtdetr-*`) |
+| Bioacoustics | `google-research/perch` (+ perch-hoplite for inference) | Apache-2.0 | 10k-species bird classifier + SurfPerch. Repo is stale — use hoplite path. **BirdNET-Analyzer EXCLUDED: models are CC BY-NC-SA** (code MIT, weights non-commercial). BirdNET+ v3 preview models are CC BY-SA *with extra use restrictions* — license stack messy; avoid |
+| eDNA pipelines | QIIME 2 / DADA2 / OBITools | BSD-3 / LGPL-3 / CeCILL | Copyleft fine per policy. Pack validates *signed lab receipts + dataset CIDs* — pipelines run at the lab/attester, not in the worker |
+| Forest/plot geospatial | `forestdatapartnership/whisp` (`openforis-whisp`) | MIT | Convergence-of-evidence plot analysis, EUDR-grade. **Flag:** powered by Google Earth Engine — GEE has its own usage terms (free non-commercial tier; commercial needs paid Earth Engine plan); evaluate at implementation |
+| Remote-sensing data | Sentinel-2 / Landsat via Planetary Computer STAC | Copernicus open licence / USGS public domain; `stac-js` Apache-2.0 | Commercial OK with attribution |
+| Occurrence data | GBIF API | per-dataset CC0 / CC-BY / CC-BY-NC | **Only CC0 and CC-BY subsets** — same filter rule as `more/research/dependencies.md`; also covers iNaturalist research-grade exports |
+| Knowledge dimension | OpenAlex API / Crossref REST | CC0 data / open metadata | DOI/citation evidence needs no heavy deps — HTTP + zod |
+| Satellite deforestation alerts | Global Forest Watch API | mostly CC-BY-4.0 | **Flag:** verify per-layer terms + attribution string at implementation |
+
+### Phase 5 — two-stage escrow
+
+| Need | OSS | Licence | Notes |
+|---|---|---|---|
+| Contract base | `near-sdk-js` (already used) | MIT AND Apache-2.0 | Split-release logic is the unavoidable custom delta (~200 LOC) |
+| Disputes | `kleros` interface (already in notices) | MIT | Dispute sightings can escalate to Kleros arbitration — existing dep |
+| Vesting/tranche reference | NEAR OSS vesting examples | MIT | Reference impls exist; adapt, don't write from scratch |
+
+### Phase 6 — maximin pool & trustees
+
+| Need | OSS | Licence | Notes |
+|---|---|---|---|
+| Quadratic-funding matching | **PotLock core contracts** | MIT | NEAR-native QF + donation contracts — the DAO sink routes into a PotLock pot per least-funded `capacity.dims`. Fork or call directly; the maximin selector (~50 LOC reading feed:doc scarcity) is the only custom piece |
+| Trustee orgs/standing | `hats.ts` Intentional Hats (existing) | — | stance.vetoes/prefs already model floor vetoes + dimension weights |
+
+### Phase 7 — discovery
+
+| Need | OSS | Licence | Notes |
+|---|---|---|---|
+| Sighting transport | `nostr-tools` (already a dep) | MIT | `widespread-capacity-snapshot` + dispute events are new `t` tags, no new deps |
+| Watcher surfaces | existing extension/`wsd` | — | — |
+
+### Data-source exclusions (non-commercial — hard block)
+
+| Source | Licence | Status |
+|---|---|---|
+| BirdNET model weights | CC BY-NC-SA 4.0 | EXCLUDED — use Perch (Apache-2.0) |
+| GBIF CC-BY-NC datasets | CC BY-NC | filter out at query time |
+| Arbimon hosted platform | ToS non-compete clause | **platform** unusable for a competing service; RFCx code is Apache-2.0 — self-host only if ever needed |
+| edge-tts (already flagged) | CC BY-NC-SA | demo-only, stays flagged |
+
+## 8. Custom-code accounting
+
+Method: `custom_LOC / (custom + executed direct-dependency LOC)` — same
+rule as `more/research/dependencies.md` and this repo's existing
+"<0.2%" claim in `THIRD_PARTY_NOTICES.md`.
+
+Estimated new custom code by phase:
+
+| Phase | Est. custom LOC | What it is |
+|---|---|---|
+| 1 schema+grammar | ~200 | zod schema, declare-grammar tokens, feed plumbing |
+| 2 floor gate | ~150 | json-rules-engine wiring + adjudicator axis |
+| 3 typed verdicts | ~100 | verdict schema + rep8004 tag mapping |
+| 4 packs | ~400 | four `validate` fns wrapping OSS/APIs — packs are glue by design |
+| 5 escrow split | ~300 | contract tranche logic + re-verification endpoint |
+| 6 maximin pool | ~150 | scarcity selector + PotLock pot wiring |
+| 7 discovery | ~100 | event-family tags + dispute handler |
+| 8 trustees | ~100 | hats stance→floor mapping |
+| Judge upgrades | ~150 | error-rate weighting + format normalization |
+| **Total** | **~1,650** | |
+
+Executed-dependency base: existing stack (nostr-tools, near-api-js,
+@atproto, zod, nostr relays…) plus SpeciesNet (~100k+ LOC),
+Perch/JAX stack, QIIME 2/OBITools, PotLock contracts, hypercerts
+lexicon, json-rules-engine — comfortably >10M LOC. Custom share
+≈ 1,650 / >10,000,000 ≈ **0.02% ≪ 5%**. The repo's "<0.2%" claim
+survives: the heavy verification work is vendored OSS or hosted
+evidence services; our delta is schema, routing, and escrow glue —
+which is what a *protocol* should be.
+
+**Design rule this implies:** when a phase tempts custom code,
+the correct move is almost always "call the OSS that already does
+it" (PotLock for QF, SpeciesNet for camera traps, Whisp for plots)
+rather than reimplement. Where no OSS exists (capacity schema,
+attester grading, dispute verb), the custom code is small and is
+itself the protocol's IP.

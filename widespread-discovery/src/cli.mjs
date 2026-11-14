@@ -15,7 +15,7 @@ const { values: a, positionals: pos } = parseArgs({
     url: { type: "string" }, author: { type: "string" }, ts: { type: "string" },
     nsec: { type: "string" }, file: { type: "string" },
     limit: { type: "string", default: "200" }, port: { type: "string", default: "8787" },
-    kind: { type: "string", default: "json" }, interval: { type: "string", default: "60" },
+    kind: { type: "string", default: "json" }, akind: { type: "string" }, interval: { type: "string", default: "60" },
     help: { type: "boolean", short: "h" },
   },
   allowPositionals: true,
@@ -28,6 +28,7 @@ const usage = `wsd — widespread-discovery CLI
   wsd publish --platform P --id ID --text "…" [--url U --author A]
   wsd query [--platform P --id ID] [--limit N]
   wsd surface add URL          allowlist a surface (required before watch)
+  wsd gen-openapi --file spec.yaml   OpenAPI → draft adapter manifest
   wsd surface                  list allowlisted surfaces
   wsd watch URL… [--kind json|rss]   poll allowlisted surfaces → publish
   wsd serve [--port 8787]         localhost HTTP API + background watcher
@@ -112,6 +113,16 @@ switch (cmd) {
     needId();
     const { mcpStdio } = await import("./mcp.mjs");
     mcpStdio();
+    break;
+  }
+  case "gen-openapi": {
+    const { readFileSync } = await import("node:fs");
+    if (!a.file) { console.error("usage: wsd gen-openapi --file spec.yaml [--surface host] [--kind api]"); process.exit(1); }
+    const { specToManifest, parseSpec } = await import("./gen-openapi.mjs");
+    const spec = parseSpec(readFileSync(a.file, "utf8"));
+    const m = specToManifest(spec, { surface: a.platform, kind: a.akind ?? "api" });
+    console.log(JSON.stringify(m, null, 2));
+    console.error(`— ${m.ops.length} ops emitted as draft; sign+publish via plugin or /api/adapters`);
     break;
   }
   case "stats": {
