@@ -192,8 +192,10 @@ export async function tryDeclEscrow(env: Env, hash: string): Promise<unknown> {
   // On-chain: redacted stub spec + sha256 of the REAL spec — binds the
   // hidden text without revealing it.
   const { sha256Hex } = await import("./sealed");
-  const spec = `[confidential:${bounty.domain ?? "other"}] decl=${hash}`;
-  const specHash = `sha256:${await sha256Hex(new TextEncoder().encode(bounty.spec))}`;
+  const spec = `[confidential:${bounty.domain ?? "other"}] decl=${hash}${bounty.spec_cid ? ` cid=${bounty.spec_cid}` : ""}`;
+  const specHash = bounty.spec_sealed
+    ? bounty.spec_hash!
+    : `sha256:${await sha256Hex(new TextEncoder().encode(bounty.spec))}`;
 
   const existing = await findMarketBySpecHash(env, contract, specHash);
   if (existing) {
@@ -296,9 +298,11 @@ export async function declEscrowPlan(env: Env, hash: string, opts: {
   if (!contract) return { error: "NEAR_CONTRACT not configured" };
 
   const { sha256Hex } = await import("./sealed");
-  const specHash = `sha256:${await sha256Hex(new TextEncoder().encode(bounty.spec))}`;
+  const specHash = bounty.spec_sealed
+    ? bounty.spec_hash!
+    : `sha256:${await sha256Hex(new TextEncoder().encode(bounty.spec))}`;
   const spec = bounty.confidential
-    ? `[confidential:${bounty.domain ?? "other"}] decl=${hash}`
+    ? `[confidential:${bounty.domain ?? "other"}] decl=${hash}${bounty.spec_cid ? ` cid=${bounty.spec_cid}` : ""}`
     : bounty.spec;
 
   // Amount: caller supplies NEAR directly, or USD → NEAR via Intents price.

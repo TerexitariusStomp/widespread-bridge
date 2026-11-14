@@ -90,12 +90,32 @@ export async function runReview(
   // judge via adjudicatorInput.sealed_text and is NEVER stored.
   const claimEvidence0 = ((claim as unknown as Record<string, unknown>).evidence ?? {}) as Record<string, unknown>;
   let sealedPlaintext: string | null = null;
+  let sealedSpecText: string | null = null;
   if (bounty?.confidential) {
     const earlyRef = (claim as unknown as Record<string, unknown>).ref as string | undefined
       ?? claimEvidence0.url as string | undefined;
     const sealM = String(earlyRef ?? "").match(/^sealed:\/\/([0-9a-f]{64})/i);
     const { parseSealedArtifact, decryptSealedForBridge } = await import("./sealed");
-    const { sealed, failures } = parseSealedArtifact(claimEvidence0, sealM?.[1]);
+    // Full-blind spec_sealed markets hold no bridge copy of the spec —
+    // the deliverable only needs the funder copy; the bridge can't judge
+    // what it can't read (delegated adjudication, oracle-quorum settles).
+    const bridgeBlind = !!bounty.spec_sealed && !bounty.spec_sealed_bridge_b64;
+    const { sealed, failures } = parseSealedArtifact(claimEvidence0, sealM?.[1], { requireBridgeCopy: !bridgeBlind });
+    if (!failures.length && bridgeBlind) {
+      const record: ReviewRecord = {
+        id, repo, seq, status: "delegated",
+        claim: entry, chain, commits: [], crosscheck: crosscheck(claim, []),
+        bounty: redactBounty(bounty),
+        adjudication: null,
+        domain_evidence: {
+          artifact_sealed: sealed,
+          delegated: "spec_sealed full-blind market: bridge holds no spec copy — funder/oracle quorum adjudicates and settles on-chain",
+        },
+        payout: null, writeback: null, reviewed_at: Date.now(),
+      };
+      await putRecord(env, record);
+      return record;
+    }
     if (claimEvidence0.text ?? claimEvidence0.draft ?? claimEvidence0.artifact_inline) {
       failures.push("confidential markets forbid inline plaintext — seal the deliverable");
     }
@@ -106,6 +126,21 @@ export async function runReview(
       const dec = await decryptSealedForBridge(env, sealed);
       if (dec.error) failures.push(dec.error);
       else sealedPlaintext = new TextDecoder().decode(dec.plaintext);
+    }
+    // spec_sealed judge-capable copy: the bridge opens the funder-sealed
+    // spec in-request, verifies it binds to the declared spec_hash, and
+    // feeds it to domain validation + the panel. Never stored.
+    if (!failures.length && bounty.spec_sealed && bounty.spec_sealed_bridge_b64) {
+      const { sealOpen, sha256Hex } = await import("./sealed");
+      const secret = (env as { BRIDGE_X25519_SECRET?: string }).BRIDGE_X25519_SECRET;
+      const pt = secret ? sealOpen(bounty.spec_sealed_bridge_b64, secret) : null;
+      if (!pt) {
+        failures.push("bridge spec copy did not decrypt — wrong recipient key or corrupt ciphertext");
+      } else if (`sha256:${await sha256Hex(pt)}` !== bounty.spec_hash) {
+        failures.push("bridge spec copy does not match declared spec_hash");
+      } else {
+        sealedSpecText = new TextDecoder().decode(pt);
+      }
     }
     if (failures.length) {
       const record: ReviewRecord = {
@@ -164,7 +199,7 @@ export async function runReview(
       packFailures = ["no artifact ref or draft text on claim"];
     } else {
       const v = await validateDomain(
-        { id: repo, spec: bounty.spec, domain, verification: { class: "platform-url", params: undefined }, created_at: bounty.created_at },
+        { id: repo, spec: sealedSpecText ?? bounty.spec, domain, verification: { class: "platform-url", params: undefined }, created_at: bounty.created_at },
         { ref: sealedPlaintext ? "draft:sealed" : (claimRef ?? "draft:inline"), actor: (claim as unknown as Record<string, unknown>).actor as string | undefined, evidence: { text: draftText } },
         env as unknown as Record<string, string | undefined>,
       );
@@ -214,7 +249,10 @@ export async function runReview(
   // artifact text into their evidence — strip every plaintext field.
   if (bounty?.confidential) domainEvidence = stripDomainText(domainEvidence);
   const adjudicatorInput = {
-    repo, entry, chain, bounty, commits, check, derivative,
+    repo, entry, chain, commits, check, derivative,
+    // spec_sealed: the judge sees the in-request-decrypted spec; the
+    // stored record keeps the KV copy whose spec is "".
+    bounty: sealedSpecText && bounty ? { ...bounty, spec: sealedSpecText } : bounty,
     domain_evidence: domainEvidence,
     ...(sealedPlaintext ? { sealed_text: sealedPlaintext } : {}),
   };

@@ -414,6 +414,16 @@ export interface Bounty {
   confidential?: boolean;
   /** Funder's x25519 pubkey (hex) — sealed-deliverable recipient. */
   funder_x25519_pubkey?: string;
+  /** D3 funder-sealed spec — the bridge never holds plaintext at rest.
+   *  spec_hash binds the on-chain market; spec_cid points at the sealed
+   *  ciphertext on content-addressed storage; the bridge can only judge
+   *  or serve reveals when the funder included spec_sealed_bridge_b64
+   *  (in-request decrypt only). */
+  spec_sealed?: boolean;
+  spec_hash?: string;              // sha256:<64hex> — funder-computed
+  spec_cid?: string;               // IPFS CID of the sealed ciphertext bundle
+  reveal_endpoint?: string;        // funder-run reveal service (delegated reveals)
+  spec_sealed_bridge_b64?: string; // crypto_box_seal(spec, bridge x25519) — judge-capable
   created_at: number;
 }
 
@@ -477,7 +487,10 @@ export interface Writeback {
   error?: string;
 }
 
-export type ReviewStatus = "accepted_paid" | "accepted_unpaid" | "rejected" | "error";
+export type ReviewStatus = "accepted_paid" | "accepted_unpaid" | "rejected" | "error"
+  /** Full-blind spec_sealed market — the bridge holds no spec copy and
+   *  cannot judge; the funder/collective adjudicates and settles via the
+   *  on-chain oracle quorum. */ | "delegated";
 
 export interface ReviewRecord {
   /** `${owner}/${repo}:${seq}` — KV key + dashboard anchor. */

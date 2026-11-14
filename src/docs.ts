@@ -265,6 +265,17 @@ or the deliverable.
 - Fund (legacy): POST /api/declarations/{hash}/escrow (ops-auth) —
   escrow via the ops pool. Deprecated for new markets; kept for
   in-flight ones.
+- Spec custody (D3 spec_sealed): declare with
+  {spec_sealed:true, spec_hash, spec_cid?, funder_x25519_pubkey} and NO
+  spec plaintext — the funder encrypts client-side and the bridge never
+  holds it at rest. Two reveal lanes:
+    judge-capable: spec_sealed_bridge_b64 = crypto_box_seal(spec, bridge
+      x25519) → bridge serves /api/spec/reveal + adjudicates (in-request
+      decrypt, hash-verified, still zero at-rest plaintext)
+    full-blind: reveal_endpoint = funder-run service → the bridge
+      delegates reveals and CANNOT judge; records land "delegated" and
+      the funder/oracle quorum settles on-chain. Deliverables seal to
+      the funder key only (ciphertext_bridge_b64 optional).
 
 Honest limits: market id, amount, specHash, verdict, claimant, and payout
 stay public — metadata, not content or linkage. The ghostwrite
@@ -273,8 +284,12 @@ target, funder DID, and spec-derived flags never reach public surfaces
 account that posts the canonical is the funder's choice (post from a
 throwaway if linkage matters), amount+timing correlation on a public
 chain, and Intents solvers see the origin→destination flow (the solver
-market, not the bridge). The bridge and judge
-read plaintext in memory; the public never does.
+market, not the bridge). spec_sealed removes the bridge's at-rest
+plaintext; the judge-capable lane still opens a copy in-request (in-flight
+trust, same class as deliverables). Full-blind removes that too at the
+cost of bridge judging — use it when independent oracle operators exist
+to adjudicate. reveal_endpoint is the funder's own infrastructure — host
+it neutrally if endpoint linkage matters.
 
 ## Money
 

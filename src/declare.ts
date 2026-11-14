@@ -10,12 +10,28 @@ const tag = "widespread";
 
 export interface DeclareArgs {
   domain?: string;             // code | social-media | research | writing | design | data | other
-  spec: string;                // task spec / acceptance rules
+  spec?: string;               // task spec / acceptance rules (omit for spec_sealed)
   /** Confidential market — canonical declaration + feed carry only
    *  domain+amount+specHash; real spec stays in private KV and is
    *  revealed to claimants via /api/spec/reveal. Deliverables must
    *  arrive as artifact_sealed ciphertext to funder_x25519_pubkey. */
   confidential?: boolean;
+  /** D3 funder-sealed spec — the bridge NEVER receives plaintext:
+   *  the funder encrypts client-side and publishes the ciphertext
+   *  (spec_cid, e.g. IPFS). spec_hash binds the on-chain market.
+   *  Reveal paths, pick at least one:
+   *    spec_sealed_bridge_b64 — crypto_box_seal(spec, bridge x25519):
+   *      bridge can serve reveals + judge (in-request decrypt only,
+   *      still zero at-rest plaintext)
+   *    reveal_endpoint — funder-run HTTPS service that seals the spec
+   *      to requester x25519 keys (fully bridge-blind; the bridge
+   *      cannot judge — adjudication delegates to funder/oracle quorum)
+   *  `spec` plaintext is rejected alongside spec_sealed. */
+  spec_sealed?: boolean;
+  spec_hash?: string;              // sha256:<64hex> or bare 64-hex
+  spec_cid?: string;               // IPFS CID of the sealed ciphertext
+  reveal_endpoint?: string;        // funder-run reveal service URL
+  spec_sealed_bridge_b64?: string; // optional judge-capable copy
   /** Funder's x25519 pubkey (hex, 32-byte) — receives sealed
    *  deliverables + wrapped adjudication key. Fresh per market. */
   funder_x25519_pubkey?: string;
@@ -114,9 +130,24 @@ async function specHash(s: string) {
 }
 
 export async function bountyDeclare(env: Env, a: DeclareArgs) {
-  if (!a.spec?.trim() || !a.amount) return { error: "spec + amount required" };
+  const sealedSpec = !!a.spec_sealed;
+  if (sealedSpec) {
+    if (a.spec) return { error: "spec_sealed markets must not carry spec plaintext — hash it client-side and pass spec_hash" };
+    if (!a.spec_hash || !/^(sha256:)?[0-9a-f]{64}$/i.test(a.spec_hash)) {
+      return { error: "spec_sealed requires spec_hash (sha256:<64hex> or 64-hex) computed over the plaintext spec" };
+    }
+    if (!a.spec_sealed_bridge_b64 && !a.reveal_endpoint) {
+      return { error: "spec_sealed needs a reveal path: spec_sealed_bridge_b64 (bridge serves + judges) or reveal_endpoint (funder serves, bridge blind)" };
+    }
+  } else if (!a.spec?.trim()) {
+    return { error: "spec + amount required" };
+  }
+  if (!a.amount) return { error: "amount required" };
   const domain = (a.domain ?? "other").toLowerCase();
-  const hash = await specHash(`${domain}|${a.spec}|${a.amount}`);
+  const specHashNorm = sealedSpec
+    ? (a.spec_hash!.startsWith("sha256:") ? a.spec_hash! : `sha256:${a.spec_hash}`).toLowerCase()
+    : null;
+  const hash = await specHash(`${domain}|${sealedSpec ? specHashNorm : a.spec}|${a.amount}`);
   const repo = `widespread/${domain}`;   // forge repo that logs this vertical's attestations
   const id = `decl:${hash}`;
   const deliverable = a.deliverable_class ?? (domain === "social-media" || domain === "writing" ? "draft" : "publish");
@@ -127,20 +158,22 @@ export async function bountyDeclare(env: Env, a: DeclareArgs) {
     ? { platform: a.target_platform.toLowerCase(), handle: a.target_handle.replace(/^@/, "") }
     : null;
   const bound = target ? await resolveHandle(env, target.platform, target.handle) : null;
-  if (a.confidential && !/^[0-9a-f]{64}$/i.test(a.funder_x25519_pubkey ?? "")) {
+  const confidential = !!a.confidential || sealedSpec;
+  if (confidential && !/^[0-9a-f]{64}$/i.test(a.funder_x25519_pubkey ?? "")) {
     return { error: "confidential markets require funder_x25519_pubkey (hex, 32 bytes) — generate a fresh x25519 pair; deliverables + adjudication key wrap to it" };
   }
   const capRes = normalizeCapacity(a);
   if (capRes.error) return { error: capRes.error };
   const capacity = capRes.cap!;
-  const flags = floorFlags(a.spec);
+  const flags = a.spec ? floorFlags(a.spec) : [];
   const canonical = [
     `#${tag} bounty ${hash}`,
     `domain: ${domain}`,
     `amount: ${a.amount} ${a.currency ?? "USD"}`,
-    a.confidential ? `confidential: spec-sealed — claimants reveal via /api/spec/reveal` : `spec: ${a.spec}`,
+    sealedSpec ? `confidential: spec-sealed hash:${specHashNorm!.slice(0, 24)}…${a.spec_cid ? ` cid:${a.spec_cid}` : ""} — claimants reveal via ${a.reveal_endpoint ? "funder endpoint" : "/api/spec/reveal"}`
+      : confidential ? `confidential: spec-sealed — claimants reveal via /api/spec/reveal` : `spec: ${a.spec}`,
     deliverable === "resource" ? `meter:${a.meter} threshold:${a.threshold}${a.window ? ` window:${a.window}` : ""}` : null,
-    target && !a.confidential ? `for: ${target.platform} @${target.handle}` : null,
+    target && !confidential ? `for: ${target.platform} @${target.handle}` : null,
     target && deliverable === "draft" ? `deliverable: draft text (you publish)` : null,
     capacity?.dims.length ? `dims: ${capacity.dims.join(",")}` : null,
     capacity?.subsystem ? `subsys: ${capacity.subsystem}` : null,
@@ -152,16 +185,22 @@ export async function bountyDeclare(env: Env, a: DeclareArgs) {
   const bounty: Bounty = {
     repo, amount: a.amount, currency: a.currency ?? "USD",
     receiver_account: "",
-    spec: a.spec,
+    spec: sealedSpec ? "" : a.spec!,
     proof_requirements: domain === "code" ? undefined : [{ type: "platform-url", note: "deliverable = published artifact URL" } as never],
     domain: domain === "code" ? undefined : domain,
     work_id: hash,
     target: target ?? undefined,
     deliverable_class: deliverable === "resource" ? "resource" : (target ? deliverable : undefined),
-    // Confidential: never persist a durable funder identity — the ops
-    // pool is the on-chain payer and the reveal key is per-market.
-    funder_did: a.confidential ? undefined : a.funder_did,
-    ...(a.confidential ? { confidential: true, funder_x25519_pubkey: a.funder_x25519_pubkey } : {}),
+    // Confidential: never persist a durable funder identity — the on-chain
+    // payer is a fresh account (escrow-plan) and the reveal key is per-market.
+    funder_did: confidential ? undefined : a.funder_did,
+    ...(confidential ? { confidential: true, funder_x25519_pubkey: a.funder_x25519_pubkey } : {}),
+    ...(sealedSpec ? {
+      spec_sealed: true, spec_hash: specHashNorm!,
+      ...(a.spec_cid ? { spec_cid: a.spec_cid } : {}),
+      ...(a.reveal_endpoint ? { reveal_endpoint: a.reveal_endpoint } : {}),
+      ...(a.spec_sealed_bridge_b64 ? { spec_sealed_bridge_b64: a.spec_sealed_bridge_b64 } : {}),
+    } : {}),
     ...(a.sighting_bps ? { sighting_bps: Math.min(1000, Math.max(0, Math.round(a.sighting_bps))) } : {}),
     capacity,
     ...(flags.length ? { floor_flags: flags } : {}),
@@ -176,8 +215,13 @@ export async function bountyDeclare(env: Env, a: DeclareArgs) {
 
   const record: FeedRecord = {
     id, source: "declared", forge: "generic", kind: "bounty",
-    title: a.confidential ? `confidential ${domain} market` : a.spec.slice(0, 120),
-    ...(a.confidential ? { confidential: true } : { spec: a.spec }),
+    title: confidential ? `confidential ${domain} market` : a.spec!.slice(0, 120),
+    ...(confidential ? { confidential: true } : { spec: a.spec }),
+    ...(sealedSpec ? {
+      spec_sealed: true, spec_hash: specHashNorm!,
+      ...(a.spec_cid ? { spec_cid: a.spec_cid } : {}),
+      ...(a.reveal_endpoint ? { reveal_endpoint: a.reveal_endpoint } : {}),
+    } : {}),
     amount: a.amount, currency: a.currency ?? "USD",
     escrow: { state: "label-only" },
     verification: {
@@ -192,12 +236,12 @@ export async function bountyDeclare(env: Env, a: DeclareArgs) {
     url: `https://widespread-bridge.widespread.workers.dev/api/declarations/${hash}`,
     claim: { how: `reply "widespread claim ${hash}" or via MCP wide_claim`, grammar: "widespread claim <hash>" },
     domain,
-    for: target && !a.confidential ? { ...target, bound: !!bound } : undefined,
+    for: target && !confidential ? { ...target, bound: !!bound } : undefined,
     deliverable_class: deliverable === "resource" ? "resource" : (target ? deliverable : undefined),
     capacity,
     // floor_flags are spec-derived — for confidential markets they leak
     // hints about the hidden spec, so they stay off the public record.
-    ...(!a.confidential && flags.length ? { floor_flags: flags } : {}),
+    ...(!confidential && flags.length ? { floor_flags: flags } : {}),
     created_at: Date.now(),
     updated_at: Date.now(),
   };
@@ -216,7 +260,7 @@ export async function bountyDeclare(env: Env, a: DeclareArgs) {
   }
   return {
     hash, repo, canonical, record, warnings: warnings.length ? warnings : undefined, intent_urls: intentUrls(canonical),
-    ...(a.confidential ? {
+    ...(confidential ? {
       // Trustless blind funding: the funder escrows from a FRESH
       // implicit account via Intents — ops custody never involved.
       escrow_plan: `/api/declarations/${hash}/escrow-plan`,
@@ -294,6 +338,37 @@ export async function specReveal(
     hash: a.hash, agent_pubkey: a.agent_pubkey, did: (reg as { did?: string }).did ?? null,
     x25519_pubkey: a.x25519_pubkey, revealed_at: Date.now(),
   })).catch(() => {});
+
+  // D3 funder-sealed spec — the bridge holds ciphertext, not plaintext.
+  if (bounty.spec_sealed) {
+    if (bounty.spec_sealed_bridge_b64) {
+      // Judge-capable copy: open in-request only, verify the hash binds
+      // (a funder can't pass off a different spec), seal to the claimant.
+      const { sealOpen, sha256Hex } = await import("./sealed");
+      const secret = (env as { BRIDGE_X25519_SECRET?: string }).BRIDGE_X25519_SECRET;
+      const pt = secret ? sealOpen(bounty.spec_sealed_bridge_b64, secret) : null;
+      if (!pt) return { error: "bridge spec copy did not decrypt" };
+      const h = await sha256Hex(pt);
+      if (`sha256:${h}` !== bounty.spec_hash) return { error: "bridge spec copy does not match spec_hash" };
+      return {
+        ok: true, hash: a.hash, mode: "bridge-sealed",
+        spec_sealed_b64: sealTo(pt, a.x25519_pubkey),
+        spec_hash: bounty.spec_hash, spec_cid: bounty.spec_cid ?? null,
+        bridge_x25519_pubkey: bridgeX25519PublicKey(env),
+        funder_x25519_pubkey: bounty.funder_x25519_pubkey,
+      };
+    }
+    // Fully bridge-blind: reveal delegates to the funder's endpoint; the
+    // bridge can only confirm the request happened (already logged).
+    return {
+      ok: true, hash: a.hash, mode: "delegated",
+      reveal_endpoint: bounty.reveal_endpoint,
+      spec_cid: bounty.spec_cid ?? null,
+      spec_hash: bounty.spec_hash,
+      funder_x25519_pubkey: bounty.funder_x25519_pubkey,
+      instructions: "POST {x25519_pubkey} to reveal_endpoint; the funder seals the spec to your key. Bridge never held plaintext.",
+    };
+  }
 
   return {
     ok: true, hash: a.hash,

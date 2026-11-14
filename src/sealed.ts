@@ -86,6 +86,7 @@ export function sealOpen(ciphertextB64: string, secretKeyHex: string): Uint8Arra
  *  Ref hash must match the declared artifact_sha256 (ref↔payload bind). */
 export function parseSealedArtifact(
   evidence: Record<string, unknown>, refSha256?: string,
+  opts?: { requireBridgeCopy?: boolean },
 ): { sealed?: SealedArtifact; failures: string[] } {
   const s = evidence.artifact_sealed as Record<string, unknown> | undefined;
   if (!s || typeof s !== "object") {
@@ -93,7 +94,12 @@ export function parseSealedArtifact(
   }
   const sealed = s as unknown as SealedArtifact;
   const failures: string[] = [];
-  for (const k of ["ciphertext_funder_b64", "ciphertext_bridge_b64"] as const) {
+  // Full-blind spec_sealed markets can't include a bridge copy (bridge
+  // judges nothing it can't read) — funder copy is the only required one.
+  const required = opts?.requireBridgeCopy === false
+    ? ["ciphertext_funder_b64"] as const
+    : ["ciphertext_funder_b64", "ciphertext_bridge_b64"] as const;
+  for (const k of required) {
     const v = sealed[k];
     if (typeof v !== "string" || !v) { failures.push(`artifact_sealed.${k} required`); continue; }
     const bytes = b64ToBytes(v);

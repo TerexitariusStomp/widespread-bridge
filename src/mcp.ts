@@ -172,7 +172,7 @@ export async function handleMcpRequest(req: Request, env: Env, ctx: ExecutionCon
     annotations: { title: 'Declare Bounty', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     description: "Post a task: create a declared bounty market for ANY work domain (code, social-media, writing, research, data, other). Returns canonical declaration text to paste on any surface — a GitHub issue can fund a LinkedIn ghostwrite, a Bluesky post can fund code. Feed scanners bind the post to the market. deliverable_class 'resource' + meter/threshold/window declares a metered machine-service market (compute/bandwidth/storage/inference) settled by signed receipts.",
     inputSchema: {
-      domain: z.string().optional(), spec: z.string(), amount: z.string(),
+      domain: z.string().optional(), spec: z.string().optional(), amount: z.string(),
       currency: z.string().optional(),
       verification: z.object({ class: z.string().optional(), params: z.record(z.string(), z.unknown()).optional() }).optional(),
       payer_email: z.string().optional(), funder_handle: z.string().optional(), funder_did: z.string().optional(),
@@ -180,6 +180,11 @@ export async function handleMcpRequest(req: Request, env: Env, ctx: ExecutionCon
       deliverable_class: z.enum(["draft", "publish", "resource"]).optional(),
       confidential: z.boolean().optional().describe("Confidential market — spec never leaves private KV; public surfaces carry domain+amount+specHash only. Requires funder_x25519_pubkey."),
       funder_x25519_pubkey: z.string().optional().describe("Funder's x25519 pubkey (64 hex) — sealed deliverables encrypt to it. Generate a fresh pair per market."),
+      spec_sealed: z.boolean().optional().describe("D3 funder-sealed spec — encrypt client-side, the bridge NEVER receives plaintext. Requires spec_hash + (spec_sealed_bridge_b64 for bridge-judged markets, or reveal_endpoint for fully bridge-blind). Omit spec."),
+      spec_hash: z.string().optional().describe("sha256:<64hex> of the plaintext spec — binds the on-chain market"),
+      spec_cid: z.string().optional().describe("IPFS CID of the sealed spec ciphertext bundle"),
+      reveal_endpoint: z.string().optional().describe("Funder-run HTTPS reveal service — delegates reveals so the bridge stays blind (bridge cannot judge these markets)"),
+      spec_sealed_bridge_b64: z.string().optional().describe("crypto_box_seal(spec, bridge x25519 pubkey) — lets the bridge serve reveals + judge, in-request decrypt only"),
       meter: z.string().optional(), threshold: z.number().optional(), window: z.string().optional(),
       dims: z.string().optional().describe("Comma-separated capacity dims: C_e,C_h,C_k,C_inst,C_m"),
       capacity: z.object({
@@ -211,7 +216,7 @@ export async function handleMcpRequest(req: Request, env: Env, ctx: ExecutionCon
     annotations: { title: 'Broadcast Bounty', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     description: "Declare a bounty AND get zero-auth intent URLs to post it on every surface at once (X, Bluesky, Mastodon, Nostr, HN). One escrow, N surfaces, duplicate submissions deduped, one payout.",
     inputSchema: {
-      domain: z.string().optional(), spec: z.string(), amount: z.string(),
+      domain: z.string().optional(), spec: z.string().optional(), amount: z.string(),
       currency: z.string().optional(),
       verification: z.object({ class: z.string().optional(), params: z.record(z.string(), z.unknown()).optional() }).optional(),
       payer_email: z.string().optional(), funder_handle: z.string().optional(), funder_did: z.string().optional(),
@@ -219,6 +224,9 @@ export async function handleMcpRequest(req: Request, env: Env, ctx: ExecutionCon
       deliverable_class: z.enum(["draft", "publish", "resource"]).optional(),
       confidential: z.boolean().optional().describe("Confidential market — spec never leaves private KV; public surfaces carry domain+amount+specHash only. Requires funder_x25519_pubkey."),
       funder_x25519_pubkey: z.string().optional().describe("Funder's x25519 pubkey (64 hex) — sealed deliverables encrypt to it."),
+      spec_sealed: z.boolean().optional(), spec_hash: z.string().optional(),
+      spec_cid: z.string().optional(), reveal_endpoint: z.string().optional(),
+      spec_sealed_bridge_b64: z.string().optional(),
       meter: z.string().optional(), threshold: z.number().optional(), window: z.string().optional(),
     },
   }, async (a) => json(await bountyBroadcast(env, a)));

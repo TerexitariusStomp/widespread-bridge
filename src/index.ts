@@ -645,6 +645,12 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
       const body = (await req.json().catch(() => ({}))) as Parameters<typeof specReveal>[1];
       return json(await specReveal(env, body));
     }
+    // Public sealing keys — funders seal specs/deliverables to the
+    // bridge's x25519 key; workers do the same for adjudication copies.
+    if (pathname === "/api/keys" && req.method === "GET") {
+      const { bridgeX25519PublicKey } = await import("./sealed");
+      return json({ bridge_x25519_pubkey: bridgeX25519PublicKey(env) });
+    }
     // Trustless escrow plan: everything a funder needs to escrow from a
     // FRESH implicit account funded via Intents — we never see the key,
     // never custody funds. GET returns args; POST adds a live 1Click quote.
@@ -678,7 +684,8 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
       // /api/spec/reveal path is the only way in.
       const pub = bounty.confidential
         ? { ...bounty, spec: undefined, spec_redacted: true,
-            target: undefined, funder_did: undefined, floor_flags: undefined }
+            target: undefined, funder_did: undefined, floor_flags: undefined,
+            spec_sealed_bridge_b64: undefined }
         : bounty;
       return json({ hash, bounty: pub, reply_claims: claims ?? [], sightings: sights ?? [] });
     }
