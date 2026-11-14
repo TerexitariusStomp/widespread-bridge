@@ -238,8 +238,14 @@ or the deliverable.
   ops pool so on-chain payer ≠ the real funder.
 
 Honest limits: market id, amount, specHash, verdict, claimant, and payout
-stay public on-chain — metadata, not content or linkage. The bridge and
-judge read plaintext in memory; the public never does.
+stay public — metadata, not content or linkage. On-chain payer is the
+ops pool when escrowed via the declarations endpoint. The ghostwrite
+target, funder DID, and spec-derived flags never reach public surfaces
+(canonical, feed, declaration GET, review records). What remains: the
+account that posts the canonical is the funder's choice (post from a
+throwaway if linkage matters), amount+timing correlation on a public
+chain, and the ops pool knows who's settling it. The bridge and judge
+read plaintext in memory; the public never does.
 
 ## Money
 

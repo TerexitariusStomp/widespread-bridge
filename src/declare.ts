@@ -140,7 +140,7 @@ export async function bountyDeclare(env: Env, a: DeclareArgs) {
     `amount: ${a.amount} ${a.currency ?? "USD"}`,
     a.confidential ? `confidential: spec-sealed — claimants reveal via /api/spec/reveal` : `spec: ${a.spec}`,
     deliverable === "resource" ? `meter:${a.meter} threshold:${a.threshold}${a.window ? ` window:${a.window}` : ""}` : null,
-    target ? `for: ${target.platform} @${target.handle}` : null,
+    target && !a.confidential ? `for: ${target.platform} @${target.handle}` : null,
     target && deliverable === "draft" ? `deliverable: draft text (you publish)` : null,
     capacity?.dims.length ? `dims: ${capacity.dims.join(",")}` : null,
     capacity?.subsystem ? `subsys: ${capacity.subsystem}` : null,
@@ -158,7 +158,9 @@ export async function bountyDeclare(env: Env, a: DeclareArgs) {
     work_id: hash,
     target: target ?? undefined,
     deliverable_class: deliverable === "resource" ? "resource" : (target ? deliverable : undefined),
-    funder_did: a.funder_did,
+    // Confidential: never persist a durable funder identity — the ops
+    // pool is the on-chain payer and the reveal key is per-market.
+    funder_did: a.confidential ? undefined : a.funder_did,
     ...(a.confidential ? { confidential: true, funder_x25519_pubkey: a.funder_x25519_pubkey } : {}),
     ...(a.sighting_bps ? { sighting_bps: Math.min(1000, Math.max(0, Math.round(a.sighting_bps))) } : {}),
     capacity,
@@ -190,10 +192,12 @@ export async function bountyDeclare(env: Env, a: DeclareArgs) {
     url: `https://widespread-bridge.widespread.workers.dev/api/declarations/${hash}`,
     claim: { how: `reply "widespread claim ${hash}" or via MCP wide_claim`, grammar: "widespread claim <hash>" },
     domain,
-    for: target ? { ...target, bound: !!bound } : undefined,
+    for: target && !a.confidential ? { ...target, bound: !!bound } : undefined,
     deliverable_class: deliverable === "resource" ? "resource" : (target ? deliverable : undefined),
     capacity,
-    ...(flags.length ? { floor_flags: flags } : {}),
+    // floor_flags are spec-derived — for confidential markets they leak
+    // hints about the hidden spec, so they stay off the public record.
+    ...(!a.confidential && flags.length ? { floor_flags: flags } : {}),
     created_at: Date.now(),
     updated_at: Date.now(),
   };

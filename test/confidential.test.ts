@@ -49,6 +49,8 @@ describe("C0 confidential declaration", () => {
     const d = await bountyDeclare(env, {
       confidential: true, funder_x25519_pubkey: kp.publicKey,
       domain: "writing", spec: SPEC, amount: "50", currency: "USD", capacity: CAP,
+      target_platform: "linkedin", target_handle: "alice",  // ghostwrite target = the funder
+      funder_did: "did:key:zFunder",
     });
     expect(d.error).toBeUndefined();
     expect(d.canonical).toContain("confidential:");
@@ -58,10 +60,16 @@ describe("C0 confidential declaration", () => {
     expect(rec.confidential).toBe(true);
     expect(rec.spec).toBeUndefined();
     expect(String(rec.title)).not.toContain("eulogy");
+    // funder linkage: ghostwrite target + funder did never go public
+    expect(d.canonical).not.toContain("alice");
+    expect(d.canonical).not.toContain("linkedin");
+    expect(rec.for).toBeUndefined();
     const b = await getDeclared(env, d.hash);
     expect(b?.spec).toBe(SPEC);                            // private KV keeps it
     expect(b?.confidential).toBe(true);
     expect(b?.funder_x25519_pubkey).toBe(kp.publicKey);
+    expect(b?.funder_did).toBeUndefined();                 // never persisted
+    expect(b?.target?.handle).toBe("alice");               // private KV keeps it for review
   });
 });
 

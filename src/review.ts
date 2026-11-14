@@ -17,17 +17,25 @@ import type {
 } from "./types";
 
 /** Stored-record copy of a bounty — confidential markets keep the real
- *  spec in private KV only; the public record carries a redacted stub. */
+ *  spec + funder-identifying + spec-derived fields in private KV only;
+ *  the public record carries a redacted stub. */
 function redactBounty(bounty: Bounty | null): Bounty | null {
   if (!bounty?.confidential) return bounty;
-  return { ...bounty, spec: `[confidential:${bounty.domain ?? "other"}]` };
+  return {
+    ...bounty,
+    spec: `[confidential:${bounty.domain ?? "other"}]`,
+    target: undefined,          // ghostwrite target often IS the funder
+    funder_did: undefined,
+    floor_flags: undefined,     // spec-derived → hints at hidden spec
+  };
 }
 
-/** Domain packs echo artifact text into evidence — strip every plaintext
+/** Domain packs echo artifact text — and the style-check injects the
+ *  target profile — into evidence. Strip every plaintext + identifying
  *  field before the evidence can reach a stored record (confidential). */
 function stripDomainText(v: Record<string, unknown> | null): Record<string, unknown> | null {
   if (!v) return v;
-  const { text: _t, draft: _d, artifact_inline: _i, ...clean } = v;
+  const { text: _t, draft: _d, artifact_inline: _i, target: _g, ...clean } = v;
   return clean;
 }
 

@@ -639,9 +639,13 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
         env.CLAIMS.get(`declsight:${hash}`, "json"),
       ]);
       if (!bounty) return json({ error: "not found" }, 404);
-      // Confidential markets: the spec never leaves this endpoint — the
-      // claim-gated /api/spec/reveal path is the only way in.
-      const pub = bounty.confidential ? { ...bounty, spec: undefined, spec_redacted: true } : bounty;
+      // Confidential markets: the spec and every funder-identifying or
+      // spec-derived field stay private — the claim-gated
+      // /api/spec/reveal path is the only way in.
+      const pub = bounty.confidential
+        ? { ...bounty, spec: undefined, spec_redacted: true,
+            target: undefined, funder_did: undefined, floor_flags: undefined }
+        : bounty;
       return json({ hash, bounty: pub, reply_claims: claims ?? [], sightings: sights ?? [] });
     }
     // Decentralized discovery — watcher sightings (direct), platform
