@@ -12,3 +12,19 @@
 | Agent-native | no | no | no | no | partial | **MCP skill in every coding-agent library** |
 | Broadcast | no | no | no | no | no | **one escrow → N surfaces, 1 payout** |
 | Domains | code | code | general | marketing | agent jobs | **any domain (code is just one)** |
+
+## MORE-aligned axes (planned — see `docs/more-alignment.md`)
+
+Objective-bearing markets: no incumbent work market can express what a
+bounty is *for*; no incumbent impact market adversarially verifies
+delivery. The combination is an empty cell.
+
+| Axis | Work markets (above) | Impact markets (QF, Regen, hypercerts, registries) | Widespread |
+|---|---|---|---|
+| Objective | none — free-text spec | scalar (votes, tCO₂, generic "impact") | **declared capacity dims + evidence plan** |
+| Floor gate | none | none/additionality-ish | **feasibility screen; harm disqualifies** |
+| Verification target | delivery | ex-post claim / registry audit | **delivery + outcome (two-stage escrow)** |
+| Attester | claimant/funder | claimant or hired auditor | **graded independence — paid party can't attest** |
+| Disputes | support tickets | governance exception, if any | **signed dispute sightings freeze tranche** |
+| Beneficiaries | whoever pays | same | **trustee standing for non-human participants** |
+| Reputation | siloed scalar | cert balance | **dimensional ERC-8004 (verified ΔC)** |

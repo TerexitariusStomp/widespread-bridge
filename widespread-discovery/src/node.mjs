@@ -73,6 +73,26 @@ export async function publishSighting({ platform, native_id, url, author, text, 
   return publish(sightingEventTemplate(id.pk, content));
 }
 
+// surface allowlist — the ONLY URLs a watcher may fetch (trifecta egress
+// control, spec §8). Agents can never inject URLs via tool calls.
+const SURFACES_FILE = join(DIR, "surfaces.json");
+export function loadSurfaces() {
+  if (!existsSync(SURFACES_FILE)) return [];
+  try { return JSON.parse(readFileSync(SURFACES_FILE, "utf8")); } catch { return []; }
+}
+export function addSurface(s) {
+  mkdirSync(DIR, { recursive: true });
+  const list = loadSurfaces();
+  if (!list.some((x) => x.url === s.url)) { list.push(s); writeFileSync(SURFACES_FILE, JSON.stringify(list, null, 2)); }
+  return list;
+}
+/** Throws unless every surface is in the allowlist — call before watching. */
+export function assertAllowlisted(surfaces) {
+  const ok = new Set(loadSurfaces().map((s) => s.url));
+  const bad = surfaces.filter((s) => !ok.has(s.url));
+  if (bad.length) throw new Error(`surfaces not in allowlist (wsd surface add first): ${bad.map((s) => s.url).join(", ")}`);
+}
+
 // offline outbox — sightings that failed to publish queue to disk and
 // flush on the next successful run (relays are flaky; never lose work).
 const OUTBOX = join(DIR, "outbox.json");

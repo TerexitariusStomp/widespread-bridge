@@ -27,7 +27,9 @@ const usage = `wsd — widespread-discovery CLI
   wsd import --nsec nsec1…         import existing nostr identity
   wsd publish --platform P --id ID --text "…" [--url U --author A]
   wsd query [--platform P --id ID] [--limit N]
-  wsd watch URL… [--kind json|rss]   poll surfaces → publish sightings
+  wsd surface add URL          allowlist a surface (required before watch)
+  wsd surface                  list allowlisted surfaces
+  wsd watch URL… [--kind json|rss]   poll allowlisted surfaces → publish
   wsd serve [--port 8787]         localhost HTTP API + background watcher
   wsd mcp                         stdio MCP server (agent integration)
   wsd stats                       local index stats
@@ -75,15 +77,27 @@ switch (cmd) {
     console.log(`— ${evs.length} events, ${n} new, index=${Object.keys(idx.sightings).length}`);
     closePool(); setTimeout(()=>process.exit(0),300); break;
   }
+  case "surface": {
+    const { loadSurfaces, addSurface } = await import("./node.mjs");
+    if (pos[0] === "add") {
+      const url = pos[1]; if (!url) { console.error("usage: wsd surface add URL [--platform P] [--kind json|rss|hn]"); process.exit(1); }
+      const list = addSurface({ platform: a.platform ?? new URL(url).hostname, url, kind: a.kind });
+      console.log(`allowlisted (${list.length} surfaces)`);
+    } else console.log(JSON.stringify(loadSurfaces(), null, 2));
+    break;
+  }
   case "watch": {
     needId();
     const urls = pos.length ? pos : [a.file].filter(Boolean);
-    if (!urls.length) { console.error("usage: wsd watch URL…"); process.exit(1); }
+    if (!urls.length) { console.error("usage: wsd watch URL… (URL must be allowlisted: wsd surface add URL)"); process.exit(1); }
     const { watchOnce } = await import("./watch.mjs");
-    const once = await watchOnce(urls.map((u) => ({ platform: a.platform ?? new URL(u).hostname, url: u, kind: a.kind })));
+    const { assertAllowlisted } = await import("./node.mjs");
+    const surfs = urls.map((u) => ({ platform: a.platform ?? new URL(u).hostname, url: u, kind: a.kind }));
+    assertAllowlisted(surfs); // trifecta: no agent-chosen fetch URLs
+    const once = await watchOnce(surfs);
     console.log(`watch complete: ${once.published} published, ${once.seen} seen`);
     if (a.interval && a.interval !== "0") {
-      setInterval(() => watchOnce(urls.map((u) => ({ platform: a.platform ?? new URL(u).hostname, url: u, kind: a.kind }))).catch(console.error), Number(a.interval) * 1000);
+      setInterval(() => watchOnce(surfs).catch(console.error), Number(a.interval) * 1000);
       console.log(`polling every ${a.interval}s — ctrl-c to stop`);
     }
     break;

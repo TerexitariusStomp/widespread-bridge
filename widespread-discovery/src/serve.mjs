@@ -1,7 +1,7 @@
 // serve.mjs — localhost HTTP API for wsd. Any language can query it;
 // the daemon is an optional peer, not a required hop.
 import { createServer } from "node:http";
-import { loadIdentity, loadIndex, publishSighting, query, ingestEvents, publishState, fetchState, relays } from "./node.mjs";
+import { loadIdentity, loadIndex, publishSighting, query, ingestEvents, publishState, fetchState, relays, loadSurfaces, addSurface, assertAllowlisted } from "./node.mjs";
 import { watchOnce } from "./watch.mjs";
 import { parseArgs } from "node:util";
 
@@ -60,8 +60,19 @@ export function serve({ port = 8787, surfaces = null, intervalSec = 0 } = {}) {
       if (u.pathname === "/api/watch" && req.method === "POST") {
         let body = ""; for await (const c of req) body += c;
         const { surfaces: surfs } = JSON.parse(body || "{}");
+        // trifecta egress control: only allowlisted surfaces may be fetched
+        assertAllowlisted(surfs ?? []);
         const r = await watchOnce(surfs);
         return json(res, 200, r);
+      }
+      if (u.pathname === "/api/surfaces" && req.method === "GET") {
+        return json(res, 200, { surfaces: loadSurfaces() });
+      }
+      if (u.pathname === "/api/surfaces" && req.method === "POST") {
+        let body = ""; for await (const c of req) body += c;
+        const s = JSON.parse(body || "{}");
+        if (!s.url) return json(res, 400, { error: "url required" });
+        return json(res, 200, { surfaces: addSurface(s) });
       }
       json(res, 404, { error: "not found" });
     } catch (e) { json(res, 500, { error: e.message }); }
