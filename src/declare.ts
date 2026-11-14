@@ -35,6 +35,10 @@ export interface DeclareArgs {
   meter?: string;
   threshold?: number;
   window?: string;
+  /** Optional watcher fee (bps of amount, 0–1000) — watchers who sighted
+   *  this declaration on-platform earn a recorded entitlement when the
+   *  declaration funds. Default 0. */
+  sighting_bps?: number;
 }
 
 async function specHash(s: string) {
@@ -78,6 +82,7 @@ export async function bountyDeclare(env: Env, a: DeclareArgs) {
     target: target ?? undefined,
     deliverable_class: deliverable === "resource" ? "resource" : (target ? deliverable : undefined),
     funder_did: a.funder_did,
+    ...(a.sighting_bps ? { sighting_bps: Math.min(1000, Math.max(0, Math.round(a.sighting_bps))) } : {}),
     created_at: Date.now(),
   };
   await env.CLAIMS.put(`decl:${hash}`, JSON.stringify(bounty));
@@ -108,7 +113,10 @@ export async function bountyDeclare(env: Env, a: DeclareArgs) {
   await env.CLAIMS.put(`feedrec:${id}`, JSON.stringify(record));
   const warnings: string[] = [];
   if (target && !bound) warnings.push(`target ${target.platform}/@${target.handle} is not bound — funder should POST /api/identity/bind so style/history verification can run`);
-  return { hash, repo, canonical, record, warnings: warnings.length ? warnings : undefined, intent_urls: intentUrls(canonical) };
+  return {
+    hash, repo, canonical, record, warnings: warnings.length ? warnings : undefined, intent_urls: intentUrls(canonical),
+    watch_hint: "After posting, run surf_watch on the thread (or POST sightings) so claims/receipts on this declaration are ingested — watchers earn sighting_bps when it funds.",
+  };
 }
 
 /** Zero-auth broadcast: platform intent URLs the funder opens to post. */

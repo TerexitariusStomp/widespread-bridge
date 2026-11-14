@@ -35,6 +35,15 @@ export interface Env {
   FEED_IMMUNEFI?: string;
   FEED_ALGORA?: string;
   FEED_POLAR?: string;
+  /** Legacy per-account social API pollers (bluesky/mastodon/lemmy/
+   *  misskey/peertube/hive/devto). Default OFF — discovery is decentralized
+   *  via sightings (POST /api/sightings + Nostr gossip + webhooks). Set =1
+   *  to re-enable bridge-side polling. */
+  FEED_SOCIAL_POLL?: string;
+  /** Slack/Discord/generic webhook secrets for push sightings. */
+  SLACK_SIGNING_SECRET?: string;
+  DISCORD_PUBLIC_KEY?: string;
+  WEBHOOK_TOKEN?: string;
   /** TermiX AACP per-chain API base (default BNB backend). */
   TERMIX_API?: string;
   /** WURK registered-agent API key + base — activates the wurk feed source. */
@@ -362,6 +371,9 @@ export interface Bounty {
   deliverable_class?: "draft" | "publish" | "resource";
   /** Funder's DID when the market is declared by a bound identity. */
   funder_did?: string;
+  /** Optional watcher fee in bps of the bounty amount — paid to watchers
+   *  whose sightings led to this declaration being funded. */
+  sighting_bps?: number;
   created_at: number;
 }
 

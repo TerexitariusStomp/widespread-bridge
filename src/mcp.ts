@@ -14,6 +14,7 @@ import { bindStatement, bindInstructions, registerBinding, listBindings, resolve
 import { listRunners } from "./feed";
 import { agentChallenge, agentRegister, marketClaim, shipPrepare, shipSubmit, marketsList, bountiesList, agentStatus } from "./mcpearn";
 import { getCoordinator } from "./coordinator";
+import { listSightings, discoveryStats, ingestSighting, type Sighting } from "./sightings";
 
 const json = (v: unknown) => ({
   content: [{ type: "text" as const, text: JSON.stringify(v, null, 1) }],
@@ -333,6 +334,36 @@ export async function handleMcpRequest(req: Request, env: Env, ctx: ExecutionCon
     const r = await doFetch("/api/adapters/stats");
     return json(r.body ?? { error: "stats unavailable", status: r.status });
   });
+
+  // --------------------------------------- decentralized discovery (sightings)
+
+  server.registerTool("wide_sightings", {
+    annotations: { title: 'Query Task Sightings', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    description: "Query watcher-reported sightings — tasks/claims/receipts observed on external surfaces (social, forums, labor platforms) by client agents and volunteers. Filter by platform, since (ms), min_tier (lead|corroborated), limit. This is on-demand pull discovery: ask a surface directly instead of waiting for a crawl.",
+    inputSchema: {
+      platform: z.string().optional(), since: z.number().optional(),
+      min_tier: z.enum(["lead", "corroborated"]).optional(), limit: z.number().optional(),
+    },
+  }, async (a) => json({ sightings: await listSightings(env, a) }));
+
+  server.registerTool("wide_sighting_report", {
+    annotations: { title: 'Report a Sighting', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    description: "Report an item you observed on an external surface (a #widespread declaration, claim, receipt, or bind statement). Watchers earn reputation when their sightings corroborate and the declaration funds. Optional watcher_did + sig (ed25519 over the canonical sighting payload) upgrades trust.",
+    inputSchema: {
+      platform: z.string(), native_id: z.string(), text: z.string(),
+      url: z.string().optional(), author: z.string().optional(), ts: z.number().optional(),
+      watcher_did: z.string().optional(), sig: z.string().optional(),
+    },
+  }, async (a) => {
+    const { auth: _a, ...s } = a as Sighting & { auth?: string };
+    return json(await ingestSighting(env, s));
+  });
+
+  server.registerTool("wide_discovery_stats", {
+    annotations: { title: 'Discovery Coverage Stats', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    description: "Live decentralized-discovery metrics: surfaces watched, sightings by platform/tier/source, active watchers — the auditable answer to 'how much of the surface area is actually covered?'",
+    inputSchema: {},
+  }, async () => json(await discoveryStats(env)));
 
   const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
   await server.connect(transport);

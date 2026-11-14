@@ -242,6 +242,41 @@ POST /api/adapters/:id/deprecate {author|admin} → regen bounty to feed
   `verified:false` until a side-effect probe confirms them; grammar
   parity with `socialfeed.ts` is enforced by `test/adapter-grammar.test.ts`.
 
+## Decentralized discovery (sightings)
+
+The bridge does not poll integrated surfaces for new tasks — watchers
+(client agents + volunteers on their own sessions) report what they see,
+and the bridge stores/classifies/corroborates. Three transports, one
+pipeline (`src/sightings.ts` → `ingestSighting`):
+
+```
+POST /api/sightings          watcher batch (≤50), optional did:key sig
+GET  /api/sightings?platform=&since=&min_tier=   public query
+GET  /api/discovery/stats    live coverage: surfaces, tiers, watchers
+POST /api/webhooks/:platform  push: slack (HMAC), discord (ed25519), generic (?token=)
+Nostr gossip                 watchers publish kind-30078 events to relays;
+                             feed refresh backfills via SimplePool
+```
+
+- **Oracle trust**: sightings tier as `lead` → `corroborated` (≥2
+  independent verified watchers agree) → `disputed` (conflicting reports,
+  excluded from ranking + rewards). Weight scoring favors platform-
+  authenticated pushes and previously-paid watchers (Anduin-style
+  economic signal).
+- **Grammar routing**: `DECL_RE`/`CLAIM_RE`/`RECEIPT_RE`/bind statements
+  in sighted text flow into the same `feedrec:decl:*`/`hclaim:*`/`idbind`
+  records the old pollers produced — zero feed-merge changes.
+- **Watcher rewards** (`src/watchpay.ts`): funded declarations pay
+  `sighting_bps` entitlements to their sighting watchers + rep credit +
+  ERC-8004-shaped feedback. Disputed sightings slash rep.
+- **Legacy pollers default-off**: bluesky/mastodon/lemmy/misskey/
+  peertube/hive/devto APIs are opt-in via `FEED_SOCIAL_POLL=1`. Nostr
+  relay polling, RSS (opt-in), forges, near-chain, and external bounty
+  platforms still run — they're already decentralized or protocol-native.
+- **Watcher side**: `surf_watch`/`surf_watch_status`/`surf_declare` in
+  the `widespread_surfaces` plugin — watch a read op, diff a local
+  seen-set, post sightings signed with the agent's did:key.
+
 ## Deploy your own
 
 ```bash

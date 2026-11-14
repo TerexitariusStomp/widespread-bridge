@@ -34,6 +34,8 @@ import {
   listRunners, registerRunner, refreshFeed, handleMirrorQuote,
 } from "./feed";
 import { bountyDeclare, bountyBroadcast, getDeclared } from "./declare";
+import { ingestSighting, listSightings, discoveryStats } from "./sightings";
+import { handleWebhook } from "./webhooks";
 import { bindStatement, bindInstructions, registerBinding, listBindings, resolveHandle, revokeBinding, reverifyBinding } from "./identity";
 import { putFeedDoc } from "./feedstore";
 import { bountiesList, marketsList } from "./mcpearn";
@@ -588,11 +590,42 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
     }
     if (pathname.startsWith("/api/declarations/") && req.method === "GET") {
       const hash = pathname.split("/").pop() ?? "";
-      const [bounty, claims] = await Promise.all([
+      const [bounty, claims, sights] = await Promise.all([
         getDeclared(env, hash),
         env.CLAIMS.get(`hclaim:${hash}`, "json"),
+        env.CLAIMS.get(`declsight:${hash}`, "json"),
       ]);
-      return bounty ? json({ hash, bounty, reply_claims: claims ?? [] }) : json({ error: "not found" }, 404);
+      return bounty ? json({ hash, bounty, reply_claims: claims ?? [], sightings: sights ?? [] }) : json({ error: "not found" }, 404);
+    }
+    // Decentralized discovery — watcher sightings (direct), platform
+    // webhooks (push), Nostr gossip (feed-refresh backfill). The bridge
+    // stores/classifies/corroborates; it does not poll these surfaces.
+    if (pathname === "/api/sightings" && req.method === "POST") {
+      const body = (await req.json().catch(() => ({}))) as { sightings?: Record<string, unknown>[] } & Record<string, unknown>;
+      const items = Array.isArray(body.sightings) ? body.sightings : [body];
+      if (items.length > 50) return json({ error: "batch too large (max 50)" }, 400);
+      const results = [];
+      for (const raw of items) {
+        // Strip transport-internal auth — only gossip.ts may set it.
+        const { auth: _a, ...s } = raw as Record<string, unknown>;
+        results.push(await ingestSighting(env, s as unknown as Parameters<typeof ingestSighting>[1]));
+      }
+      return json({ ok: true, results });
+    }
+    if (pathname === "/api/sightings" && req.method === "GET") {
+      const platform = url.searchParams.get("platform") ?? undefined;
+      const since = Number(url.searchParams.get("since")) || undefined;
+      const minTier = url.searchParams.get("min_tier") as "lead" | "corroborated" | "disputed" | undefined;
+      const limit = Number(url.searchParams.get("limit")) || undefined;
+      return json({ sightings: await listSightings(env, { platform, since, min_tier: minTier, limit }) });
+    }
+    if (pathname === "/api/discovery/stats" && req.method === "GET") {
+      return json(await discoveryStats(env));
+    }
+    if (pathname.startsWith("/api/webhooks/") && req.method === "POST") {
+      const platform = pathname.split("/").pop() ?? "";
+      const r = await handleWebhook(env, platform, req);
+      return json(r.body, r.status as 200);
     }
     // Cross-surface identity — trust-minimized bindings. A bind is a public
     // attestation re-verifiable by anyone; never inferred from similarity.

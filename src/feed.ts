@@ -14,6 +14,8 @@ import { nearView } from "./near";
 import { readJobs, readBounties, readTokenUris } from "./evmread";
 import { scanMirrorSubmissions } from "./ingest";
 import { pollBluesky, pollMastodon, pollNostr, pollRss, pollLemmy, pollMisskey, pollPeertube, pollHive, pollDevto } from "./socialfeed";
+import { maybeRewardWatchers } from "./watchpay";
+import { backfillSightings } from "./gossip";
 import { listBounties, listRecords } from "./store";
 import {
   acquireFeedLock, getFeedDoc, getSourceStamp, putFeedDoc,
@@ -640,6 +642,18 @@ const SOURCE_INTERVALS: Record<string, number> = {
   erc8183: 30 * 60 * 1000, olas: 60 * 60 * 1000,
 };
 
+/** Social API pollers are opt-in legacy — sightings replaced them. When
+ *  disabled, return a fresh empty stamp so the source shows as healthy but
+ *  idle rather than erroring every refresh. */
+function socialPoll(env: Env, name: string, fn: () => Promise<FeedRecord[]>): Promise<{ stamp: SourceStamp; records: FeedRecord[] }> {
+  if (env.FEED_SOCIAL_POLL !== "1") {
+    const stamp: SourceStamp = { ok: true, count: 0, fetched_at: Date.now() };
+    void putSourceStamp(env, name, stamp);
+    return Promise.resolve({ stamp, records: [] });
+  }
+  return runSource(env, name, fn);
+}
+
 async function runSource(env: Env, name: string, fn: () => Promise<FeedRecord[]>): Promise<{ stamp: SourceStamp; records: FeedRecord[] }> {
   const minInterval = SOURCE_INTERVALS[name] ?? FEED_TTL_MS;
   const prev = await getSourceStamp(env, name);
@@ -717,15 +731,18 @@ export async function refreshFeed(env: Env, ctx?: ExecutionContext): Promise<Fee
       runSource(env, "erc8183", () => pollErc8183Generic(env)),
       runSource(env, "olas", () => pollOlas(env)),
       runSource(env, "declared", () => pollDeclared(env)),
-      runSource(env, "bluesky", () => pollBluesky(env)),
-      runSource(env, "mastodon", () => pollMastodon(env)),
-      runSource(env, "nostr", () => pollNostr(env)),
-      runSource(env, "rss", () => pollRss(env)),
-      runSource(env, "lemmy", () => pollLemmy(env)),
-      runSource(env, "misskey", () => pollMisskey(env)),
-      runSource(env, "peertube", () => pollPeertube(env)),
-      runSource(env, "hive", () => pollHive(env)),
-      runSource(env, "devto", () => pollDevto(env)),
+      // Legacy per-account social pollers — default OFF. Discovery is
+      // decentralized: watchers report sightings (POST /api/sightings,
+      // Nostr gossip, webhooks). FEED_SOCIAL_POLL=1 re-enables polling.
+      socialPoll(env, "bluesky", () => pollBluesky(env)),
+      socialPoll(env, "mastodon", () => pollMastodon(env)),
+      runSource(env, "nostr", () => pollNostr(env)),   // relay firehose = already decentralized
+      runSource(env, "rss", () => pollRss(env)),       // opt-in via RSS_WATCH
+      socialPoll(env, "lemmy", () => pollLemmy(env)),
+      socialPoll(env, "misskey", () => pollMisskey(env)),
+      socialPoll(env, "peertube", () => pollPeertube(env)),
+      socialPoll(env, "hive", () => pollHive(env)),
+      socialPoll(env, "devto", () => pollDevto(env)),
       trustIndex(env),
     ]);
     const sources: FeedDoc["sources"] = {};
@@ -758,6 +775,16 @@ export async function refreshFeed(env: Env, ctx?: ExecutionContext): Promise<Fee
 
     const doc: FeedDoc = { generated_at: Date.now(), sources, records, mirrors };
     await putFeedDoc(env, doc);
+    // Nostr gossip backfill — sightings published to relays while the
+    // isolate was cold get ingested here. `gossip:last` tracks the unix
+    // seconds watermark; first run looks back 24h.
+    if (ctx) ctx.waitUntil((async () => {
+      const last = Number(await env.CLAIMS.get("gossip:last")) || Math.floor(Date.now() / 1000) - 86400;
+      const n = await backfillSightings(env, last).catch(() => 0);
+      await env.CLAIMS.put("gossip:last", String(Math.floor(Date.now() / 1000)));
+      if (n) console.log(`gossip: ingested ${n} sightings`);
+    })().catch((e) => console.error(`gossip backfill: ${String(e)}`)));
+
     // Auto-ingest submissions on funded mirrors — agents keep using the
     // original forge flow (PRs on the issue); we file attested claims.
     if (ctx) ctx.waitUntil(scanMirrorSubmissions(env).catch((e) => console.error(`ingest: ${String(e)}`)));
@@ -865,6 +892,12 @@ async function buildMirrors(env: Env, records: FeedRecord[], prior: MirrorListin
       created_at: prev?.created_at ?? Date.now(),
       updated_at: Date.now(),
     });
+    // Watcher rewards: a funded declaration pays its sighting watchers.
+    // decl:<hash> ids only — sight-created records (decl:sight:…) have no
+    // decl: KV bounty to attach entitlements to.
+    if (fundedMid && /^decl:[0-9a-f]{8,16}$/.test(rec.id)) {
+      void maybeRewardWatchers(env, rec.id.slice(5)).catch(() => null);
+    }
     if (out.length >= 100) break;
   }
   return out;

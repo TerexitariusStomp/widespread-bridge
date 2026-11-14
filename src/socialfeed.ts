@@ -15,7 +15,7 @@ export const RECEIPT_RE = /widespread\s+receipt\s+([A-Za-z0-9:._~/-]{8,160})/i;
 const BIND_TAG = "widespread-bind:v1";
 const now = () => Date.now();
 
-function declRecord(hash: string, platform: string, url: string, body: string, actor?: string): FeedRecord {
+export function declRecord(hash: string, platform: string, url: string, body: string, actor?: string): FeedRecord {
   const m = body.match(DECL_RE);
   return {
     id: `social:${platform}:${hash}`,
@@ -33,13 +33,13 @@ function declRecord(hash: string, platform: string, url: string, body: string, a
 
 /** A bind statement posted natively on the claimed platform IS its own
  * proof — the post URL goes through the same verifier registry. */
-async function noteBind(env: Env, text: string, url: string) {
+export async function noteBind(env: Env, text: string, url: string) {
   if (!text.includes(BIND_TAG)) return;
   const b = parseBindStatement(text);
   if (b) await registerBinding(env, { did: b.did, platform: b.platform, handle: b.handle, proof: url }).catch(() => null);
 }
 
-async function noteClaim(env: Env, hash: string, platform: string, actor: string, url: string, kind: "claim" | "submission" | "receipt") {
+export async function noteClaim(env: Env, hash: string, platform: string, actor: string, url: string, kind: "claim" | "submission" | "receipt") {
   const key = `hclaim:${hash}`;
   const list = (await env.CLAIMS.get(key, "json").catch(() => null)) as unknown[] ?? [];
   if (list.length < 100) {
