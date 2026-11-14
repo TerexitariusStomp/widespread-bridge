@@ -49,6 +49,14 @@ blog). A GitHub issue can fund a LinkedIn ghostwrite; the `domain` field
 picks the verifier, not the surface. `wide_broadcast` returns zero-auth
 intent URLs for every platform — one escrow, N surfaces, one payout.
 
+**Capacity is REQUIRED on every declare** (MORE objective layer): pass
+`capacity: {dims: ["C_k", ...], evidence_plan: {measure, horizon_days}}`
+— dims ∈ C_e|C_h|C_k|C_inst|C_m, or the `dims:"C_k,C_h"` shorthand.
+`evidence_plan.attester`/`attester_paid_by` default to the unbiased
+`watcher`/`protocol`. Domains `ecological` and `knowledge` unlock the
+DMRV/scholarly evidence packs. Post-settlement, `wide_outcome` submits
+post-horizon outcome evidence (tranche 2) or files disputes.
+
 ## Media bounties
 
 Deliverables are published artifacts (`publish` class) OR draft text
