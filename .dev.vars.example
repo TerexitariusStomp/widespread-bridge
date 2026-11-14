@@ -11,3 +11,7 @@ ADMIN_TOKEN=
 # then register the printed pubkey via POST /api/agents.
 DG_AGENT_DID=
 DG_AGENT_KEY_PKCS8_B64=
+# IPFS (optional — ciphertext + evidence pinning; degraded when unset)
+# IPFS_API_URL=http://127.0.0.1:5001         # self-hosted Kubo RPC
+# IPFS_PINNING_URL=                           # any Pinning Service API base
+# IPFS_PINNING_KEY=                           # bearer token

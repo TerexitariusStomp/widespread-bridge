@@ -148,12 +148,20 @@ export const OPENAPI = {
     "/api/disputes/bundle": {
       get: {
         operationId: "evidenceBundle",
-        summary: "Kleros-Evidence-shaped JSON for a market/claim — the disputer pins it to IPFS and puts the CID on-chain as evidenceCid.",
+        summary: "Kleros-Evidence-shaped JSON for a market/claim — the disputer pins it to IPFS and puts the CID on-chain as evidenceCid. ?pin=1 pins it via the configured IPFS backend and returns evidence_cid.",
         parameters: [
           { name: "market_id", in: "query", required: true, schema: { type: "string" } },
           { name: "claim_id", in: "query", schema: { type: "string" } },
+          { name: "pin", in: "query", schema: { type: "string" }, description: "1 = pin the bundle to IPFS, returns evidence_cid" },
         ],
         responses: { "200": { description: "evidence bundle" } },
+      },
+    },
+    "/api/pin": {
+      post: {
+        operationId: "pinBlob",
+        summary: "Pin base64 bytes to IPFS (self-hosted Kubo via IPFS_API_URL + optional Pinning Service) — for sealed spec bundles, deliverables, evidence. Max 2MB; ciphertext only — plaintext is the client's problem.",
+        responses: { "200": { description: "cid + pinned_remotely" }, "503": { description: "no IPFS backend configured" } },
       },
     },
     "/api/disputes/resolve": {
@@ -368,7 +376,18 @@ arbitrator (interim: contract account; per-market override e.g. a
 Kleros-proxy) rules pay_claim / reject_claim / refund / dismiss —
 upheld rulings refund the bond, dismissals burn it to the DAO sink.
 GET /api/disputes/bundle produces the Kleros-evidence-shaped record to
-pin on IPFS. Rulings are publicly auditable on getDisputes.
+pin on IPFS (?pin=1 does it in-flight via the configured backend).
+Rulings are publicly auditable on getDisputes. A Kleros arbitrable
+contract + ruling relay lives in widespread-near/contracts/kleros/ —
+functionally verified locally; court deployment pending an Arbitrum
+deploy + setArbitrator to a kleros-proxy account.
+
+## Ciphertext storage
+
+POST /api/pin pins base64 bytes to IPFS (Kubo IPFS_API_URL + optional
+Pinning Service credentials; degraded cleanly when unconfigured). Spec
+ciphertext bundles, sealed deliverables, evidence bundles — content-
+addressed so anyone can mirror and the market's cid=… resolves.
 
 ## Event log + state rebuild (D5)
 
@@ -391,6 +410,9 @@ is ed25519-signed by the oracle key.
   binds it for later reveal.
 - Self-host: redeploy this worker with your own KV + relay, replay
   /api/events to seed state — a mirror bridge is a redeploy + replay.
+  tools/rebuild.mjs audits any deployment: verifies the chain, resolves
+  every committed ref publicly, and flags records the log commits to but
+  the bridge no longer serves (censorship/equivocation evidence).
 
 ## Money
 

@@ -1033,7 +1033,26 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
       const marketId = url.searchParams.get("market_id");
       if (!marketId) return bad("market_id required", 400);
       const { evidenceBundle } = await import("./disputes");
-      return json(await evidenceBundle(env, marketId, url.searchParams.get("claim_id") ?? undefined));
+      const bundle = await evidenceBundle(env, marketId, url.searchParams.get("claim_id") ?? undefined);
+      // ?pin=1 → pin the bundle and return evidence_cid — the URI a
+      // Kleros dispute / on-chain dispute() names. Fails soft when no
+      // pinning is configured.
+      if (url.searchParams.get("pin") === "1" && !(bundle as { error?: string }).error) {
+        const { pinBytes } = await import("./ipfs");
+        const pin = await pinBytes(env, new TextEncoder().encode(JSON.stringify(bundle)),
+          `widespread-dispute-${marketId}.json`);
+        (bundle as Record<string, unknown>).evidence_cid = pin.cid ?? null;
+        (bundle as Record<string, unknown>).pin_error = pin.error ?? null;
+      }
+      return json(bundle);
+    }
+    // Content-addressed ciphertext: clients pin sealed spec bundles and
+    // deliverables; the bridge stores bytes it cannot read (or, for
+    // evidence bundles, JSON it need not trust). Kubo or any Pinning
+    // Service — env-gated, degraded cleanly when unset.
+    if (pathname === "/api/pin" && req.method === "POST") {
+      const { handlePin } = await import("./ipfs");
+      return handlePin(req, env);
     }
     // Interim arbitrator rulings — the contract account rules until the
     // DAO rotates a Kleros-proxy arbitrator. Ops-gated.
