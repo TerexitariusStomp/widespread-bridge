@@ -1,5 +1,5 @@
 // node.mjs — Node-side bindings: nostr-tools signer, fs key storage.
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import * as N from "nostr-tools";
@@ -82,7 +82,59 @@ export async function publish(template) {
     ]);
     stored = found.length;
   } catch { /* verification inconclusive — relays flaky, don't fail the publish */ }
+  // Log every ACK'd event regardless of stored count: relays dropping an
+  // event is exactly when the git/peer transports matter — the envelope
+  // is still a valid signed artifact peers can carry.
+  if (oks.length) appendEventLog(ev);
   return { event: ev, oks, relay_errors: errs, stored };
+}
+
+// ---- transport-agnostic event log ----
+// Signed event envelopes are self-certifying bytes — they can ride ANY
+// append-only transport (git forge, IPFS, sneakernet), not just relays.
+// Every locally-published event is appended to events.jsonl so `wsd
+// events export` can hand the log to a git remote; `wsd events import`
+// ingests it back. Relays become accelerators, not infrastructure.
+const EVENTS_FILE = join(DIR, "events.jsonl");
+const EVENTS_CAP = 20000;
+export function appendEventLog(ev) {
+  try {
+    mkdirSync(DIR, { recursive: true });
+    appendFileSync(EVENTS_FILE, JSON.stringify(ev) + "\n");
+  } catch { /* log is best-effort */ }
+}
+export function readEventLog() {
+  try {
+    return readFileSync(EVENTS_FILE, "utf8").split("\n").filter(Boolean)
+      .map((l) => { try { return JSON.parse(l); } catch { return null; } })
+      .filter(Boolean).slice(-EVENTS_CAP);
+  } catch { return []; }
+}
+/** Publish an already-signed event envelope verbatim (id/sig preserved) —
+ *  used by `wsd events import --relay` to gossip imported events onward. */
+export async function publishRawEvent(ev) {
+  const rs = relays();
+  const results = await Promise.allSettled(rs.map(async (r) => {
+    const p = new N.SimplePool();
+    try { return await p.publish([r], ev); } finally { try { p.close([r]); } catch {} }
+  }));
+  const oks = results.filter((r) => r.status === "fulfilled");
+  if (!oks.length) throw new Error("all relays failed");
+  return { event: ev, oks: oks.length };
+}
+/** Verify + ingest event envelopes from any transport; returns count of
+ *  new sightings indexed. Meta/adapter envelopes are passed through to
+ *  callers via the returned `other` list for gossiping. */
+export async function ingestEnvelopes(events) {
+  const sightings = [];
+  const other = [];
+  for (const ev of events) {
+    if (!N.verifyEvent(ev)) continue;
+    const t = (ev.tags ?? []).find((x) => x[0] === "t")?.[1];
+    if (t === "widespread-sighting") sightings.push(ev); else other.push(ev);
+  }
+  const n = sightings.length ? await ingestEvents(sightings) : 0;
+  return { sightings: n, other };
 }
 
 export async function query(filter, limit = 200) {

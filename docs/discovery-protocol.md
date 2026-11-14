@@ -292,3 +292,37 @@ useful, never authoritative.
 the relays sightings land on. Everything above is replaceable; the money
 legs are the remaining trust surface and are contract-governed, not
 website-governed.
+
+## 11. Transport devolution — relays are accelerators, not infrastructure
+
+Signed event envelopes are self-certifying bytes. They MUST be publishable
+to and retrievable from at least three independent transport classes so
+no single operator is load-bearing:
+
+1. **Public relays** (default) — lowest latency, ephemeral.
+2. **Git forges** — `wsd events export` produces `events.jsonl` (signed
+   envelopes, id/sig preserved); commit it to ANY forge (GitHub, GitLab,
+   Forgejo, Tangled, Radicle). Peers run `wsd events import <file>
+   [--relay]` — import verifies signatures, indexes sightings, and
+   `--relay` gossips non-sighting envelopes (meta, adapters, snapshots)
+   onward verbatim. Git gives durability + censorship resistance for
+   free.
+3. **Peer HTTP** — `wsd serve` exposes `GET /api/events?since=<ts>` and
+   `POST /api/events` so any watcher instance is a transport peer; LAN,
+   tailnet, or public bind all work.
+
+**Devolution map for hosted conveniences** (everything the bridge
+worker serves has a non-bridge path):
+
+| Bridge endpoint | Canonical source | Non-bridge path |
+|---|---|---|
+| `/api/feed`, `/api/feed.md` | forge posts + sightings | `wsd watch` + `wsd serve /api/sightings`, watcher-web |
+| `/api/adapters` | signed manifests | `t=widespread-adapter` relay events, `wsd adapter list` |
+| protocol meta/governance | §10 meta events | `wsd meta fetch`, any relay indexer |
+| `/api/markets` | NEAR contract state | direct NEAR RPC/indexer queries |
+| `/mcp` | same data as above | `wsd mcp` (local stdio) |
+| `/api/coordinator/*` | volunteer-compute coordination | remains a hosted service by design — replaceable, not protocol data |
+
+Relays that silently drop or die degrade latency, never correctness:
+the event log + git transport + peer HTTP mean the swarm re-converges
+without any operator's permission.

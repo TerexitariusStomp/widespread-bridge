@@ -9,8 +9,8 @@ process.on("unhandledRejection", (e) => {
   console.error(`warning: unhandled rejection (relay/pool): ${String(e?.message ?? e).slice(0, 160)}`);
 });
 import {
-  keygen, importIdentity, loadIdentity, publish, publishSighting, query, ingestEvents,
-  loadIndex, publishState, fetchState, relays, closePool,
+  keygen, importIdentity, loadIdentity, publish, publishSighting, publishRawEvent, query, ingestEvents,
+  loadIndex, publishState, fetchState, relays, closePool, readEventLog, ingestEnvelopes,
 } from "./node.mjs";
 import { metaEventTemplate, adapterEventTemplate, parseMetaPayload, ratifyMeta, collectAdapters, T_PROTOCOL_META, T_ADAPTER } from "./proto.mjs";
 
@@ -48,6 +48,8 @@ const usage = `wsd — widespread-discovery CLI
   wsd meta fetch                 show ratified protocol parameters + pending votes
   wsd adapter publish <manifest.json>  publish adapter manifest to relays (registry without a host)
   wsd adapter list               list adapter manifests found on relays
+  wsd events export [file]       dump signed event log (JSONL — commit to any git forge)
+  wsd events import <file> [--relay]  ingest events from any transport; --relay gossips onward
   wsd sync-out / wsd sync-in      publish/fetch encrypted watcher state
   env: WSD_RELAYS="wss://a,wss://b"`;
 
@@ -247,6 +249,37 @@ switch (cmd) {
       }
       console.log(`— ${ads.size} adapters from ${evs.length} events`);
     } else { console.error(`unknown adapter subcommand: ${sub}`); process.exit(1); }
+    closePool(); setTimeout(() => process.exit(0), 300); break;
+  }
+  case "events": {
+    // Transport-agnostic event log — signed envelopes ride ANY git forge
+    // or file transport; relays are accelerators, not infrastructure.
+    const sub = pos[0];
+    if (sub === "export") {
+      const { writeFileSync } = await import("node:fs");
+      const evs = readEventLog();
+      const out = pos[1] ?? a.file ?? "events.jsonl";
+      writeFileSync(out, evs.map((e) => JSON.stringify(e)).join("\n") + (evs.length ? "\n" : ""));
+      console.log(`exported ${evs.length} events → ${out}`);
+      console.log(`commit it to any git forge (GitHub/GitLab/Forgejo/Tangled/Radicle) — watchers pull it back with \`wsd events import\``);
+    } else if (sub === "import") {
+      const file = pos[1] ?? a.file;
+      if (!file) { console.error("usage: wsd events import <file.jsonl> [--relay]"); process.exit(1); }
+      const { readFileSync } = await import("node:fs");
+      const evs = readFileSync(file, "utf8").split("\n").filter(Boolean)
+        .map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+      const { sightings, other } = await ingestEnvelopes(evs);
+      console.log(`imported ${evs.length} envelopes: ${sightings} new sightings indexed, ${other.length} non-sighting events`);
+      if (a.relay && other.length) {
+        // gossip meta/adapter/snapshot envelopes onward — signatures are
+        // preserved verbatim so provenance is untouched
+        let ok = 0, fail = 0;
+        for (const ev of other) {
+          try { await publishRawEvent(ev); ok++; } catch { fail++; }
+        }
+        console.log(`gossip: ${ok} relayed, ${fail} failed`);
+      }
+    } else { console.error(`unknown events subcommand: ${sub} (export|import)`); process.exit(1); }
     closePool(); setTimeout(() => process.exit(0), 300); break;
   }
   case "sync-out": needId(); console.log(JSON.stringify((await publishState(await collectState())).event.id)); closePool(); setTimeout(()=>process.exit(0),300); break;

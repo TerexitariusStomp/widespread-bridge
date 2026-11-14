@@ -1,7 +1,7 @@
 // serve.mjs — localhost HTTP API for wsd. Any language can query it;
 // the daemon is an optional peer, not a required hop.
 import { createServer } from "node:http";
-import { loadIdentity, loadIndex, publishSighting, query, ingestEvents, publishState, fetchState, relays, loadSurfaces, addSurface, assertAllowlisted } from "./node.mjs";
+import { loadIdentity, loadIndex, publishSighting, query, ingestEvents, publishState, fetchState, relays, loadSurfaces, addSurface, assertAllowlisted, readEventLog, ingestEnvelopes, publishRawEvent } from "./node.mjs";
 import { watchOnce } from "./watch.mjs";
 import { parseArgs } from "node:util";
 
@@ -41,6 +41,21 @@ export function serve({ port = 8787, surfaces = null, intervalSec = 0 } = {}) {
         const evs = await query(filter);
         const n = await ingestEvents(evs);
         return json(res, 200, { events: evs.length, ingested: n });
+      }
+      if (u.pathname === "/api/events" && req.method === "GET") {
+        // transport-agnostic event log — peers pull/push signed envelopes
+        // over plain HTTP; no relay operator involved
+        const since = Number(u.searchParams.get("since") ?? 0);
+        const evs = readEventLog().filter((e) => (e.created_at ?? 0) >= since);
+        return json(res, 200, { events: evs, count: evs.length });
+      }
+      if (u.pathname === "/api/events" && req.method === "POST") {
+        let body = ""; for await (const c of req) body += c;
+        const list = Array.isArray(JSON.parse(body || "[]")) ? JSON.parse(body) : [JSON.parse(body || "{}")];
+        const { sightings, other } = await ingestEnvelopes(list);
+        let gossiped = 0;
+        for (const ev of other) { try { await publishRawEvent(ev); gossiped++; } catch {} }
+        return json(res, 200, { ingested: sightings, gossiped });
       }
       if (u.pathname === "/api/stats") {
         const idx = loadIndex();
