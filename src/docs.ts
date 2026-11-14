@@ -163,6 +163,31 @@ export const OPENAPI = {
         responses: { "200": { description: "ruling result" }, "401": { description: "unauthorized" } },
       },
     },
+    "/api/events": {
+      get: {
+        operationId: "listEvents",
+        summary: "D5 — the signed, hash-chained protocol event log. Every trust-critical transition (declare/review/reveal/ruling/escrow) emits an event carrying a payload commitment + prev_hash link + oracle ed25519 signature. Replay to rebuild state; a fork/rewrite/gap is a publishable fraud proof.",
+        parameters: [
+          { name: "from", in: "query", schema: { type: "integer" } },
+          { name: "limit", in: "query", schema: { type: "integer" } },
+        ],
+        responses: { "200": { description: "paginated events + chain head" } },
+      },
+    },
+    "/api/events/verify": {
+      get: {
+        operationId: "verifyChain",
+        summary: "Walk the event chain: recompute hashes, check links, verify signatures. Returns {ok, length, head, breaks[]} — each break is a publishable fraud proof.",
+        responses: { "200": { description: "chain integrity report" } },
+      },
+    },
+    "/api/events/head": {
+      get: {
+        operationId: "eventHead",
+        summary: "The chain head — the auditable state checkpoint (latest seq + hash).",
+        responses: { "200": { description: "head {seq,hash}" } },
+      },
+    },
     "/api/evaluate": {
       post: {
         operationId: "evaluate",
@@ -334,6 +359,28 @@ Kleros-proxy) rules pay_claim / reject_claim / refund / dismiss —
 upheld rulings refund the bond, dismissals burn it to the DAO sink.
 GET /api/disputes/bundle produces the Kleros-evidence-shaped record to
 pin on IPFS. Rulings are publicly auditable on getDisputes.
+
+## Event log + state rebuild (D5)
+
+The bridge's KV is a derived cache, not an authority. Every
+trust-critical transition emits a signed hash-chained event
+(declare · review · reveal · ruling · escrow) — each carries a
+sha256 commitment to its stored payload, links the previous event, and
+is ed25519-signed by the oracle key.
+
+- GET /api/events?from=&limit= — replay the log; anyone can rebuild
+  the feed/record/dispute state from it.
+- GET /api/events/head — the state checkpoint (seq + hash).
+- GET /api/events/verify — full integrity walk: recomputed hashes,
+  links, signatures. Each break is a publishable fraud proof: a
+  rewritten event (hash mismatch), a dropped or forked event (gap),
+  or an invalid signature.
+- Privacy: events commit via payload_sha256 only — confidential
+  markets prove a transition happened without exposing specs or agent
+  identity. The payload stays in private KV; the commitment still
+  binds it for later reveal.
+- Self-host: redeploy this worker with your own KV + relay, replay
+  /api/events to seed state — a mirror bridge is a redeploy + replay.
 
 ## Money
 

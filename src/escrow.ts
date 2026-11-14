@@ -40,6 +40,9 @@ async function getEscrowState(env: Env, mirrorId: string): Promise<EscrowState |
 async function putEscrowState(env: Env, s: EscrowState): Promise<void> {
   s.updated_at = Date.now();
   await env.CLAIMS.put(escrowKey(s.mirror_id), JSON.stringify(s));
+  // D5: escrow transitions are trust-critical public commitments.
+  const { emitEvent } = await import("./events");
+  await emitEvent(env, "escrow", s.mirror_id, s);
 }
 
 /** Locate the market this mirror's specHash created, if any. listAll is

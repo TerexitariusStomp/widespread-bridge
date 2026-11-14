@@ -999,6 +999,23 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
         return bad(`escrow failed: ${e instanceof Error ? e.message : e}`, 500);
       }
     }
+    // D5 event log — the signed hash-chained audit trail. Replay it to
+    // rebuild state; a fork, rewrite, or bad sig is a fraud proof.
+    if (pathname === "/api/events" && req.method === "GET") {
+      const { listEvents } = await import("./events");
+      return json(await listEvents(env,
+        Number(url.searchParams.get("from") ?? 0),
+        Math.min(Number(url.searchParams.get("limit") ?? 200), 1000)));
+    }
+    if (pathname === "/api/events/head" && req.method === "GET") {
+      const { listEvents } = await import("./events");
+      const { head } = await listEvents(env, 0, 0);
+      return json({ head });
+    }
+    if (pathname === "/api/events/verify" && req.method === "GET") {
+      const { verifyChain } = await import("./events");
+      return json(await verifyChain(env));
+    }
     // D4 dispute layer: public docket + evidence bundles + dispute plan.
     if (pathname === "/api/disputes" && req.method === "POST") {
       const b = (await req.json().catch(() => ({}))) as

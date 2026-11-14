@@ -246,6 +246,10 @@ export async function bountyDeclare(env: Env, a: DeclareArgs) {
     updated_at: Date.now(),
   };
   await env.CLAIMS.put(`feedrec:${id}`, JSON.stringify(record));
+  // D5: the declaration commits via the PUBLIC feed record — confidential
+  // markets' private spec stays private, the hash still binds it.
+  const { emitEvent } = await import("./events");
+  await emitEvent(env, "declare", id, record);
   const warnings: string[] = [];
   if (target && !bound) warnings.push(`target ${target.platform}/@${target.handle} is not bound — funder should POST /api/identity/bind so style/history verification can run`);
   // Trustee standing (Stage C): capacity.trustee_ref must resolve to a
@@ -334,10 +338,15 @@ export async function specReveal(
 
   // Access log — the funder's audit of who peeked at the sealed spec.
   const logKey = `specreveal:${a.hash}:${a.agent_pubkey.slice(0, 16)}`;
-  await env.CLAIMS.put(logKey, JSON.stringify({
+  const logEntry = {
     hash: a.hash, agent_pubkey: a.agent_pubkey, did: (reg as { did?: string }).did ?? null,
     x25519_pubkey: a.x25519_pubkey, revealed_at: Date.now(),
-  })).catch(() => {});
+  };
+  await env.CLAIMS.put(logKey, JSON.stringify(logEntry)).catch(() => {});
+  // D5: the event commits to the reveal via payload hash — the agent's
+  // identity stays private, but a reveal provably happened.
+  const { emitEvent } = await import("./events");
+  await emitEvent(env, "reveal", a.hash, logEntry);
 
   // D3 funder-sealed spec — the bridge holds ciphertext, not plaintext.
   if (bounty.spec_sealed) {

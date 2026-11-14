@@ -15,6 +15,10 @@ export async function getRecord(env: Env, repo: string, seq: number): Promise<Re
 
 export async function putRecord(env: Env, record: ReviewRecord): Promise<void> {
   await env.CLAIMS.put(recordKey(record.repo, record.seq), JSON.stringify(record));
+  // D5: signed hash-chained audit — the record is already redacted for
+  // confidential markets, so the commitment is always public-safe.
+  const { emitEvent } = await import("./events");
+  await emitEvent(env, "review", record.id, record);
   const ids = (await env.CLAIMS.get<string[]>(INDEX_KEY, "json")) ?? [];
   if (!ids.includes(record.id)) {
     ids.push(record.id);

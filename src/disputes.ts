@@ -111,5 +111,8 @@ export async function submitRuling(
       gas: GAS, deposit: 0n,
     }).catch((e) => ({ txHash: "", status: String(e) }));
   if (!res.txHash) return { ruled: false, error: res.status };
+  const { emitEvent } = await import("./events");
+  await emitEvent(env, "ruling", `${marketId}:${claimId ?? "*"}`,
+    { marketId, claimId, ruling, txHash: res.txHash });
   return { ruled: true, ruling, txHash: res.txHash };
 }
