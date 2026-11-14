@@ -18,8 +18,13 @@ function instantiate(tpl: string, hash: string): string {
   return tpl.replace(/<hash>|<id>/g, hash);
 }
 
-describe.skipIf(!SEED_PRESENT)("adapter grammar ↔ socialfeed parity", () => {
-  const files = readdirSync(SEED_DIR).filter((f) => f.endsWith(".json"));
+describe("adapter grammar ↔ socialfeed parity", () => {
+  // Suite bodies run during collection even when skipped — guard the read.
+  const files = SEED_PRESENT ? readdirSync(SEED_DIR).filter((f) => f.endsWith(".json")) : [];
+  if (!SEED_PRESENT) {
+    it.skip("sibling near-hermes-browser not checked out", () => {});
+    return;
+  }
   expect(files.length).toBeGreaterThan(0);
 
   for (const f of files) {
