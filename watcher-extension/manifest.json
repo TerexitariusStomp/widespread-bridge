@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "Widespread Watcher",
+  "version": "0.1.0",
+  "description": "Watch pages you visit for Widespread work declarations and publish sightings to discovery relays. Local-only; nothing leaves your browser except signed sightings to public Nostr relays.",
+  "permissions": ["storage"],
+  "host_permissions": ["*://*/*", "wss://*/*"],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [{
+    "matches": ["<all_urls>"],
+    "js": ["content.js"],
+    "run_at": "document_idle"
+  }],
+  "web_accessible_resources": [{
+    "resources": ["nostr.bundle.js", "page-bridge.js"],
+    "matches": ["<all_urls>"]
+  }]
+}

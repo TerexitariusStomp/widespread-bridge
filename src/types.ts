@@ -220,6 +220,7 @@ export interface MirrorListing {
 export interface SocialEnv {
   MASTODON_INSTANCES?: string;
   NOSTR_RELAYS?: string;
+  NOSTR_SECRET_KEY?: string;  // enables republish:true on POST /api/sightings
   RSS_WATCH?: string;
   LEMMY_INSTANCES?: string;
   MISSKEY_INSTANCES?: string;

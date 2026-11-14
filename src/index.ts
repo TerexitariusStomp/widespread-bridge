@@ -35,6 +35,7 @@ import {
 } from "./feed";
 import { bountyDeclare, bountyBroadcast, getDeclared } from "./declare";
 import { ingestSighting, listSightings, discoveryStats } from "./sightings";
+import { publishSighting as gossipPublishSighting } from "./gossip";
 import { handleWebhook } from "./webhooks";
 import { bindStatement, bindInstructions, registerBinding, listBindings, resolveHandle, revokeBinding, reverifyBinding } from "./identity";
 import { putFeedDoc } from "./feedstore";
@@ -605,10 +606,22 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
       const items = Array.isArray(body.sightings) ? body.sightings : [body];
       if (items.length > 50) return json({ error: "batch too large (max 50)" }, 400);
       const results = [];
+      const republish = body.republish === true;
       for (const raw of items) {
         // Strip transport-internal auth — only gossip.ts may set it.
-        const { auth: _a, ...s } = raw as Record<string, unknown>;
-        results.push(await ingestSighting(env, s as unknown as Parameters<typeof ingestSighting>[1]));
+        const { auth: _a, republish: _r, ...s } = raw as Record<string, unknown>;
+        const sighting = s as unknown as Parameters<typeof ingestSighting>[1];
+        const ingested = await ingestSighting(env, sighting);
+        // republish:true → also emit as a Nostr kind-30078 event so the
+        // sighting propagates peer-to-peer (bridge becomes one publisher
+        // among many, not a required hop). Requires NOSTR_SECRET_KEY.
+        let gossip: string[] | string = "skipped";
+        if (republish) {
+          const sk = (env as { NOSTR_SECRET_KEY?: string }).NOSTR_SECRET_KEY;
+          if (sk) gossip = await gossipPublishSighting(env, sighting, sk).catch((e) => `error: ${e instanceof Error ? e.message : e}`);
+          else gossip = "unconfigured: set NOSTR_SECRET_KEY";
+        }
+        results.push({ ...ingested, gossip });
       }
       return json({ ok: true, results });
     }

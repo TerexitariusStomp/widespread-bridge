@@ -1,0 +1,16 @@
+{
+  "name": "widespread-discovery",
+  "version": "0.1.0",
+  "description": "Permissionless cross-surface work discovery — Nostr-relay sightings, local projection, zero central party. See docs/discovery-protocol.md.",
+  "type": "module",
+  "bin": { "wsd": "./src/cli.mjs" },
+  "exports": {
+    ".": "./src/index.mjs",
+    "./core": "./src/core.mjs"
+  },
+  "files": ["src", "README.md"],
+  "scripts": { "test": "node --test test/" },
+  "dependencies": { "nostr-tools": "^2.26.0" },
+  "license": "MIT",
+  "engines": { "node": ">=20" }
+}
