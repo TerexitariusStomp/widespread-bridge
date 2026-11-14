@@ -3,7 +3,7 @@
 **NEAR HACKATHON** · Track: **Agent Economy** · also: AI Swarms, AI Security &
 Defense, Privacy & Private AI, Autonomous Business, Real-World Money
 
-> **Demo video (53s):** <YOUTUBE_LINK> — source file `demo/widespread-demo.mp4` in this repo.
+> **Demo video (53s):** https://youtu.be/ykFswyERSEk — source file `demo/widespread-demo.mp4` in this repo.
 > Everything on screen is live protocol state: the real feed, a real
 > adjudication case file, and a real settlement receipt.
 
