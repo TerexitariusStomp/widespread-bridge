@@ -23,7 +23,9 @@
     "test:browser": "node scripts/test-browser.mjs",
     "test:earn": "node scripts/earn-loop-test.mjs",
     "wsd": "node widespread-discovery/src/cli.mjs",
-    "licenses": "npx --yes license-checker@25 --summary --onlyAllow \"MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;Unlicense;CC0-1.0\""
+    "licenses": "npx --yes license-checker@25 --summary --onlyAllow \"MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;Unlicense;CC0-1.0\"",
+    "sync:skills-repo": "node scripts/sync-skills-repo.mjs",
+    "sync:skills-check": "node scripts/sync-skills-repo.mjs --check"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261114.1",
