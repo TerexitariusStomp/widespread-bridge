@@ -9,7 +9,6 @@ stack; everything below carries its own license.
 - @fastnear/x402, @x402/near, x402 — MIT / Apache-2.0 (payment rail)
 - @solana/web3.js — MIT; @solana/spl-token — Apache-2.0 (PYUSD/USDC)
 - @aurora-is-near/intents-connect — MIT (cross-chain intents)
-- @paypal/agent-toolkit — ISC (payouts)
 - @a2a-js/sdk — Apache-2.0 (agent protocol)
 - @atproto/api — MIT (AT Protocol receipts)
 - @defuse-protocol/one-click-sdk-typescript — ISC

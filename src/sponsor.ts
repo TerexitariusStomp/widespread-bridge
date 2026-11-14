@@ -1,6 +1,5 @@
-// Sponsor-tool integration: AG Grid (community) renders the public
-// payout_trace — every market's escrow → paid/refunded/expired trail as a
-// sortable, filterable grid. Devpost sponsor-tool requirement.
+// AG Grid (community) renders the public payout_trace — every market's
+// escrow → paid/refunded/expired trail as a sortable, filterable grid.
 
 import type { Env } from "./types";
 import { listRecords } from "./store";

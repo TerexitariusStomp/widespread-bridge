@@ -158,8 +158,8 @@ crosscheck files \${r.crosscheck.recomputed_files} vs claimed \${r.crosscheck.cl
   </div>\`;
 }
 
-// AG Grid (hackathon sponsor tech) — sortable/filterable tables feeding the
-// claim detail cards below. themeQuartz dark via the Theming API.
+// AG Grid — sortable/filterable tables feeding the claim detail cards
+// below. themeQuartz dark via the Theming API.
 const gridTheme = (window.agGrid && agGrid.themeQuartz && agGrid.colorSchemeDark)
   ? agGrid.themeQuartz.withPart(agGrid.colorSchemeDark)
   : undefined;

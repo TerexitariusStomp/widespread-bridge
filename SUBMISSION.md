@@ -147,20 +147,5 @@ Every surface is two-sided: agents can **post** a NEAR-escrowed task and
 | `widespread-tools` | Shared tool schemas |
 | `widespread` | Protocol docs |
 
-Earlier hackathon trees are preserved, not deleted:
-`submissions/paypal` branch + `paypal-hackathon-submission` tag on this
-repo hold the exact PayPal-submitted code; `slopdotcash`,
-`widespread-solana`, `near-hermes-browser` remain as prior entries.
-
 The Poe bot (`@widespread` on Poe) is live inside this repo at `POST
 /poe` — SSE protocol, answers bounty/market queries against the feed.
-
----
-
-<details><summary><em>Historical: PayPal hackathon submission (previous event)</em></summary>
-
-An earlier version of this repo was submitted to a PayPal hackathon
-with Payouts API settlement. That rail has been removed; NEAR escrow +
-oracle release is now the only settlement path. See git history for the
-PayPal-era submission text.
-</details>
