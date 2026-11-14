@@ -19,6 +19,8 @@
     "test:all": "npm run sync:check && npm test && npm run test:discovery",
     "sync": "node scripts/sync-surfaces.mjs",
     "sync:check": "node scripts/sync-surfaces.mjs --check",
+    "smoke": "node scripts/smoke.mjs",
+    "test:browser": "node scripts/test-browser.mjs",
     "wsd": "node widespread-discovery/src/cli.mjs",
     "licenses": "npx --yes license-checker@25 --summary --onlyAllow \"MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;Unlicense;CC0-1.0\""
   },

@@ -4,17 +4,23 @@ Every repo's test command, what it covers, and what stays gated. Default
 test commands are **hermetic** — they never touch mainnet, real money, or
 unmocked third parties. Live coverage is opt-in via `E2E_LIVE=1`.
 
-## widespread-bridge (Cloudflare Worker)
+## widespread-bridge (monorepo: Worker + discovery + watchers + relay)
 
 | Command | Scope | Live? |
 |---|---|---|
-| `npm test` | 86 vitest unit tests — claims, fiat, mirrorclaims, payouts, nearops (tx serialization + base58), ingest, writeback, XSS escaping, feed, hats, web pages | no |
+| `npm test` | 270 vitest unit tests — claims, fiat, mirrorclaims, payouts, nearops (tx serialization + base58), ingest, writeback, XSS escaping, feed, hats, web pages, coordinator | no |
+| `npm run test:all` | worker suite + `widespread-discovery` node:test (17) + `sync:check` drift gate on generated copies | no |
 | `npm run typecheck` | `tsc --noEmit` | no |
+| `npm run sync` / `sync:check` | regenerate / verify watcher-web + extension copies from canonical sources (`widespread-discovery/src/`, nostr-tools) | no |
 | `E2E_LIVE=1 npm test` | additionally runs `test/e2e.live.test.ts` against the deployed worker | yes (read-only probes) |
-| `node scripts/e2e-lifecycle.mjs` | flagship demo: fund → claim → verdict → payout → receipt against live sandbox rails | yes |
+| `npm run smoke` | `scripts/smoke.mjs` — live battle test: relay NIP-11 + kind-30078 round-trip + 10-event pipelined burst, bridge endpoints, wsd keygen→publish→query cycle in temp HOME, gen-openapi, `wsd serve`, vendor bundles, relay worker.js patch check | yes |
+| `npm run test:browser` | `scripts/test-browser.mjs` — real Chromium via playwright-core: PWA loads generated bundle → keygen → snapshot publish → `verdict:retained`; unpacked extension's service worker publishes a sighting to relays | yes (needs `node node_modules/playwright-core/cli.js install chromium`; extension lane needs a display) |
+| manual checklist | `docs/BATTLE-TEST.md` — Pages redeploy, unpacked extension browse-test, cdp-watch, testnet earn loop | yes |
 
 Notes: KV/NEAR-RPC are stubbed in unit tests via `test/mock.ts`.
-Live tests reuse KV dedupe keys — safe to re-run.
+Live tests reuse KV dedupe keys — safe to re-run. `watcher-web`,
+`watcher-extension`, and the `wsd` CLI run **zero-install** (vendored
+bundles in `widespread-discovery/vendor/`).
 
 ## widespread-near (NEAR contracts)
 
