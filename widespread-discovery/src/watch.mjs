@@ -3,7 +3,28 @@
 // passed via opts.grammar). Read-only — watchers never write to surfaces.
 import { publishSighting, loadIndex, saveIndex, ingestEvents, query, queueSighting, flushOutbox, loadIdentity } from "./node.mjs";
 import { textHash, dedupeKey } from "./core.mjs";
-const DECL_RE = /widespread\s+(declare|bounty|task)/i;
+import Parser from "rss-parser";
+
+// rss-parser (MIT, already a bridge dep) — handles RSS2 + Atom, CDATA,
+// namespaces; customFields pulls dc:creator for author attribution.
+const rssParser = new Parser({ customFields: { item: ["dc:creator", "author"] } });
+
+async function parseRSS(xml, grammar) {
+  const feed = await rssParser.parseString(xml);
+  return (feed.items || []).map((it) => {
+    const author = typeof it.author === "string" ? it.author
+      : it.author?.name ?? it.creator ?? it["dc:creator"];
+    const ts = it.isoDate ? Math.floor(Date.parse(it.isoDate) / 1000)
+      : it.pubDate ? Math.floor(Date.parse(it.pubDate) / 1000) : undefined;
+    return {
+      id: String(it.guid ?? it.id ?? it.link ?? ""),
+      author: author ? String(author).replace(/<[^>]+>/g, "").trim() || undefined : undefined,
+      text: `${it.title ?? ""} ${it.contentSnippet ?? it.content ?? ""}`.trim(),
+      url: it.link || undefined,
+      ts,
+    };
+  }).filter((i) => i.id && grammar.test(i.text));
+}
 
 // Collect candidate arrays; score by how post-like their elements are
 // (id + text-ish field). Discourse /latest.json leads with a `users`
@@ -27,39 +48,7 @@ function findArray(o) {
   return cands[0] ?? null;
 }
 
-function parseRSS(xml, grammar) {
-  const items = [];
-  // RSS <item> and Atom <entry> share the same field names we need.
-  const re = /<(item|entry)[\s>]([\s\S]*?)<\/\1>/g;
-  let m;
-  const tag = (block, name) => {
-    const r = new RegExp(`<${name}[^>]*>([\\s\\S]*?)</${name}>`, "i");
-    const hit = block.match(r);
-    return hit ? hit[1].replace(/<!\[CDATA\[|\]\]>/g, "").trim() : "";
-  };
-  const atomLink = (block) => {
-    const m = block.match(/<link[^>]*href="([^"]+)"/i);
-    return m ? m[1] : "";
-  };
-  const atomAuthor = (block) => {
-    const m = block.match(/<author[\s\S]*?<name[^>]*>([\s\S]*?)<\/name>/i);
-    return m ? m[1].replace(/<!\[CDATA\[|\]\]>/g, "").trim() : "";
-  };
-  while ((m = re.exec(xml))) {
-    const b = m[2];
-    const text = `${tag(b, "title")} ${tag(b, "description") || tag(b, "summary")}`;
-    if (!grammar.test(text)) continue;
-    items.push({
-      id: tag(b, "guid") || atomLink(b) || tag(b, "id"),
-      author: (tag(b, "author") || tag(b, "dc:creator") || atomAuthor(b))
-        .replace(/<[^>]+>/g, "").trim() || undefined,
-      text, url: tag(b, "link") || atomLink(b) || undefined, ts: undefined,
-    });
-  }
-  return items;
-}
-
-export function extractItems(surface, body, grammar) {
+export async function extractItems(surface, body, grammar) {
   if (surface.kind === "hn" || /algolia/.test(surface.url)) {
     return (body.hits || []).map((h) => ({
       id: String(h.objectID), author: h.author,
@@ -69,7 +58,7 @@ export function extractItems(surface, body, grammar) {
     })).filter((i) => grammar.test(i.text));
   }
   if (surface.kind === "rss" || /<rss|<feed/.test(String(body).slice(0, 200))) {
-    return parseRSS(String(body), grammar);
+    return await parseRSS(String(body), grammar);
   }
   const arr = findArray(body);
   return (arr || []).map((o) => {
@@ -98,7 +87,7 @@ export async function watchOnce(surfaces, opts = {}) {
       if (!res.ok) { console.error(`${surface.platform}: HTTP ${res.status}`); continue; }
       const ct = res.headers.get("content-type") ?? "";
       const body = /json/.test(ct) || surface.kind === "json" || surface.kind === "hn" ? await res.json() : await res.text();
-      const items = extractItems(surface, body, grammar);
+      const items = await extractItems(surface, body, grammar);
       for (const it of items) {
         seen++;
         const key = dedupeKey(surface.platform, it.id, id.pk);

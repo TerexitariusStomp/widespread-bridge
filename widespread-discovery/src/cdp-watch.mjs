@@ -32,7 +32,7 @@ export async function watchViaCdp(surface, { grammar, once = false, timeoutMs = 
       if (!/json|rss|atom|xml/i.test(ct)) return;
       const body = /json/i.test(ct) ? await res.json().catch(() => null) : await res.text().catch(() => null);
       if (!body) return;
-      for (const it of extractItems({ ...surface, url: pattern }, body, grammar)) {
+      for (const it of await extractItems({ ...surface, url: pattern }, body, grammar)) {
         const key = dedupeKey(surface.platform, it.id, id.pk);
         const th = await textHash(it.text);
         if (idx.sightings[key]?.text_hash === th) continue;
