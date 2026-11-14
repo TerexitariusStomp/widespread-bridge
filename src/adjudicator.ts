@@ -267,13 +267,17 @@ export async function adjudicate(env: Env, input: AdjudicatorInput): Promise<Adj
 }
 
 /** Bias-corrected evaluator panel for non-recomputable verticals.
- * Science (2025): naive panels amplify shared bias; single judges hit
- * ~88% ground truth; judges are great at TPR (>96%) but terrible at TNR
- * (<25%) — they approve slop. Policy: odd-N diverse-family judges on
- * BLINDED evidence; minority-veto — any "reject" escalates instead of
- * letting a majority rubber-stamp; per-judge verdicts are recorded for
- * calibration against human-labeled outcomes. PANEL_MODELS overrides the
- * default seat list; PANEL_SEATS caps the draw. */
+ * Verdict-Bench/Jury (Divi 2025, IJISAE): naive panels amplify shared
+ * bias; single judges hit ~88% ground truth. Correlated-error research
+ * ("Nine Judges, Two Effective Votes", 2025) shows N judges collapse to
+ * ~2 effective votes when errors correlate — so diversity of model
+ * FAMILY beats seat count, which is why the roster rotates families.
+ * Judges are strong on TPR but weak on TNR — they approve slop.
+ * Policy: odd-N diverse-family judges on BLINDED evidence;
+ * minority-veto — any "reject" escalates instead of letting a majority
+ * rubber-stamp; per-judge verdicts are recorded for calibration against
+ * human-labeled outcomes. PANEL_MODELS overrides the default seat list;
+ * PANEL_SEATS caps the draw. */
 export async function adjudicatePanel(env: Env, input: AdjudicatorInput): Promise<Adjudication> {
   const seats = Math.max(3, Math.min(7, parseInt(env.PANEL_SEATS ?? "3", 10) || 3));
   const roster = (env.PANEL_MODELS ??
