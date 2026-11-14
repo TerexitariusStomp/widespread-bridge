@@ -999,6 +999,35 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
         return bad(`escrow failed: ${e instanceof Error ? e.message : e}`, 500);
       }
     }
+    // D4 dispute layer: public docket + evidence bundles + dispute plan.
+    if (pathname === "/api/disputes" && req.method === "POST") {
+      const b = (await req.json().catch(() => ({}))) as
+        { market_id?: string; claim_id?: string; evidence_cid?: string };
+      if (!b.market_id) return bad("market_id required", 400);
+      const { disputePlan } = await import("./disputes");
+      return json(await disputePlan(env, b.market_id, b.claim_id, b.evidence_cid));
+    }
+    const dispGet = pathname.match(/^\/api\/disputes\/(\d+)$/);
+    if (dispGet && req.method === "GET") {
+      const { getDisputes } = await import("./disputes");
+      return json({ market_id: dispGet[1], disputes: await getDisputes(env, dispGet[1]) });
+    }
+    if (pathname === "/api/disputes/bundle" && req.method === "GET") {
+      const marketId = url.searchParams.get("market_id");
+      if (!marketId) return bad("market_id required", 400);
+      const { evidenceBundle } = await import("./disputes");
+      return json(await evidenceBundle(env, marketId, url.searchParams.get("claim_id") ?? undefined));
+    }
+    // Interim arbitrator rulings — the contract account rules until the
+    // DAO rotates a Kleros-proxy arbitrator. Ops-gated.
+    if (pathname === "/api/disputes/resolve" && req.method === "POST") {
+      if (!isAuthorized(req, env)) return bad("unauthorized", 401);
+      const b = (await req.json().catch(() => ({}))) as
+        { market_id?: string; claim_id?: string | null; ruling?: string };
+      if (!b.market_id || !b.ruling) return bad("market_id + ruling required", 400);
+      const { submitRuling } = await import("./disputes");
+      return json(await submitRuling(env, b.market_id, b.claim_id ?? null, b.ruling));
+    }
     // M-of-N oracle jury: the public tally surface — registered oracles,
     // and per-market verdict votes. Anyone watches a quorum form.
     if (pathname === "/api/oracles" && req.method === "GET") {

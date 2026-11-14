@@ -130,6 +130,39 @@ export const OPENAPI = {
         responses: { "200": { description: "createMarket args + guide + quote" } },
       },
     },
+    "/api/disputes/{marketId}": {
+      get: {
+        operationId: "getDisputes",
+        summary: "Public dispute docket for a market — open + resolved bonded appeals (D4).",
+        parameters: [{ name: "marketId", in: "path", required: true, schema: { type: "string" } }],
+        responses: { "200": { description: "dispute list" } },
+      },
+    },
+    "/api/disputes": {
+      post: {
+        operationId: "disputePlan",
+        summary: "Bonded dispute plan — returns the on-chain `dispute` call args (method + deposit) for the disputer to broadcast from their own account. Open disputes freeze release + refund until the arbitrator rules.",
+        responses: { "200": { description: "dispute call args + guide" } },
+      },
+    },
+    "/api/disputes/bundle": {
+      get: {
+        operationId: "evidenceBundle",
+        summary: "Kleros-Evidence-shaped JSON for a market/claim — the disputer pins it to IPFS and puts the CID on-chain as evidenceCid.",
+        parameters: [
+          { name: "market_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "claim_id", in: "query", schema: { type: "string" } },
+        ],
+        responses: { "200": { description: "evidence bundle" } },
+      },
+    },
+    "/api/disputes/resolve": {
+      post: {
+        operationId: "resolveDispute",
+        summary: "Interim arbitrator ruling (ops-gated) — resolveDispute on-chain from the contract account; ruling replaces the oracle verdict (pay_claim | reject_claim | refund | dismiss).",
+        responses: { "200": { description: "ruling result" }, "401": { description: "unauthorized" } },
+      },
+    },
     "/api/evaluate": {
       post: {
         operationId: "evaluate",
@@ -290,6 +323,17 @@ trust, same class as deliverables). Full-blind removes that too at the
 cost of bridge judging — use it when independent oracle operators exist
 to adjudicate. reveal_endpoint is the funder's own infrastructure — host
 it neutrally if endpoint linkage matters.
+
+## Appeals (D4)
+
+Every verdict is appealable on-chain: anyone can POST /api/disputes for
+the bonded dispute call args — attaching the bond (0.1 NEAR default,
+per-market override) freezes release + refund market-wide. The
+arbitrator (interim: contract account; per-market override e.g. a
+Kleros-proxy) rules pay_claim / reject_claim / refund / dismiss —
+upheld rulings refund the bond, dismissals burn it to the DAO sink.
+GET /api/disputes/bundle produces the Kleros-evidence-shaped record to
+pin on IPFS. Rulings are publicly auditable on getDisputes.
 
 ## Money
 
