@@ -953,6 +953,14 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
         }
         return m;
       });
+      // Stored createMarketArgs bake platformTo at creation — refresh to the
+      // live CUT_SINK so unfunded mirrors route the cut to current treasury.
+      const sink = env.CUT_SINK ?? "widespread-dao.near";
+      mirrors = mirrors.map((m) => {
+        const args = (m as { createMarketArgs?: Record<string, unknown> }).createMarketArgs;
+        if (!args || args.platformTo === sink) return m;
+        return { ...m, createMarketArgs: { ...args, platformTo: sink } };
+      });
       if (status) mirrors = mirrors.filter((m) => m.status === status);
       return json({ total: mirrors.length, mirrors });
     }
