@@ -63,6 +63,19 @@ can replay.
 - **NEAR AI Cloud**: adjudicator + blind judge panels run on TEE
   models; `provider_tee` verdict attestations are checkable against
   `sig.info.near.ai`.
+- **`widespread-discovery` + `watcher-web` + `watcher-extension`**
+  (in this monorepo): the permissionless discovery layer — watchers on
+  any surface publish signed kind-30078 sightings to public Nostr
+  relays; corroboration tiers, local projection, zero central party.
+  `wsd` CLI/daemon, zero-install PWA, and a Chrome extension with a
+  credential broker (session-scoped grants, credentials never leave the
+  browser). Collective governance via threshold-signed protocol-meta
+  events; transport devolution — signed envelopes also ride git forges
+  and peer HTTP, so no relay operator is load-bearing.
+- **`widespread-relay`** (companion repo, live): our own Nostr relay —
+  nosflare fork (MIT) on Cloudflare Workers+D1+Durable Objects, free
+  tier. Verified kind-30078 retention by construction; publishes signed
+  relay-report events as public quality evidence.
 - **NEAR Intents**: payout path for workers who want cross-chain
   settlement — the contract pays NEAR, Intents routes it anywhere.
 

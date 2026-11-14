@@ -277,6 +277,41 @@ Nostr gossip                 watchers publish kind-30078 events to relays;
   the `widespread_surfaces` plugin — watch a read op, diff a local
   seen-set, post sightings signed with the agent's did:key.
 
+## Repository layout (monorepo)
+
+One repo, one `npm install`, one test story:
+
+```
+widespread-bridge/            ← you are here (npm workspaces root)
+├── src/                      bridge Worker — markets, claims, coordinator,
+│                             feed, sightings ingest, MCP/A2A/POE endpoints
+├── test/                     vitest suite (270 tests) + e2e.live.test.ts
+├── widespread-discovery/     `wsd` CLI/daemon — watcher identity, relay
+│   └── src/                    publish/verify, outbox, event log, gossip,
+│                             governance meta, serve/mcp (npm workspace)
+├── watcher-web/              zero-install PWA — browser watcher, IndexedDB,
+│                             WebCrypto identity, service worker (static)
+├── watcher-extension/        Chrome MV3 extension — credential broker,
+│                             session-scoped grants, in-context writes
+├── scripts/                  ops scripts (seed, register, keys)
+├── docs/                     discovery-protocol.md spec, OSS ledger, guides
+└── marketplace/              MCP-registry listing assets
+```
+
+Companion repo: `widespread-relay` — our own Nostr relay (nosflare fork,
+MIT, `Spl0itable/nosflare` upstream) deployed on Cloudflare free tier at
+`wss://widespread-relay.widespread.workers.dev`; verified kind-30078
+retention, one pipe among the default relay set. Source lives in the
+`widespread-relay` repo (fork of nosflare; ~50 LOC delta: D1 schema init,
+rate limits, Widespread relay-info).
+
+```bash
+npm install        # installs worker + widespread-discovery workspace
+npm test           # worker suite (vitest)
+npm run test:all   # worker + discovery suites
+npm run wsd -- --help   # or: npx wsd (workspace bin)
+```
+
 ## Deploy your own
 
 ```bash
