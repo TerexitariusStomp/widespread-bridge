@@ -16,7 +16,7 @@ import { getDeclared } from "./declare";
 const now = () => Date.now();
 const BIND_TAG = "widespread-bind:v1";
 // MORE P7: counter-claim verb — "#widespread dispute <repo:seq|decl:hash>"
-// freezes the outcome tranche. Negative evidence flows as freely as
+// freezes the outcome bonus. Negative evidence flows as freely as
 // positive; disputes are sightings, not privileged calls.
 const DISPUTE_RE = /widespread\s+dispute\s+([A-Za-z0-9_./:@-]+)/i;
 
@@ -189,7 +189,7 @@ async function routeGrammar(env: Env, s: StoredSighting): Promise<void> {
       ref, by, reason: text.slice(0, 500), url,
       platform: s.platform, native_id: s.native_id, at: now(),
     }));
-    // repo:seq refs resolve to scheduled outcomes → freeze tranche 2.
+    // repo:seq refs resolve to scheduled outcomes → freeze the outcome bonus.
     if (/^[\w./-]+:\d+$/.test(ref)) {
       const { disputeOutcome } = await import("./outcome");
       await disputeOutcome(env, ref, by, text).catch(() => null);

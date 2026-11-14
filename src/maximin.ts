@@ -4,14 +4,32 @@
 // min-term in production. Scarcity is measured from declared-market
 // stats; the pool subsidizes, never taxes.
 //
-// This module is the selector + ledger. The PotLock pot wiring (NEAR
-// donation contracts, MIT) is the money leg — flagged in OSS-LEDGER;
-// until wired, matches are recorded entitlements ops can honor.
+// This module is the selector + ledger + treasury. The pool is funded
+// by PROTOCOL EARNINGS — the platformBps fee take / DAO sink — never by
+// taxing claimants or funders. creditTreasury() records fee income;
+// matchHint() stays advisory until the PotLock pot (NEAR donation
+// contracts, MIT) is wired to pay matches on-chain.
 
 import type { Env, CapacityDim } from "./types";
 
 const DIMS: CapacityDim[] = ["C_e", "C_h", "C_k", "C_inst", "C_m"];
 const statsKey = "pool:funded";
+const treasuryKey = "pool:treasury";
+
+/** Protocol-earnings treasury: our fee take (platformBps/DAO sink)
+ *  accumulates here and is what the maximin pool spends. Ops credits it
+ *  as fee income settles; matches are capped by the balance. */
+export async function treasuryBalance(env: Env): Promise<number> {
+  return Number(await env.CLAIMS.get(treasuryKey)) || 0;
+}
+
+export async function creditTreasury(env: Env, amount: number, note?: string): Promise<number> {
+  const cur = await treasuryBalance(env);
+  const next = cur + (Number.isFinite(amount) ? amount : 0);
+  await env.CLAIMS.put(treasuryKey, String(next));
+  await env.CLAIMS.put(`pool:credit:${Date.now()}`, JSON.stringify({ amount, note, at: Date.now() }));
+  return next;
+}
 
 interface DimStats { count: number; amount: number }
 type PoolStats = Partial<Record<CapacityDim, DimStats>>;
@@ -68,9 +86,12 @@ export async function matchFor(env: Env, dims: CapacityDim[]) {
 
 export async function poolStatus(env: Env) {
   const stats = await loadStats(env);
+  const treasury = await treasuryBalance(env);
   return {
     dims: Object.fromEntries(DIMS.map((d) => [d, stats[d] ?? { count: 0, amount: 0 }])),
     least_funded_dim: leastFunded(stats),
+    treasury,
+    funded_by: "protocol earnings (platformBps fee take / DAO sink)",
     note: "advisory matching — PotLock pot wiring pending (OSS-LEDGER §Phase 6)",
   };
 }

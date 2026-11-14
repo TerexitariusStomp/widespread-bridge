@@ -1,8 +1,8 @@
 // MORE Stage B/C machinery: outcome escrow state machine, maximin pool,
 // life-capacity packs, dispute sightings.
 import { describe, expect, it, vi, beforeAll } from "vitest";
-import { scheduleOutcome, submitOutcome, disputeOutcome, resolveDispute, getOutcome, trancheBps } from "../src/outcome";
-import { recordFunding, matchFor, poolStatus, leastFunded } from "../src/maximin";
+import { scheduleOutcome, submitOutcome, disputeOutcome, resolveDispute, getOutcome, bonusBps } from "../src/outcome";
+import { recordFunding, matchFor, poolStatus, leastFunded, creditTreasury, treasuryBalance } from "../src/maximin";
 import { validateDomain } from "../src/domains/index";
 import { ingestSighting } from "../src/sightings";
 import { fakeEnv } from "./mock";
@@ -43,7 +43,7 @@ describe("outcome escrow", () => {
     const e = env();
     const st = await scheduleOutcome(e, recordWithCapacity());
     expect(st?.status).toBe("pending");
-    expect(st?.tranche_bps).toBe(40); // 30 + 10*(2-1)
+    expect(st?.bonus_bps).toBe(15); // 10 + 5*(2-1)
     expect(st?.due_at).toBeGreaterThan(Date.now());
     // idempotent
     expect((await scheduleOutcome(e, recordWithCapacity()))?.id).toBe(st?.id);
@@ -61,10 +61,10 @@ describe("outcome escrow", () => {
     expect(r.error).toMatch(/horizon/);
   });
 
-  it("trancheBps scales and caps", () => {
-    expect(trancheBps(["C_k"])).toBe(30);
-    expect(trancheBps(["C_e", "C_k", "C_h"])).toBe(50);
-    expect(trancheBps(["C_e", "C_h", "C_k", "C_inst", "C_m"])).toBe(70);
+  it("bonusBps scales and caps — protocol-pool bonus, never withheld", () => {
+    expect(bonusBps(["C_k"])).toBe(10);
+    expect(bonusBps(["C_e", "C_k", "C_h"])).toBe(20);
+    expect(bonusBps(["C_e", "C_h", "C_k", "C_inst", "C_m"])).toBe(25);
   });
 
   it("dispute freezes; resolve unfreezes", async () => {
@@ -93,6 +93,17 @@ describe("maximin pool", () => {
     const hint2 = await matchFor(e, ["C_k"]);
     expect(hint2.matched).toBe(false);
     expect(hint2.match_bps).toBe(0);
+  });
+
+  it("treasury is protocol earnings — credited, tracked, exposed", async () => {
+    const e = env();
+    expect(await treasuryBalance(e)).toBe(0);
+    await creditTreasury(e, 42.5, "platformBps platform:gh#12");
+    await creditTreasury(e, 7.5);
+    expect(await treasuryBalance(e)).toBe(50);
+    const st = await poolStatus(e);
+    expect(st.treasury).toBe(50);
+    expect(st.funded_by).toMatch(/protocol earnings/);
   });
 });
 

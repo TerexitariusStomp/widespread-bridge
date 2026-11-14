@@ -380,7 +380,7 @@ export async function handleMcpRequest(req: Request, env: Env, ctx: ExecutionCon
 
   server.registerTool("wide_outcome", {
     annotations: { title: 'Outcome Tranche', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
-    description: "MORE two-stage escrow: submit post-horizon outcome evidence for a settled claim (id = repo:seq), check status, or file a dispute that freezes tranche 2. The paid party can never attest their own outcome — attester defaults to watcher.",
+    description: "MORE two-stage escrow: submit post-horizon outcome evidence for a settled claim (id = repo:seq), check status, or file a dispute that freezes the outcome bonus. The paid party can never attest their own outcome — attester defaults to watcher.",
     inputSchema: {
       action: z.enum(["submit", "status", "dispute"]),
       id: z.string().describe("repo:seq of the settled claim"),

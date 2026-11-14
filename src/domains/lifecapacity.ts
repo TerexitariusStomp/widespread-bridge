@@ -6,7 +6,7 @@
 // Design rule: packs validate STRUCTURE + resolvability, not ground truth —
 // a signed observer receipt + dataset CID + declared uncertainty is what
 // the 2026 DMRV integrity literature asks for at this layer; physical
-// truth is the outcome tranche's job (two-stage escrow).
+// truth is the outcome bonus's job (two-stage escrow).
 import type { DomainPack, ValidateFn } from "./types";
 
 const CID_RE = /^(baf[a-z2-7]{50,}|Qm[1-9A-HJ-NP-Za-km-z]{44}|zd[a-z2-7]{50,})$/;
@@ -87,7 +87,7 @@ const validateKnowledge: ValidateFn = async ({ claim }, ctx) => {
     }
   } else if (CID_RE.test(ref) || /ipfs:\/\//.test(ref)) {
     ev.cid = ref;
-    // CID resolvability is checked at the outcome tranche — a CID is a
+    // CID resolvability is checked at outcome verification — a CID is a
     // promise of content, not proof of it.
   } else if (/^https?:\/\//.test(ref)) {
     const r = await ctx.fetch(ref, { method: "HEAD" }).catch(() => null);

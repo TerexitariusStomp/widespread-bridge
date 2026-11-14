@@ -36,6 +36,7 @@ import {
 import { bountyDeclare, bountyBroadcast, getDeclared } from "./declare";
 import { ingestSighting, listSightings, discoveryStats } from "./sightings";
 import { submitOutcome, disputeOutcome, resolveDispute, getOutcome } from "./outcome";
+import { poolStatus, creditTreasury } from "./maximin";
 import { publishSighting as gossipPublishSighting } from "./gossip";
 import { handleWebhook } from "./webhooks";
 import { bindStatement, bindInstructions, registerBinding, listBindings, resolveHandle, revokeBinding, reverifyBinding } from "./identity";
@@ -582,7 +583,16 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
     }
     // Unified forge bounty feed — normalized cross-forge discovery index.
     // JSON canonical · Atom RSS · minimal MCP · self-describing doc.
-    // MORE outcome tranche: watcher-submitted re-verification post-horizon,
+    // Maximin pool: scarcity stats + protocol-earnings treasury.
+    if (pathname === "/api/pool" && req.method === "GET") {
+      return json(await poolStatus(env));
+    }
+    if (pathname === "/api/pool/credit" && req.method === "POST") {
+      const body = (await req.json().catch(() => ({}))) as { amount?: number; note?: string };
+      if (!body.amount || body.amount <= 0) return json({ error: "amount required" }, 400);
+      return json({ treasury: await creditTreasury(env, body.amount, body.note) });
+    }
+    // MORE outcome bonus: watcher-submitted re-verification post-horizon,
     // dispute freeze, trustee resolution.
     if (pathname === "/api/outcome/submit" && req.method === "POST") {
       const body = (await req.json().catch(() => ({}))) as { id?: string; ref?: string; evidence?: Record<string, unknown>; attester?: string };

@@ -164,25 +164,26 @@ deltas are grounded in observed evidence, not model vibes.
 
 ### Phase 5 — Two-stage outcome escrow
 
-Current flow verifies *delivery* ("was the diff real?"). MORE's g_i
-needs *outcome* ("did capacity actually rise?"). Split release in
-`escrow.ts`/`nearops.ts`:
+**Policy override (implemented):** delivery pays **100%** — verified
+work is never haircut. The outcome layer is a *protocol-funded bonus +
+attester-reward pool* sourced from our fee take (platformBps/DAO
+sink), never withheld claimant funds. Disputes freeze the bonus, not
+the delivered payment; remedies run through reputation.
 
-- Tranche 1 on delivery attestation — existing path, unchanged.
-- Tranche 2 on re-verification after `evidence_plan.horizon_days`,
-  validated by the same pack with outcome evidence (tree survival at
-  +6mo, dataset still resolving + cited).
-- **Holdback scales with claim size** — bigger declared ΔC → bigger
-  tranche 2, longer horizon. "Planted 10 trees" settles mostly on
-  delivery; "restored a watershed" is mostly outcome-weighted. The
-  escrow curve encodes the skepticism.
+Current flow verifies *delivery* ("was the diff real?"). MORE's g_i
+needs *outcome* ("did capacity actually rise?"). The implemented shape
+(`src/outcome.ts`):
+
+- **Outcome bonus** paid from the protocol pool after
+  `evidence_plan.horizon_days`, validated by the same pack with
+  outcome evidence (tree survival at +6mo, dataset still resolving +
+  cited). Bonus scales with claim size — `bonus_bps` 10→25%.
 - Re-verification is claimable **by watchers**, not the worker — the
   paid party never attests their own outcome. Attester rewards come
-  from the protocol pool / unclaimed tranches, **never from the
-  claimant or funder** — auditor-payor bias is causal, not
-  correlational (randomized central-fund auditors report 50–70%
-  different results than client-hired ones).
-- Unclaimed outcome tranche routes to the DAO sink → Phase 6 funding.
+  from the protocol pool, **never from the claimant or funder** —
+  auditor-payor bias is causal, not correlational (randomized
+  central-fund auditors report 50–70% different results than
+  client-hired ones).
 
 ### Phase 6 — Trustees, maximin pool, non-human standing
 
@@ -193,8 +194,9 @@ needs *outcome* ("did capacity actually rise?"). Split release in
   the DAO sink give ecosystems standing to "post work" — P3/P4/P8.
 - **Maximin matching pool**: the DAO fee sink becomes a matching fund
   that multiplies small funders' bounties in the least-funded capacity
-  dimension — a concrete implementation of W's min-term. Scarcity
-  measured from `feed:doc` stats.
+  dimension — a concrete implementation of W's min-term. Funded by
+  **protocol earnings** (`/api/pool/credit` records fee take into
+  `pool:treasury`); scarcity measured from declared-market stats.
 
 ### Phase 7 — Discovery & surfaces
 

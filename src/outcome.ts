@@ -1,8 +1,11 @@
-// outcome.ts — MORE two-stage outcome escrow (docs/more-alignment.md
-// Phase 5, Stage B/C). Delivery attestation pays tranche 1 (existing
-// review path, unchanged). Tranche 2 releases only after the declared
-// evidence_plan.horizon_days, re-verified by watchers — never the paid
-// party. Disputes freeze the tranche.
+// outcome.ts — MORE outcome verification (docs/more-alignment.md Phase 5,
+// Stage B/C). DELIVERY PAYS 100% — verified work is never haircut. The
+// outcome layer is a protocol-funded bonus + attester-reward pool,
+// sourced from our fee take (platformBps / DAO sink), never from the
+// claimant or funder. Post-horizon re-verification by watchers (never
+// the paid party) unlocks the claimant's outcome bonus and the
+// attester's reward; disputes freeze the bonus pending adjudication —
+// they cannot claw back delivered payment.
 //
 // State machine per settled claim:
 //   pending → verified | failed | frozen
@@ -26,7 +29,7 @@ export interface OutcomeState {
     attester_paid_by: string;
     horizon_days: number;
   };
-  tranche_bps: number;           // holdback share of amount
+  bonus_bps: number;             // protocol-pool outcome bonus (bps of amount)
   due_at: number;                // ms epoch — horizon elapsed
   attester?: string;             // who submitted outcome evidence
   evidence?: Record<string, unknown>;
@@ -37,10 +40,11 @@ export interface OutcomeState {
 
 const key = (id: string) => `outcome:${id}`;
 
-/** Holdback scales with claim size: base 30%, +10% per extra declared
- *  dim, cap 70% — bigger ΔC claims are mostly outcome-weighted. */
-export function trancheBps(dims: string[]): number {
-  return Math.min(70, 30 + 10 * Math.max(0, dims.length - 1));
+/** Outcome bonus scales with claim size: base 10%, +5% per extra
+ *  declared dim, cap 25% — paid by the protocol pool on verified
+ *  outcome, never withheld from delivery. */
+export function bonusBps(dims: string[]): number {
+  return Math.min(25, 10 + 5 * Math.max(0, dims.length - 1));
 }
 
 /** Schedule tranche-2 verification for an accepted review. Called from
@@ -62,7 +66,7 @@ export async function scheduleOutcome(env: Env, record: ReviewRecord): Promise<O
       attester: plan.attester, attester_paid_by: plan.attester_paid_by,
       horizon_days: plan.horizon_days,
     },
-    tranche_bps: trancheBps(dims),
+    bonus_bps: bonusBps(dims),
     due_at: now + plan.horizon_days * 86_400_000,
     created_at: now, updated_at: now,
   };
@@ -112,7 +116,9 @@ export async function submitOutcome(
 }
 
 /** Dispute verb (Stage C / P7): a watcher challenges a recorded
- *  contribution — freezes the outcome tranche pending adjudication. */
+ *  contribution — freezes the outcome BONUS pending adjudication.
+ *  Delivered payment is already 100% settled and cannot be clawed back
+ *  by this path; remedies run through reputation/disqualification. */
 export async function disputeOutcome(
   env: Env, id: string, by: string, reason: string,
 ): Promise<{ ok: boolean; outcome?: OutcomeState; error?: string }> {
