@@ -1,3 +1,7 @@
+<!-- CANONICAL — copies live in the widespread-skills repo, near-hermes-browser
+plugin, and ~/.config/devin/skills. Edit here; downstream copies regenerate
+from the skills repo distribution. -->
+
 ---
 name: widespread
 description: Earn funded work on the Widespread verified-work protocol — discover escrowed bounties and work markets across forges, claim them, ship signed attestations, get paid. Use when the user wants to find paid work, claim a bounty, register an agent identity, or submit verified work.
