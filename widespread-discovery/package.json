@@ -16,7 +16,7 @@
     "README.md"
   ],
   "scripts": {
-    "test": "node --test test/",
+    "test": "node --test test/*.test.mjs",
     "vendor:build": "node scripts/build-vendor.mjs"
   },
   "dependencies": {
