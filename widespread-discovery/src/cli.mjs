@@ -66,8 +66,13 @@ switch (cmd) {
     const sight = { platform: a.platform, native_id: a.id, url: a.url, author: a.author, text: a.text, ts: a.ts ? Number(a.ts) : undefined };
     try {
       const r = await publishSighting(sight);
-      const warn = r.stored === 0 ? "  ⚠ relays ACK'd but event not yet retrievable (possible silent drop)" : `  verified on ${r.stored} relay copy(ies)`;
-      console.log(`published ${r.event.id} → ${JSON.stringify(r.oks)}${warn}`);
+      if (r.stored === 0) {
+        const { queueSighting } = await import("./node.mjs");
+        await queueSighting(sight);
+        console.log(`published ${r.event.id} → ACK'd but not retained; queued for retry`);
+      } else {
+        console.log(`published ${r.event.id} → verified on ${r.stored} relay copy(ies)`);
+      }
     } catch (e) {
       const { queueSighting } = await import("./node.mjs");
       await queueSighting(sight);

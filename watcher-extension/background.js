@@ -2,7 +2,7 @@
 // never see key material; they request signatures/events via messages.
 importScripts("nostr.bundle.js");
 const N = self.NostrTools;
-const FALLBACK_RELAYS = ["wss://nos.lol", "wss://relay.snort.social", "wss://relay.primal.net", "wss://relay.damus.io", "wss://relay.nostr.band"];
+const FALLBACK_RELAYS = ["wss://relay.snort.social", "wss://relay.primal.net", "wss://nostr.bitcoiner.social"];
 const DEFAULT_GRAMMAR = /widespread\s+(declare|bounty|task|claim|receipt|bind)/i;
 let cfg = { relays: FALLBACK_RELAYS, grammar: "widespread\\s+(declare|bounty|task|claim|receipt|bind)" };
 

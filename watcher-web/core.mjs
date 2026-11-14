@@ -10,12 +10,12 @@ export const T_SIGHTING = "widespread-sighting";
 export const T_SNAPSHOT = "widespread-feed-snapshot";
 export const T_STATE = "widespread-watcher-state";
 export const T_CAPACITY_SNAPSHOT = "widespread-capacity-snapshot";
+// Verified 2026-11-14 to retain kind-30078 sightings — see
+// widespread-discovery/src/core.mjs for the retention findings.
 export const DEFAULT_RELAYS = [
-  "wss://nos.lol",
   "wss://relay.snort.social",
   "wss://relay.primal.net",
-  "wss://relay.damus.io",
-  "wss://relay.nostr.band",
+  "wss://nostr.bitcoiner.social",
 ];
 export const STATE_SALT = "widespread-watcher-state";
 export const STATE_INFO = "v1";

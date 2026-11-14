@@ -39,9 +39,20 @@ Env: `WSD_RELAYS="wss://a,wss://b"` overrides the default relay set.
 
 - Publish is per-relay isolated — one dead relay can't sink a batch;
   success = ≥1 acceptance, failures are reported per-relay.
+- **Relay retention is verified, not assumed**: relays can return `OK:true`
+  then silently drop events — observed live across most of the public
+  relay set for kind-30078 (only `relay.snort.social`, `relay.primal.net`,
+  and `nostr.bitcoiner.social` verified to store+serve them as of
+  2026-11-14; `DEFAULT_RELAYS` contains only verified storers). `publish()`
+  re-queries the event id after ACK and reports `stored`; sightings that
+  are ACK'd-but-not-retained are queued to the outbox like hard failures —
+  consistent with per-pubkey flood filtering, which decays and retries
+  absorb.
 - **Offline outbox** (`~/.widespread-discovery/outbox.json`): sightings that
   fail to publish are queued and flushed automatically on the next `watch`
   run or successful publish — relay flakiness never loses work.
+- Publish loops pace at ~4 events/sec — public relays' flood filters trip
+  on burst rate and respond with silent drops.
 - `wsd serve` exposes the same index over localhost HTTP for non-Node
   clients; `wsd mcp` for MCP hosts.
 
@@ -55,6 +66,5 @@ import { keygen, publishSighting, query, ingestEvents, loadIndex } from "widespr
 
 - `node --test test/` — canonical-JSON/sign-message parity with the bridge,
   corroboration tiers, encrypted state + export/import roundtrips.
-- Live: publish → `wss://nos.lol`/`relay.snort.social`/`relay.primal.net` →
-  `query` → indexed sighting with tier. Public relays are flaky; publish
-  tolerates per-relay failure (success = ≥1 acceptance).
+- Live: publish → verified-storing relays → `query` → indexed sighting
+  with tier, confirmed retrievable post-ACK.

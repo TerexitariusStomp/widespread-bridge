@@ -10,12 +10,15 @@ export const T_SIGHTING = "widespread-sighting";
 export const T_SNAPSHOT = "widespread-feed-snapshot";
 export const T_STATE = "widespread-watcher-state";
 export const T_CAPACITY_SNAPSHOT = "widespread-capacity-snapshot";
+// Verified 2026-11-14 to actually RETAIN kind-30078 parameterized-
+// replaceable sightings: most public relays ACK (OK:true) then silently
+// drop non-standard kinds, and nos.lol/damus/nostr.band do not serve
+// them at all. Keep this list to relays proven to store + serve them;
+// extend via WSD_RELAYS as more are verified.
 export const DEFAULT_RELAYS = [
-  "wss://nos.lol",
   "wss://relay.snort.social",
   "wss://relay.primal.net",
-  "wss://relay.damus.io",
-  "wss://relay.nostr.band",
+  "wss://nostr.bitcoiner.social",
 ];
 export const STATE_SALT = "widespread-watcher-state";
 export const STATE_INFO = "v1";

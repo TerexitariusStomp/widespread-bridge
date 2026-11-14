@@ -107,8 +107,15 @@ export async function watchOnce(surfaces, opts = {}) {
         if (seenCache.has(sig) || idx.sightings[key]?.text_hash === th) continue;
         seenCache.add(sig);
         const sight = { platform: surface.platform, native_id: it.id, url: it.url, author: it.author, text: it.text.slice(0, 4000), ts: it.ts };
-        try { await publishSighting(sight); }
+        try {
+          const r = await publishSighting(sight);
+          // ACK'd but not retained = silent drop (rate-limit/rep). Queue
+          // for retry instead of losing the sighting; downstream dedupe
+          // absorbs repeats if a later attempt also lands.
+          if (r.stored === 0) { await queueSighting(sight); console.error(`queued (relay silent-drop): ${surface.platform}:${it.id}`); }
+        }
         catch (e) { await queueSighting(sight); console.error(`queued (relay fail): ${surface.platform}:${it.id}`); }
+        await new Promise((r) => setTimeout(r, 250)); // pace bursts — flood filters trip on event/sec
         idx.sightings[key] = { platform: surface.platform, native_id: it.id, url: it.url, author: it.author, text: it.text.slice(0, 4000), ts: it.ts, watcher_id: id.pk, text_hash: th, first_seen: Date.now(), last_seen: Date.now() };
         published++;
       }

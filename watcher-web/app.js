@@ -104,9 +104,20 @@ async function publishRaw(template) {
     finally { try { p.close([r]); } catch {} }
   }));
   const oks = results.filter((r) => r.status === "fulfilled");
-  const healthy = rs.filter((r) => (relayHealth.get(r)?.ok ?? 0) > (relayHealth.get(r)?.fail ?? 0));
-  log("relay-log", `published ${ev.id.slice(0, 12)}… accepted:${oks.length}/${rs.length} healthy:[${healthy.join(",")}]`);
   if (!oks.length) throw new Error("no relay accepted");
+  // Relays can ACK (OK:true) then silently drop non-standard kinds —
+  // verify the event is actually retrievable before calling it published.
+  let stored = 0;
+  try {
+    const found = await Promise.race([
+      pool.querySync(rs, { ids: [ev.id] }),
+      new Promise((_, rej) => setTimeout(() => rej(new Error("verify timeout")), 12000)),
+    ]);
+    stored = found.length;
+  } catch { /* inconclusive — don't fail on flaky reads */ }
+  const healthy = rs.filter((r) => (relayHealth.get(r)?.ok ?? 0) > (relayHealth.get(r)?.fail ?? 0));
+  log("relay-log", `published ${ev.id.slice(0, 12)}… accepted:${oks.length}/${rs.length} stored:${stored} healthy:[${healthy.join(",")}]`);
+  if (stored === 0) throw new Error("relays ACK'd but did not retain event");
   return ev;
 }
 
@@ -150,7 +161,7 @@ async function emitSighting({ platform, native_id, url, author, text, ts }) {
     platform, native_id, url, author, text, ts: content.ts,
     watcher_id: await currentPubkey(), watcher_did: null, sig: null,
     text_hash: th, tier: "lead", verified: true, seen_count: 1,
-    first_seen: Date.now(), last_seen: Date.now(), event_id: ev.id,
+    first_seen: Date.now(), last_seen: Date.now(), event_id: ev?.id ?? null,
   });
   await bumpSeen(platform, native_id, await currentPubkey(), th);
   renderFeed();

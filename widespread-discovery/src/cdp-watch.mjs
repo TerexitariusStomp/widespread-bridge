@@ -41,8 +41,12 @@ export async function watchViaCdp(surface, { grammar, once = false, timeoutMs = 
           author: it.author, text: String(it.text ?? "").slice(0, 4000),
           ts: it.ts ?? Math.floor(Date.now() / 1000),
         };
-        try { await publishSighting(sight); }
+        try {
+          const r = await publishSighting(sight);
+          if (r.stored === 0) await queueSighting(sight); // silent drop → retry later
+        }
         catch { await queueSighting(sight); }
+        await new Promise((r) => setTimeout(r, 250)); // pace bursts — flood filters trip on event/sec
         idx.sightings[key] = { ...sight, watcher_id: id.pk, text_hash: th, first_seen: Date.now(), last_seen: Date.now() };
         published.push(sight);
       }
