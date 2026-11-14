@@ -3,7 +3,7 @@
 // on ANY surface — forge issue, tweet, nostr note, blog post. Scanners
 // or the manual bind link it to the market. Domain picks the verifier.
 
-import type { Env, Bounty, FeedRecord } from "./types";
+import type { Env, Bounty, FeedRecord, CapacityTag, CapacityDim } from "./types";
 import { resolveHandle } from "./identity";
 
 const tag = "widespread";
@@ -39,6 +39,51 @@ export interface DeclareArgs {
    *  this declaration on-platform earn a recorded entitlement when the
    *  declaration funds. Default 0. */
   sighting_bps?: number;
+  /** MORE capacity objective (Stage A, docs/more-alignment.md §2 P1).
+   *  Optional — untagged markets behave exactly as before. `dims` without
+   *  `evidence_plan` is legal but marks the market unverifiable-
+   *  contribution: visible class, not silent greenwash. */
+  capacity?: CapacityTag;
+  /** Convenience: comma-separated dims ("C_k,C_h") — merged into
+   *  capacity.dims when `capacity` isn't given. */
+  dims?: string;
+}
+
+const CAPACITY_DIMS = new Set(["C_e", "C_h", "C_k", "C_inst", "C_m"]);
+
+/** Normalize declared capacity: validate dims, attach evidence_plan
+ *  requirement signal. Returns null when nothing was declared. */
+function normalizeCapacity(a: DeclareArgs): CapacityTag | null {
+  const dims = new Set<CapacityDim>();
+  for (const d of a.capacity?.dims ?? []) if (CAPACITY_DIMS.has(d)) dims.add(d);
+  if (a.dims) for (const d of a.dims.split(",")) {
+    const t = d.trim() as CapacityDim;
+    if (CAPACITY_DIMS.has(t)) dims.add(t);
+  }
+  if (!dims.size && !a.capacity) return null;
+  const cap: CapacityTag = {
+    dims: [...dims],
+    ...(a.capacity?.subsystem ? { subsystem: a.capacity.subsystem } : {}),
+    ...(a.capacity?.floor_attestation ? { floor_attestation: a.capacity.floor_attestation } : {}),
+    ...(a.capacity?.evidence_plan ? { evidence_plan: a.capacity.evidence_plan } : {}),
+    ...(a.capacity?.trustee_ref ? { trustee_ref: a.capacity.trustee_ref } : {}),
+  };
+  return cap;
+}
+
+/** Stage-A floor screen (display-only, spec §2 P2): heuristic flags on
+ *  the spec text. Flags, never blocks — enforcement stays polycentric. */
+const FLOOR_PATTERNS: Array<[RegExp, string]> = [
+  [/\b(astroturf|coordinated inauthentic|fake (reviews?|accounts?|followers?))\b/i, "astroturf"],
+  [/\b(buy|purchase|sell|farm)\b[^.]{0,50}\b(fake\s+|bot\s+|purchased\s+)?(followers?|likes?|upvotes?|reviews?|accounts?|comments?)\b/i, "engagement-farming"],
+  [/\b(scrape|scraping|scraper|crawl)\b[^.]*\b(personal data|pii|without consent|private)\b/i, "scraping-pii"],
+  [/\b(undisclosed|stealth|covert)\s+(paid\s+)?(promo|advertis|post|campaign)/i, "undisclosed-paid-promo"],
+  [/\b(click ?farm|botnet|sybil|vote manipulation|bribe)/i, "infrastructure-abuse"],
+  [/\b(harass|doxx?|threaten|intimidate)/i, "harassment"],
+];
+
+export function floorFlags(spec: string): string[] {
+  return FLOOR_PATTERNS.filter(([re]) => re.test(spec)).map(([, flag]) => flag);
 }
 
 async function specHash(s: string) {
@@ -60,6 +105,8 @@ export async function bountyDeclare(env: Env, a: DeclareArgs) {
     ? { platform: a.target_platform.toLowerCase(), handle: a.target_handle.replace(/^@/, "") }
     : null;
   const bound = target ? await resolveHandle(env, target.platform, target.handle) : null;
+  const capacity = normalizeCapacity(a);
+  const flags = floorFlags(a.spec);
   const canonical = [
     `#${tag} bounty ${hash}`,
     `domain: ${domain}`,
@@ -68,6 +115,9 @@ export async function bountyDeclare(env: Env, a: DeclareArgs) {
     deliverable === "resource" ? `meter:${a.meter} threshold:${a.threshold}${a.window ? ` window:${a.window}` : ""}` : null,
     target ? `for: ${target.platform} @${target.handle}` : null,
     target && deliverable === "draft" ? `deliverable: draft text (you publish)` : null,
+    capacity?.dims.length ? `dims: ${capacity.dims.join(",")}` : null,
+    capacity?.subsystem ? `subsys: ${capacity.subsystem}` : null,
+    capacity?.evidence_plan ? `plan: ${capacity.evidence_plan.measure}` : null,
     a.verification?.params?.nonce ? `nonce: ${a.verification.params.nonce}` : null,
     `claim: reply "widespread claim ${hash}" or POST your deliverable URL`,
   ].filter(Boolean).join("\n");
@@ -83,6 +133,8 @@ export async function bountyDeclare(env: Env, a: DeclareArgs) {
     deliverable_class: deliverable === "resource" ? "resource" : (target ? deliverable : undefined),
     funder_did: a.funder_did,
     ...(a.sighting_bps ? { sighting_bps: Math.min(1000, Math.max(0, Math.round(a.sighting_bps))) } : {}),
+    ...(capacity ? { capacity } : {}),
+    ...(flags.length ? { floor_flags: flags } : {}),
     created_at: Date.now(),
   };
   await env.CLAIMS.put(`decl:${hash}`, JSON.stringify(bounty));
@@ -107,6 +159,8 @@ export async function bountyDeclare(env: Env, a: DeclareArgs) {
     domain,
     for: target ? { ...target, bound: !!bound } : undefined,
     deliverable_class: deliverable === "resource" ? "resource" : (target ? deliverable : undefined),
+    ...(capacity ? { capacity } : {}),
+    ...(flags.length ? { floor_flags: flags } : {}),
     created_at: Date.now(),
     updated_at: Date.now(),
   };

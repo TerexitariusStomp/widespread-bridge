@@ -10,6 +10,8 @@ export interface MarketRef {
   amount?: string;
   currency?: string;
   created_at?: number;
+  /** MORE capacity objective — declared, optional (Stage A). */
+  capacity?: import("../types").CapacityTag;
 }
 
 export interface ClaimRef {

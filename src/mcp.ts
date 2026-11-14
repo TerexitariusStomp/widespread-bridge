@@ -141,6 +141,18 @@ export async function handleMcpRequest(req: Request, env: Env, ctx: ExecutionCon
       target_platform: z.string().optional(), target_handle: z.string().optional(),
       deliverable_class: z.enum(["draft", "publish", "resource"]).optional(),
       meter: z.string().optional(), threshold: z.number().optional(), window: z.string().optional(),
+      dims: z.string().optional().describe("Comma-separated capacity dims: C_e,C_h,C_k,C_inst,C_m"),
+      capacity: z.object({
+        dims: z.array(z.enum(["C_e", "C_h", "C_k", "C_inst", "C_m"])),
+        subsystem: z.string().optional(), floor_attestation: z.string().optional(),
+        evidence_plan: z.object({
+          measure: z.string(), baseline: z.string().optional(),
+          attester: z.enum(["claimant", "funder", "watcher", "trustee"]),
+          attester_paid_by: z.enum(["protocol", "funder", "claimant"]),
+          horizon_days: z.number(),
+        }).optional(),
+        trustee_ref: z.string().optional(),
+      }).optional().describe("MORE capacity objective (optional; untagged markets unchanged)"),
     },
   }, async (a) => json(await bountyDeclare(env, a)));
 

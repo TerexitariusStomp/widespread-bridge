@@ -26,12 +26,21 @@ export interface Rep8004 {
 export function rep8004For(r: ReviewRecord, originPlatform?: string): Rep8004 {
   const accepted = r.status === "accepted_paid" || r.status === "accepted_unpaid";
   const stars = accepted ? 5 : r.status === "rejected" ? 1 : 3;
+  // MORE Stage A: a capacity-tagged market emits dimensional reputation —
+  // tag1 = declared capacity dim, tag2 = domain (or second dim). Untagged
+  // markets keep the legacy "starred" dimension byte-for-byte.
+  const dims = r.bounty?.capacity?.dims ?? [];
+  const tagged = dims.length > 0;
+  const tag1 = tagged ? dims[0] : "starred";
+  const tag2 = tagged
+    ? (dims[1] ?? r.bounty?.domain ?? "capacity")
+    : (r.commits?.length ? "code" : "general");
   return {
     schema: "erc-8004-feedback/1",
     value: stars,
     valueDecimals: 0,
-    tag1: "starred",
-    tag2: r.commits?.length ? "code" : "general",
+    tag1,
+    tag2,
     endpoint: `repo:${r.repo}`,
     feedbackURI: `${r.repo}/claims/${r.seq}`,
     feedbackHash: r.claim?.hash ?? "",

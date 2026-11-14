@@ -134,6 +134,24 @@ export interface Env {
   AP2_TRUSTED_ISSUERS?: string;
 }
 
+/** MORE capacity declaration (docs/more-alignment.md §2 Phase 1, Stage A).
+ *  dims are DECLARED, not adjudicated — optional, backward compatible;
+ *  untagged markets behave exactly as before. */
+export type CapacityDim = "C_e" | "C_h" | "C_k" | "C_inst" | "C_m";
+export interface CapacityTag {
+  dims: CapacityDim[];
+  subsystem?: string;
+  floor_attestation?: string;
+  evidence_plan?: {
+    measure: string;
+    baseline?: string;
+    attester: "claimant" | "funder" | "watcher" | "trustee";
+    attester_paid_by: "protocol" | "funder" | "claimant";
+    horizon_days: number;
+  };
+  trustee_ref?: string;
+}
+
 /** Normalized discovery record — one funded work item from any source.
  * Derived index only; canonical market truth stays on-chain / in KV. */
 export interface FeedRecord {
@@ -176,6 +194,10 @@ export interface FeedRecord {
   /** draft = deliverable is text reviewed before publication (ghostwriting);
    * publish = deliverable must be a published artifact on the target. */
   deliverable_class?: "draft" | "publish" | "resource";
+  /** Declared life-capacity objective (MORE Stage A) — optional. */
+  capacity?: CapacityTag;
+  /** Display-only floor screen hits (declare-time heuristic; never blocks). */
+  floor_flags?: string[];
   created_at?: number;
   updated_at: number;
 }
@@ -375,6 +397,10 @@ export interface Bounty {
   /** Optional watcher fee in bps of the bounty amount — paid to watchers
    *  whose sightings led to this declaration being funded. */
   sighting_bps?: number;
+  /** Declared life-capacity objective (MORE Stage A) — optional. */
+  capacity?: CapacityTag;
+  /** Display-only floor screen hits — flag, don't censor (P6 polycentric). */
+  floor_flags?: string[];
   created_at: number;
 }
 

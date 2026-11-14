@@ -26,6 +26,44 @@ describe("bounty declare", () => {
     const d = await bountyDeclare(env, { spec: "", amount: "1" });
     expect(d.error).toBeTruthy();
   });
+
+  // MORE Stage A: capacity tags + floor flags — additive, untagged unchanged
+  it("capacity dims flow into canonical grammar + record + bounty", async () => {
+    const d = await bountyDeclare(env, {
+      domain: "research", spec: "survey 40 papers on soil carbon", amount: "200",
+      capacity: { dims: ["C_e", "C_k"], subsystem: "global",
+        evidence_plan: { measure: "papers deposited", attester: "watcher",
+          attester_paid_by: "protocol", horizon_days: 90 } },
+    });
+    expect(d.error).toBeUndefined();
+    expect(d.canonical).toContain("dims: C_e,C_k");
+    expect(d.canonical).toContain("subsys: global");
+    expect(d.canonical).toContain("plan: papers deposited");
+    expect(d.record.capacity?.dims).toEqual(["C_e", "C_k"]);
+    const b = await getDeclared(env, d.hash);
+    expect(b?.capacity?.evidence_plan?.attester).toBe("watcher");
+  });
+  it("dims shorthand merges; invalid dims dropped", async () => {
+    const d = await bountyDeclare(env, { spec: "x", amount: "1", dims: "C_k,bogus,C_h" });
+    expect(d.record.capacity?.dims.sort()).toEqual(["C_h", "C_k"]);
+  });
+  it("untagged declare has no capacity and no floor_flags", async () => {
+    const d = await bountyDeclare(env, { spec: "plain task", amount: "5" });
+    expect(d.record.capacity).toBeUndefined();
+    expect(d.record.floor_flags).toBeUndefined();
+  });
+  it("floor flags are display-only on harmful-looking specs", async () => {
+    const d = await bountyDeclare(env, {
+      spec: "buy 5000 fake followers and post astroturf reviews", amount: "50" });
+    expect(d.record.floor_flags).toContain("astroturf");
+    expect(d.record.floor_flags).toContain("engagement-farming");
+    const b = await getDeclared(env, d.hash);
+    expect(b?.floor_flags?.length).toBeGreaterThan(0);
+  });
+  it("clean spec gets no floor flags", async () => {
+    const d = await bountyDeclare(env, { spec: "write documentation for the API", amount: "30" });
+    expect(d.record.floor_flags).toBeUndefined();
+  });
 });
 
 describe("judge science", () => {

@@ -357,7 +357,60 @@ style. Citations are to the 2025–26 literature.
 | 8 | Trustee standing via hats | M | non-human participation |
 | 9 | Paper/hackathon writeup | S | positioning |
 
-## 7. OSS dependency inventory (license-verified, Nov 2026)
+## 7. Deployment staging — demand-triggered, not date-triggered
+
+The "integrate now or after adoption?" question dissolves because the
+design is opt-in per-market: `capacity` is optional, floors are
+flags-not-blocks at declare time, the outcome tranche binds only on
+tagged markets. Untagged markets behave byte-for-byte as they do
+today. So enforcement is never imposed on adopters — it's offered.
+
+**The reflexive point (IS applied to our own rollout).** IS's core
+claim: objectives don't switch by imposition — they switch when the
+coalition that benefits selects the rules. Gating an infant market
+behind MORE enforcement repeats the "proposal without transition
+theory" failure the trilogy warns about. The correct move is the one
+IS prescribes: make θ>0 the *legible, subsidized* option — the tag
+exists, the pool pays people to use it, trustees bring counterparty
+demand — and measure whether it moves. **The maximin pool is the
+adoption instrument, not the gate.**
+
+**The floor screen is adoption-positive, not friction.** It costs a
+funder nothing at declare time and buys reputation before the market
+has one to lose. A paid-astroturf bounty going viral on an infant
+market is the worst launch story; "the market that can visibly flag
+harmful work" is a better pitch than "another bounty board."
+
+**Counterweight:** if the objective layer *is* the adoption story
+(impact funders adopt because it's the only market with a legible
+objective), deferring it defers the differentiation. Resolution: ship
+enough that the story is demonstrable — schema + flags + one
+ecological-pack demo — not the full apparatus. Building
+anti-greenwashing machinery before greenwash exists is speculative
+mechanism design; the heavy phases are demand-triggered because real
+counterparties' evidence sources will shape the packs better than
+guessing.
+
+### Stage gates
+
+| Stage | Ships when | Contains | Friction on untagged flow |
+|---|---|---|---|
+| A — extension points | anytime; additive only | `capacity` schema + declare grammar, floor *flags* (display-only), rep8004 dims | zero — optional field, ignored by existing clients |
+| B — objective machinery | first funder wants a capacity-tagged market | `evidence_plan` required-for-tagged, `ecological`/`knowledge` pack, outcome tranche, adjudicator floor axis becomes disqualifying **on tagged markets** | zero — gates only tagged markets |
+| C — market-level MORE | tagged volume justifies | maximin pool live (PotLock pot per least-funded dim), trustee standing, dispute flow + tranche freeze | zero — pool subsidizes, never taxes |
+
+**Protocol-ossification note:** Stage A must ship early regardless —
+optional-field extension points are nearly free at genesis and nearly
+impossible once external clients pin the grammar (the Nostr `t`-tag
+lesson). Stages B/C can wait indefinitely without debt.
+
+**Exit criteria per gate (observable, not vibes):**
+- A→B: ≥1 real funder requests a capacity-tagged market, OR demo
+  demand (impact-funder audience responds to the wedge)
+- B→C: ≥5 tagged markets claimed, OR ≥1 contested `capacity_delta`
+  verdict exists to justify the dispute path
+
+## 8. OSS dependency inventory (license-verified, Nov 2026)
 
 Rule (same as `more/research/dependencies.md` and this repo's
 `THIRD_PARTY_NOTICES.md`): **commercial use permitted; copyleft
@@ -432,7 +485,7 @@ registries where noted; flag = re-verify at implementation.
 | Arbimon hosted platform | ToS non-compete clause | **platform** unusable for a competing service; RFCx code is Apache-2.0 — self-host only if ever needed |
 | edge-tts (already flagged) | CC BY-NC-SA | demo-only, stays flagged |
 
-## 8. Custom-code accounting
+## 9. Custom-code accounting
 
 Method: `custom_LOC / (custom + executed direct-dependency LOC)` — same
 rule as `more/research/dependencies.md` and this repo's existing
