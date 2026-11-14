@@ -10,6 +10,41 @@ import {
   escrowPill, pill, bountyHref, trustLine, competitionLine, cardAmount,
 } from "./format";
 import { verifyAttestation } from "../claims";
+import { nearViewCall } from "../nearops";
+
+// --------------------------------------------------------- live chain data
+// The home page's protocol ticker + jury roster read straight from the
+// market contract — every number is a chain fact anyone can re-query.
+
+interface ChainMarket { marketId: string; locked: string; status: string; }
+interface ChainOracle { pubkey: string; owner: string; verdicts: number; disputes: number; bond?: string; slashes?: number; active: boolean; }
+
+async function chainStats(env: Env): Promise<{
+  markets: number; escrowed: bigint; settled: bigint;
+  oracles: ChainOracle[];
+} | null> {
+  const contract = (env as unknown as { NEAR_CONTRACT?: string }).NEAR_CONTRACT;
+  if (!contract) return null;
+  try {
+    const [markets, oracles] = await Promise.all([
+      nearViewCall(env, contract, "listAll", { limit: 200 }) as Promise<ChainMarket[]>,
+      nearViewCall(env, contract, "listOracles", {}) as Promise<ChainOracle[]>,
+    ]);
+    let escrowed = 0n, settled = 0n;
+    for (const m of markets ?? []) {
+      const v = BigInt(m.locked ?? "0");
+      if (m.status === "open") escrowed += v; else if (m.status === "paid") settled += v;
+    }
+    return { markets: markets?.length ?? 0, escrowed, settled, oracles: oracles ?? [] };
+  } catch {
+    return null; // RPC hiccup — page still renders, chain section hidden
+  }
+}
+
+function fmtNear(yocto: bigint): string {
+  const n = Number(yocto) / 1e24;
+  return n >= 100 ? n.toFixed(0) : n >= 1 ? n.toFixed(2) : n.toFixed(4);
+}
 
 // ------------------------------------------------------------- shared bits
 
@@ -61,6 +96,26 @@ export async function homePage(env: Env, ctx?: ExecutionContext): Promise<Respon
   const funded = mirrors.filter((m) => m.status !== "seeking-funder").length;
   const sourcesOk = Object.values(doc.sources ?? {}).filter((s) => s.ok).length;
   const top = [...records, ...mirrors].sort(sortByUsd).slice(0, 6);
+  const chain = await chainStats(env);
+  const chainBlock = chain ? `
+<h2 style="margin:26px 0 12px">The market, on-chain <span class="faint small" style="font-weight:400">— live from <code>${esc((env as unknown as { NEAR_CONTRACT?: string }).NEAR_CONTRACT)}</code></span></h2>
+<div class="stat-row">
+  <div class="stat"><div class="n">${chain.markets}</div><div class="l">markets run</div></div>
+  <div class="stat"><div class="n">${fmtNear(chain.escrowed)} NEAR</div><div class="l">escrowed now</div></div>
+  <div class="stat"><div class="n">${fmtNear(chain.settled)} NEAR</div><div class="l">settled to work</div></div>
+  <div class="stat"><div class="n">${chain.oracles.filter((o) => o.active).length}</div><div class="l">jury seats</div></div>
+</div>
+${chain.oracles.length ? `<div class="card flat" style="margin-top:4px">
+  <h3 style="margin:0 0 8px">The jury <span class="faint small" style="font-weight:400">— every seat public, every verdict on record</span></h3>
+  <div class="jury-grid">${chain.oracles.map((o) => `
+    <div class="jury-seat">
+      <div class="mono small" title="${esc(o.pubkey)}">${esc(o.pubkey.slice(0, 10))}…</div>
+      <div class="small">${esc(o.owner.split(".")[0])}</div>
+      <div class="faint small">${o.verdicts} verdicts${o.slashes ? ` · ${o.slashes} slashes` : ""}${o.bond && o.bond !== "0" ? ` · ${fmtNear(BigInt(o.bond))} N bonded` : ""}</div>
+      ${o.active ? '<span class="pill ok">active</span>' : '<span class="pill">inactive</span>'}
+    </div>`).join("")}
+  </div>
+</div>` : ""}` : "";
   const body = `
 <div class="hero">
   <h1>The bounty feed for <span class="gold">every forge.</span></h1>
@@ -83,6 +138,7 @@ export async function homePage(env: Env, ctx?: ExecutionContext): Promise<Respon
 </div>
 <div class="notice">Third-party bounties are <b>mirror-only</b>: work routes through Widespread
   escrow at face value with the platform cut taken at settlement — never the other platform's payout path.</div>
+${chainBlock}
 <h2 style="margin:26px 0 12px">Highest-value open bounties</h2>
 <div class="grid cols-2">${top.map(recordCard).join("") || `<div class="empty"><div class="big">Feed is refreshing</div><div class="mut">Records appear on the next poll cycle — check back shortly.</div></div>`}</div>
 <h2 style="margin:26px 0 12px">How it works</h2>

@@ -73,6 +73,13 @@ footer .inner { max-width: 1080px; margin: 0 auto; display: flex;
 .grid { display: grid; gap: 14px; }
 .grid.cols-2 { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
 .grid.cols-3 { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.jury-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+.jury-seat { border: 1px solid var(--border-soft); border-radius: var(--radius-sm);
+  padding: 10px 12px; display: flex; flex-direction: column; gap: 3px; }
+.jury-seat .pill { align-self: flex-start; margin-top: 4px; }
+.pill { display: inline-block; font-size: .72rem; padding: 1px 8px; border-radius: 999px;
+  border: 1px solid var(--border); color: var(--fg-dim); }
+.pill.ok { border-color: var(--green); color: var(--green-hi); }
 .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .row.between { justify-content: space-between; }
 .spread { display: flex; justify-content: space-between; gap: 12px;
