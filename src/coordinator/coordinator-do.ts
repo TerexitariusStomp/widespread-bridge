@@ -64,6 +64,7 @@ import {
   verifyAdapterManifest, effectiveStatus,
   verifiedOpCount, type AdapterRecord,
 } from "../adapters";
+import { canonicalJson } from "../artifacts";
 import type { FeedRecord } from "../types";
 import type { Env } from "../types";
 
@@ -281,17 +282,6 @@ const SESSION_OPEN_TIMEOUT_MS = 10000;
 const SESSION_CALL_TIMEOUT_MS = 60000;
 const MAX_SESSION_TICKS = 10000;
 const MAX_OFFERS_PER_NODE = 64;
-
-/** Deterministic JSON — object keys sorted recursively — so the signed
- *  job record's `sig` is over a canonical encoding anyone can recompute. */
-function canonicalJson(v: unknown): string {
-  if (v === null || typeof v !== "object") return JSON.stringify(v);
-  if (Array.isArray(v)) return "[" + v.map(canonicalJson).join(",") + "]";
-  const keys = Object.keys(v as Record<string, unknown>).sort();
-  return "{" + keys
-    .map((k) => JSON.stringify(k) + ":" + canonicalJson((v as Record<string, unknown>)[k]))
-    .join(",") + "}";
-}
 
 export class CoordinatorDO implements DurableObject {
   private state: DurableObjectState;

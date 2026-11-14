@@ -310,6 +310,11 @@ widespread-bridge/            ← you are here (npm workspaces root)
                               see relay/UPSTREAM.md for sync procedure)
 ```
 
+**Canonical sources rule:** files under `watcher-web/` and
+`watcher-extension/` marked `// GENERATED` are produced by
+`npm run sync` from `widespread-discovery/src/` — edit the source, run
+sync, never hand-edit a generated copy (`npm run sync:check` gates CI).
+
 `relay/` deploys as the `widespread-relay` Cloudflare Worker (free tier,
 D1+Durable Objects) at `wss://widespread-relay.widespread.workers.dev` —
 verified kind-30078 retention, one pipe among the default relay set.

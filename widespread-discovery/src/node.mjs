@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import * as N from "../vendor/nostr-tools.bundle.mjs";
 import {
   buildSighting, sightingEventTemplate, canonicalJson,
-  hexToBytes, bytesToHex, DEFAULT_RELAYS,
+  hexToBytes, bytesToHex, DEFAULT_RELAYS, publishVerdict,
 } from "./core.mjs";
 
 const DIR = join(homedir(), ".widespread-discovery");
@@ -97,7 +97,7 @@ export async function publish(template) {
   // event is exactly when the git/peer transports matter — the envelope
   // is still a valid signed artifact peers can carry.
   if (oks.length) appendEventLog(ev);
-  return { event: ev, oks, relay_errors: errs, stored };
+  return { event: ev, oks, relay_errors: errs, stored, verdict: publishVerdict(oks.length, stored) };
 }
 
 // ---- transport-agnostic event log ----

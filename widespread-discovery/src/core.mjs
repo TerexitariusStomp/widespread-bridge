@@ -162,6 +162,20 @@ export function dedupeKey(platform, native_id, watcher_id) {
   return `${platform}|${native_id}|${watcher_id}`;
 }
 
+/** Publish verdict vocabulary — shared across wsd, watcher-web, and the
+ *  extension. Relays can ACK (OK:true) then silently drop non-standard
+ *  kinds, so "accepted" and "retained" are distinct states:
+ *    "rejected"           — no relay returned OK:true
+ *    "acked-not-retained" — ACK'd but a follow-up query found 0 copies
+ *    "retained"           — verified retrievable on ≥1 relay
+ *  Callers must await each per-relay publish promise (SimplePool.publish
+ *  returns an ARRAY) and then re-query the event id to learn `stored`. */
+export function publishVerdict(oks, stored) {
+  if (oks < 1) return "rejected";
+  if (stored < 1) return "acked-not-retained";
+  return "retained";
+}
+
 // ---- AES-256-GCM state encryption (HKDF from private key) ----
 async function hkdfAesKey(ikmBytes, saltStr, infoStr) {
   const base = await crypto.subtle.importKey("raw", ikmBytes, "HKDF", false, ["deriveKey"]);

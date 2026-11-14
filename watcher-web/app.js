@@ -6,7 +6,7 @@ import {
   parseSightingContent, corroborationTier, dedupeKey, textHash,
   encryptState, decryptState, exportEncrypted, importEncrypted,
   bytesToHex, hexToBytes, bytesToB64, DEFAULT_RELAYS,
-  capacitySnapshotEventTemplate,
+  capacitySnapshotEventTemplate, publishVerdict,
 } from "./core.mjs";
 import { ratifyMeta, T_PROTOCOL_META } from "./proto.mjs";
 
@@ -139,8 +139,9 @@ async function publishRaw(template) {
     stored = found.length;
   } catch { /* inconclusive — don't fail on flaky reads */ }
   const healthy = rs.filter((r) => (relayHealth.get(r)?.ok ?? 0) > (relayHealth.get(r)?.fail ?? 0));
-  log("relay-log", `published ${ev.id.slice(0, 12)}… accepted:${oks.length}/${rs.length} stored:${stored} healthy:[${healthy.join(",")}]`);
-  if (stored === 0) throw new Error("relays ACK'd but did not retain event");
+  const verdict = publishVerdict(oks.length, stored);
+  log("relay-log", `published ${ev.id.slice(0, 12)}… verdict:${verdict} accepted:${oks.length}/${rs.length} stored:${stored} healthy:[${healthy.join(",")}]`);
+  if (verdict !== "retained") throw new Error(verdict === "rejected" ? "no relay accepted" : "relays ACK'd but did not retain event");
   return ev;
 }
 

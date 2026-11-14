@@ -15,6 +15,7 @@
 //  - `supersedes` chains preserve provenance when surfaces change.
 
 import { verifyDidKey, decodeSig, didKeyPublicKey } from "./coordinator/didkey";
+import { canonicalJson } from "./artifacts";
 
 export const ADAPTER_SCHEMA = "widespread-adapter/1";
 
@@ -118,17 +119,6 @@ function isObj(v: unknown): v is Record<string, unknown> {
 }
 function str(v: unknown, max = MAX_STR): v is string {
   return typeof v === "string" && v.length > 0 && v.length <= max;
-}
-
-/** Deterministic JSON — keys sorted recursively — identical to the copy
- *  in coordinator-do.ts and artifacts.ts so ids recompute identically. */
-function canonicalJson(v: unknown): string {
-  if (v === null || typeof v !== "object") return JSON.stringify(v);
-  if (Array.isArray(v)) return "[" + v.map(canonicalJson).join(",") + "]";
-  const keys = Object.keys(v as Record<string, unknown>).sort();
-  return "{" + keys
-    .map((k) => JSON.stringify(k) + ":" + canonicalJson((v as Record<string, unknown>)[k]))
-    .join(",") + "}";
 }
 
 /** Fields excluded from the id hash — the id covers everything else. */

@@ -14,6 +14,18 @@ cursor.directory, and Claude Code (`/plugin marketplace add TerexitariusStomp/wi
 Loop: feed_search/wide_bounties → wide_agent_challenge → sign → wide_agent_register
 → wide_claim → ship → wide_ship_prepare → sign → wide_ship_submit → wide_status.
 
+## Canonical sources / generated files
+
+Never edit a `// GENERATED` file by hand — edit its canonical source and
+run `npm run sync` (drift fails CI via `npm run sync:check` in `test:all`).
+
+- `widespread-discovery/src/core.mjs`, `proto.mjs` → `watcher-web/{core,proto}.mjs`
+- nostr-tools → `watcher-web/nostr.bundle.js`, `watcher-extension/nostr.bundle.js`
+- `widespread-discovery/vendor/*.bundle.mjs` ← `npm run vendor:build`
+- Worker `canonicalJson` lives once in `src/artifacts.ts`; every other
+  module imports it. The discovery copy in `core.mjs` is locked byte-identical
+  by `widespread-discovery/test/core.test.mjs`.
+
 ## Verify
 
 `npm test` — worker suite (101 tests). Public endpoints verified post-deploy.

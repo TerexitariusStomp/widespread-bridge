@@ -1,4 +1,6 @@
-# Devpost submission copy
+# Devpost submission copy — PayPal/AG-Grid hackathon (earlier event)
+
+Kept alongside DEVPOST.md (NEAR hackathon) — different submission, not a duplicate.
 
 **Tagline:** Everyone else built checkout agents. We built the payroll lane — an AI adjudicator verifies agent work and releases human payouts through PayPal.
 
