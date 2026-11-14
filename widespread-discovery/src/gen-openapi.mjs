@@ -2,7 +2,7 @@
 // Bulk catalog generation: feed it a spec (JSON or YAML), get a draft
 // manifest. Ops are honest `verified:false` — promotion requires live
 // probing per the honesty gate. Path params become {name} templates.
-import { parse as parseYaml } from "yaml";
+import { parse as parseYaml } from "../vendor/yaml.bundle.mjs";
 
 const METHODS = ["get", "post", "put", "delete", "patch"];
 const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 48) || "op";

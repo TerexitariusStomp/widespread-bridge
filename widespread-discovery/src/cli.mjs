@@ -59,7 +59,7 @@ const needId = () => { const id = loadIdentity(); if (!id) { console.error("no i
 switch (cmd) {
   case "keygen": {
     const id = keygen();
-    console.log(`identity created\n  pubkey: ${id.pubkey}\n  npub:   ${await import("nostr-tools").then(m => m.nip19.npubEncode(id.pubkey))}\n  stored: ~/.widespread-discovery/identity.json`);
+    console.log(`identity created\n  pubkey: ${id.pubkey}\n  npub:   ${await import("../vendor/nostr-tools.bundle.mjs").then(m => m.nip19.npubEncode(id.pubkey))}\n  stored: ~/.widespread-discovery/identity.json`);
     break;
   }
   case "import": {
@@ -136,7 +136,16 @@ switch (cmd) {
     break;
   }
   case "cdp-watch": {
-    const { cdpWatchCli } = await import("./cdp-watch.mjs");
+    let cdpWatchCli;
+    try {
+      ({ cdpWatchCli } = await import("./cdp-watch.mjs"));
+    } catch (e) {
+      if (e?.code === "ERR_MODULE_NOT_FOUND") {
+        console.error("cdp-watch requires playwright-core: npm install -w widespread-discovery playwright-core");
+        process.exit(1);
+      }
+      throw e;
+    }
     await cdpWatchCli(a);
     closePool(); setTimeout(()=>process.exit(0),300);
     break;
@@ -208,7 +217,7 @@ switch (cmd) {
       console.log(`meta seq=${payload.seq} published by ${id.pk.slice(0, 12)}… → ${r.stored ?? "?"} relay copy(ies) stored`);
       console.log(`ratification needs ≥${payload.threshold} of [${(payload.seq === 0 ? payload.stewards : (payload.prev_stewards ?? payload.stewards)).map((s) => s.slice(0, 8)).join(", ")}]`);
     } else if (sub === "fetch" || !sub) {
-      const { verifyEvent } = await import("nostr-tools");
+      const { verifyEvent } = await import("../vendor/nostr-tools.bundle.mjs");
       const evs = await query({ kinds: [30078], "#t": [T_PROTOCOL_META], limit: Number(a.limit) });
       const best = ratifyMeta(evs, verifyEvent);
       if (best) {

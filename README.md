@@ -279,7 +279,16 @@ Nostr gossip                 watchers publish kind-30078 events to relays;
 
 ## Repository layout (monorepo)
 
-One repo, one `npm install`, one test story:
+Clone and use — **no install required** for any user-facing surface:
+
+- `watcher-web/` — open `index.html` or deploy the static dir anywhere
+- `watcher-extension/` — Chrome → `chrome://extensions` → Load unpacked
+- `widespread-discovery/` — `node src/cli.mjs` (vendored deps in `vendor/`,
+  zero npm install; Node ≥ 20)
+- `relay/` — already live at `wss://widespread-relay.widespread.workers.dev`
+
+`npm install` is only needed to develop/test the bridge Worker itself
+(vitest + wrangler):
 
 ```
 widespread-bridge/            ← you are here (npm workspaces root)
@@ -307,10 +316,16 @@ verified kind-30078 retention, one pipe among the default relay set.
 Standalone toolchain: `cd relay && npm install && npm run deploy`.
 
 ```bash
+# zero-install usage (no npm install):
+node widespread-discovery/src/cli.mjs --help    # wsd CLI
+# open watcher-web/index.html · load watcher-extension unpacked
+
+# development only:
 npm install        # installs worker + widespread-discovery workspace
 npm test           # worker suite (vitest)
 npm run test:all   # worker + discovery suites
 npm run wsd -- --help   # or: npx wsd (workspace bin)
+cd widespread-discovery && npm run vendor:build  # rebuild vendor bundles after dep bumps
 ```
 
 ## Deploy your own

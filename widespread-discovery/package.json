@@ -12,15 +12,19 @@
   },
   "files": [
     "src",
+    "vendor",
     "README.md"
   ],
   "scripts": {
-    "test": "node --test test/"
+    "test": "node --test test/",
+    "vendor:build": "node scripts/build-vendor.mjs"
   },
   "dependencies": {
-    "@noble/hashes": "^2.4.0",
+    "playwright-core": "^1.64.1"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.0",
     "nostr-tools": "^2.26.0",
-    "playwright-core": "^1.64.1",
     "rss-parser": "^3.13.0",
     "yaml": "^2.8.0"
   },

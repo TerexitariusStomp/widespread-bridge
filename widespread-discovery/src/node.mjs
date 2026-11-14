@@ -2,7 +2,7 @@
 import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import * as N from "nostr-tools";
+import * as N from "../vendor/nostr-tools.bundle.mjs";
 import {
   buildSighting, sightingEventTemplate, canonicalJson,
   hexToBytes, bytesToHex, DEFAULT_RELAYS,

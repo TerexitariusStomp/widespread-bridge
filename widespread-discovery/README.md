@@ -13,9 +13,15 @@ Spec: [`../docs/discovery-protocol.md`](../docs/discovery-protocol.md)
 |---|---|---|
 | 0 | `watcher-web/` static app — browser keypair, IndexedDB index, relay WS | none — visit a URL |
 | 1 | `watcher-extension/` MV3 — watches credentialed surfaces you browse | browser extension |
-| 2 | `wsd mcp` — stdio MCP server for any MCP host | `npx` |
-| 3 | `wsd serve` — localhost HTTP API + watcher daemon | `npx` / npm |
-| 4 | this package as a library | `npm i` |
+| 2 | `wsd mcp` — stdio MCP server for any MCP host | none — `node src/cli.mjs mcp` |
+| 3 | `wsd serve` — localhost HTTP API + watcher daemon | none — `node src/cli.mjs serve` |
+| 4 | this package as a library | `npm i` (or import `src/` directly — deps are vendored in `vendor/`) |
+
+Runtime deps (`nostr-tools`, `rss-parser`, `yaml`) are bundled into
+committed `vendor/*.bundle.mjs` files — the CLI/tests run with **zero
+`npm install`**. Only `wsd cdp-watch` needs `playwright-core`
+(`npm i -w widespread-discovery playwright-core`). After bumping a dep,
+run `npm run vendor:build` and commit the regenerated bundles.
 
 The bridge (`widespread-bridge`) is an optional republish/cache adapter —
 `sightings` work with it unconfigured.

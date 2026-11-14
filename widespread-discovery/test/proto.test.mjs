@@ -1,7 +1,7 @@
 // Governance conformance — proto.mjs ratification + adapter collection.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { finalizeEvent, verifyEvent, generateSecretKey, getPublicKey } from "nostr-tools";
+import { finalizeEvent, verifyEvent, generateSecretKey, getPublicKey } from "../vendor/nostr-tools.bundle.mjs";
 import {
   metaEventTemplate, adapterEventTemplate, parseMetaPayload,
   ratifyMeta, collectAdapters, T_PROTOCOL_META, T_ADAPTER,

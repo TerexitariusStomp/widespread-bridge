@@ -3,7 +3,7 @@
 // passed via opts.grammar). Read-only — watchers never write to surfaces.
 import { publishSighting, loadIndex, saveIndex, ingestEvents, query, queueSighting, flushOutbox, loadIdentity } from "./node.mjs";
 import { textHash, dedupeKey } from "./core.mjs";
-import Parser from "rss-parser";
+import Parser from "../vendor/rss-parser.bundle.mjs";
 
 // rss-parser (MIT, already a bridge dep) — handles RSS2 + Atom, CDATA,
 // namespaces; customFields pulls dc:creator for author attribution.
