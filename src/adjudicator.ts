@@ -382,9 +382,15 @@ export async function adjudicateContest(
       const label = typeof parsed?.winner === "string" ? parsed.winner.trim() : "none";
       const winnerPos = /^C(\d+)$/i.exec(label);
       // Map the shuffled label back to the original inputs index.
-      const winnerIndex = winnerPos && order[+winnerPos[1] - 1] !== undefined
+      let winnerIndex = winnerPos && order[+winnerPos[1] - 1] !== undefined
         ? order[+winnerPos[1] - 1]
         : -1;
+      // Models sometimes answer the single-claim schema {"verdict":"accept"}
+      // instead of the contest schema — with a single candidate that maps
+      // unambiguously to C1. Multi-candidate accepts stay unresolvable → none.
+      if (winnerIndex < 0 && parsed?.verdict === "accept" && inputs.length === 1) {
+        winnerIndex = order[0];
+      }
       return {
         model,
         winnerIndex,

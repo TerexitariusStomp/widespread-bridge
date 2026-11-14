@@ -139,6 +139,8 @@ export async function oracleVote(
   const already = mine?.verdict === opts.verdict && mine?.claimId === claimId;
 
   if (!already) {
+    // VERDICT_STAKE_YOCTO: the contract holds a 0.0025 NEAR storage stake
+    // per oracle's first verdict on each market; excess is refunded.
     const v = await nearFunctionCall(env, ops, cfg.contract, {
       methodName: "submitVerdict",
       args: {
@@ -146,7 +148,7 @@ export async function oracleVote(
         verdict: opts.verdict, oraclePubkey: cfg.oraclePubkeyHex,
         verdictSig: opts.verdictSig ?? null,
       },
-      gas: GAS, deposit: 0n,
+      gas: GAS, deposit: 2500000000000000000000n,
     }).catch((e) => ({ txHash: "", status: String(e) }));
     if (!v.txHash || txFailed(v.status)) {
       return { voted: false, claimId, error: `submitVerdict failed: ${JSON.stringify(v.status).slice(0, 300)}` };
