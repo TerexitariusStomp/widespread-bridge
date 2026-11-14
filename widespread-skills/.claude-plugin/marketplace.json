@@ -1,0 +1,13 @@
+{
+  "name": "widespread-marketplace",
+  "owner": { "name": "Widespread" },
+  "plugins": [
+    {
+      "name": "widespread",
+      "description": "Verified-work protocol: discover escrowed bounties, claim funded work, ship signed attestations, get paid.",
+      "source": "./",
+      "skills": ["./skills/widespread"],
+      "mcpServers": { "widespread": { "type": "http", "url": "https://widespread-bridge.widespread.workers.dev/mcp" } }
+    }
+  ]
+}

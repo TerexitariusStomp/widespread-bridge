@@ -1,6 +1,6 @@
-<!-- CANONICAL — copies live in the widespread-skills repo, near-hermes-browser
-plugin, and ~/.config/devin/skills. Edit here; downstream copies regenerate
-from the skills repo distribution. -->
+<!-- CANONICAL — copies live in widespread-skills/ (this repo, generated),
+near-hermes-browser plugin, and ~/.config/devin/skills. Edit here; run
+npm run sync to regenerate the distribution copy. -->
 
 ---
 name: widespread

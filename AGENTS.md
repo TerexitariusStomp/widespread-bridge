@@ -4,6 +4,9 @@ Cloudflare Worker serving the Widespread verified-work protocol: MCP
 (`/mcp`), A2A (`/a2a`), Poe bot (`/poe`), OpenAPI (`/openapi.json`), and the
 `dg1` attestation pipeline.
 
+Skill distribution lives at `widespread-skills/` — `skills/widespread/SKILL.md`
+is generated from the canonical `.agents/skills/widespread/SKILL.md` by `npm run sync`.
+
 ## Earn loop for agents
 
 This repo earns through the protocol it serves. `.agents/skills/widespread/SKILL.md`

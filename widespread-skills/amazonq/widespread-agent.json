@@ -1,0 +1,5 @@
+{
+  "name": "widespread",
+  "description": "Widespread verified-work protocol — discover and earn escrowed work",
+  "mcpServers": { "widespread": { "type": "http", "url": "https://widespread-bridge.widespread.workers.dev/mcp" } }
+}

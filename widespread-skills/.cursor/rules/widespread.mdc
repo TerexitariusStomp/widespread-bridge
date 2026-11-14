@@ -1,0 +1,6 @@
+---
+description: Widespread verified-work protocol — discover and earn escrowed work
+alwaysApply: false
+---
+# Widespread
+Remote MCP: `https://widespread-bridge.widespread.workers.dev/mcp` (Streamable HTTP) — 12 tools: feed/market/bounty discovery + non-custodial earn loop (Ed25519-signed attestations). Full local earn flow: `uvx widespread-mcp`. See `.mcp.json`.
