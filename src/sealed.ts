@@ -23,6 +23,11 @@ export interface SealedArtifact {
   /** crypto_box_seal(deliverable) to the bridge's x25519 pubkey — the
    *  adjudication copy. Required so the judge can read it in-request. */
   ciphertext_bridge_b64: string;
+  /** crypto_box_seal(deliverable) to each declared adjudicator's x25519
+   *  pubkey — the operator collective's copies. Required on spec_sealed
+   *  markets that declare adjudicator_x25519_pubkeys and hold no bridge
+   *  spec copy: the bridge delegates judging to the collective. */
+  ciphertext_adjudicators_b64?: Record<string, string>;
   /** sha256:<hex> of the PLAINTEXT deliverable — the binding the record
    *  keeps; verified after decryption, never replaced by ciphertext hash. */
   artifact_sha256: string;
@@ -86,7 +91,7 @@ export function sealOpen(ciphertextB64: string, secretKeyHex: string): Uint8Arra
  *  Ref hash must match the declared artifact_sha256 (ref↔payload bind). */
 export function parseSealedArtifact(
   evidence: Record<string, unknown>, refSha256?: string,
-  opts?: { requireBridgeCopy?: boolean },
+  opts?: { requireBridgeCopy?: boolean; adjudicatorPubkeys?: string[] },
 ): { sealed?: SealedArtifact; failures: string[] } {
   const s = evidence.artifact_sealed as Record<string, unknown> | undefined;
   if (!s || typeof s !== "object") {
@@ -106,6 +111,25 @@ export function parseSealedArtifact(
     if (!bytes) failures.push(`artifact_sealed.${k} is not valid base64`);
     else if (bytes.length <= SEAL_OVERHEAD) failures.push(`artifact_sealed.${k} too short to be a sealed box`);
     else if (bytes.length > MAX_SEALED_BYTES + SEAL_OVERHEAD) failures.push(`artifact_sealed.${k} exceeds 256KB sealed budget`);
+  }
+  // Collective-sealed markets: every declared adjudicator needs a copy —
+  // any missing key means that juror cannot judge, silently reducing the
+  // quorum the funder configured.
+  const adj = opts?.adjudicatorPubkeys ?? [];
+  if (adj.length) {
+    const copies = sealed.ciphertext_adjudicators_b64;
+    if (!copies || typeof copies !== "object") {
+      failures.push("artifact_sealed.ciphertext_adjudicators_b64 required — every declared adjudicator needs a sealed copy");
+    } else {
+      for (const pk of adj) {
+        const v = copies[pk];
+        if (typeof v !== "string" || !v) { failures.push(`ciphertext_adjudicators_b64 missing copy for declared adjudicator ${pk.slice(0, 12)}…`); continue; }
+        const bytes = b64ToBytes(v);
+        if (!bytes || bytes.length <= SEAL_OVERHEAD || bytes.length > MAX_SEALED_BYTES + SEAL_OVERHEAD) {
+          failures.push(`ciphertext_adjudicators_b64[${pk.slice(0, 12)}…] is not a well-formed sealed box`);
+        }
+      }
+    }
   }
   if (typeof sealed.artifact_sha256 !== "string"
       || !/^sha256:[0-9a-f]{64}$/i.test(sealed.artifact_sha256)) {

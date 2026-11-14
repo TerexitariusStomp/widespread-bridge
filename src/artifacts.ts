@@ -141,9 +141,10 @@ export async function validateCidArtifact(
  *  Shape-checked here; content is verified after decryption there. */
 export async function validateSealedArtifact(
   _env: Env, ref: Extract<ArtifactRef, { kind: "sealed" }>, evidence: Record<string, unknown>,
+  opts?: { requireBridgeCopy?: boolean; adjudicatorPubkeys?: string[] },
 ): Promise<{ failures: string[]; evidence: Record<string, unknown> }> {
   const { parseSealedArtifact } = await import("./sealed");
-  const { sealed, failures } = parseSealedArtifact(evidence, ref.sha256);
+  const { sealed, failures } = parseSealedArtifact(evidence, ref.sha256, opts);
   const out: Record<string, unknown> = {
     ...evidence, artifact: "sealed", artifact_sha256: sealed?.artifact_sha256, forge: "sealed",
     // ciphertext rides through — safe in the public record; plaintext

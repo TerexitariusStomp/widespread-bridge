@@ -358,6 +358,10 @@ export async function declEscrowPlan(env: Env, hash: string, opts: {
     quote,
     spec_hash: specHash,
     confidential: !!bounty.confidential,
+    ...(bounty.adjudicator_x25519_pubkeys?.length ? {
+      adjudicator_pubkeys: bounty.adjudicator_x25519_pubkeys,
+      jury_hint: `${bounty.adjudicator_x25519_pubkeys.length} declared adjudicators — set oracle_allowlist to their registered oracle seats and quorum_m to the acceptance threshold`,
+    } : {}),
     guide: [
       "1. client-side: keypair → implicit account = hex(ed25519_pubkey)",
       "2. 1Click quote → deposit address (recipient = your implicit account)",

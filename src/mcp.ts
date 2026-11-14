@@ -185,6 +185,8 @@ export async function handleMcpRequest(req: Request, env: Env, ctx: ExecutionCon
       spec_cid: z.string().optional().describe("IPFS CID of the sealed spec ciphertext bundle"),
       reveal_endpoint: z.string().optional().describe("Funder-run HTTPS reveal service — delegates reveals so the bridge stays blind (bridge cannot judge these markets)"),
       spec_sealed_bridge_b64: z.string().optional().describe("crypto_box_seal(spec, bridge x25519 pubkey) — lets the bridge serve reveals + judge, in-request decrypt only"),
+      adjudicator_x25519_pubkeys: z.array(z.string()).optional().describe("D3b adjudicator collective — declared juror x25519 pubkeys (≤16). Each needs a spec_sealed_adjudicators_b64 copy; workers seal deliverables to all of them (ciphertext_adjudicators_b64). Operators judge instead of the bridge."),
+      spec_sealed_adjudicators_b64: z.record(z.string(), z.string()).optional().describe("pubkey → crypto_box_seal(spec, that juror's x25519 pubkey) — one copy per declared adjudicator"),
       meter: z.string().optional(), threshold: z.number().optional(), window: z.string().optional(),
       dims: z.string().optional().describe("Comma-separated capacity dims: C_e,C_h,C_k,C_inst,C_m"),
       capacity: z.object({
@@ -227,6 +229,8 @@ export async function handleMcpRequest(req: Request, env: Env, ctx: ExecutionCon
       spec_sealed: z.boolean().optional(), spec_hash: z.string().optional(),
       spec_cid: z.string().optional(), reveal_endpoint: z.string().optional(),
       spec_sealed_bridge_b64: z.string().optional(),
+      adjudicator_x25519_pubkeys: z.array(z.string()).optional(),
+      spec_sealed_adjudicators_b64: z.record(z.string(), z.string()).optional(),
       meter: z.string().optional(), threshold: z.number().optional(), window: z.string().optional(),
     },
   }, async (a) => json(await bountyBroadcast(env, a)));

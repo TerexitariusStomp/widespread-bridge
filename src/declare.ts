@@ -32,6 +32,14 @@ export interface DeclareArgs {
   spec_cid?: string;               // IPFS CID of the sealed ciphertext
   reveal_endpoint?: string;        // funder-run reveal service URL
   spec_sealed_bridge_b64?: string; // optional judge-capable copy
+  /** D3b collective adjudication: spec copies sealed to declared oracle
+   *  operators' x25519 keys. Each operator decrypts ITS copy and judges
+   *  independently — full-blind markets become adjudicable without the
+   *  bridge ever reading the spec. pubkey -> crypto_box_seal(spec, pubkey). */
+  spec_sealed_adjudicators_b64?: Record<string, string>;
+  /** Pubkeys of the adjudicator collective — workers seal deliverable
+   *  copies to these too (artifact_sealed.ciphertext_adjudicators_b64). */
+  adjudicator_x25519_pubkeys?: string[];
   /** Funder's x25519 pubkey (hex, 32-byte) — receives sealed
    *  deliverables + wrapped adjudication key. Fresh per market. */
   funder_x25519_pubkey?: string;
@@ -136,8 +144,9 @@ export async function bountyDeclare(env: Env, a: DeclareArgs) {
     if (!a.spec_hash || !/^(sha256:)?[0-9a-f]{64}$/i.test(a.spec_hash)) {
       return { error: "spec_sealed requires spec_hash (sha256:<64hex> or 64-hex) computed over the plaintext spec" };
     }
-    if (!a.spec_sealed_bridge_b64 && !a.reveal_endpoint) {
-      return { error: "spec_sealed needs a reveal path: spec_sealed_bridge_b64 (bridge serves + judges) or reveal_endpoint (funder serves, bridge blind)" };
+    if (!a.spec_sealed_bridge_b64 && !a.reveal_endpoint
+        && !(a.adjudicator_x25519_pubkeys?.length)) {
+      return { error: "spec_sealed needs a reveal path: spec_sealed_bridge_b64 (bridge serves + judges), reveal_endpoint (funder serves), or adjudicator_x25519_pubkeys (private jury — operators distribute specs out-of-band)" };
     }
   } else if (!a.spec?.trim()) {
     return { error: "spec + amount required" };
@@ -162,6 +171,36 @@ export async function bountyDeclare(env: Env, a: DeclareArgs) {
   if (confidential && !/^[0-9a-f]{64}$/i.test(a.funder_x25519_pubkey ?? "")) {
     return { error: "confidential markets require funder_x25519_pubkey (hex, 32 bytes) — generate a fresh x25519 pair; deliverables + adjudication key wrap to it" };
   }
+  // Adjudicator collective: declared x25519 juror keys must be well-formed
+  // and unique; every declared key needs a spec copy and vice versa — a
+  // partial set means jurors who can't read the spec, or copies for
+  // undeclared keys.
+  const adjKeys = a.adjudicator_x25519_pubkeys ?? [];
+  const adjCopies = a.spec_sealed_adjudicators_b64 ?? {};
+  if (adjKeys.length || Object.keys(adjCopies).length) {
+    if (!sealedSpec) {
+      return { error: "adjudicator sealing requires spec_sealed — the collective judges ciphertext markets only" };
+    }
+    if (adjKeys.length > 16) return { error: "adjudicator_x25519_pubkeys capped at 16 jurors" };
+    const seen = new Set<string>();
+    for (const pk of adjKeys) {
+      if (!/^[0-9a-f]{64}$/i.test(pk)) return { error: "adjudicator_x25519_pubkeys entries must be hex x25519 pubkeys (64 chars)" };
+      const k = pk.toLowerCase();
+      if (seen.has(k)) return { error: `duplicate adjudicator pubkey ${k.slice(0, 12)}…` };
+      seen.add(k);
+    }
+    for (const [pk, ct] of Object.entries(adjCopies)) {
+      const k = pk.toLowerCase();
+      if (!seen.has(k)) return { error: `spec copy sealed to undeclared key ${k.slice(0, 12)}… — declare it in adjudicator_x25519_pubkeys` };
+      if (typeof ct !== "string" || ct.length < 80 || ct.length > 350_000) {
+        return { error: `spec_sealed_adjudicators_b64[${k.slice(0, 12)}…] is not a well-formed sealed box` };
+      }
+    }
+    for (const k of seen) {
+      const hasCopy = Object.keys(adjCopies).some((pk) => pk.toLowerCase() === k);
+      if (!hasCopy) return { error: `declared adjudicator ${k.slice(0, 12)}… has no spec copy — every juror needs one` };
+    }
+  }
   const capRes = normalizeCapacity(a);
   if (capRes.error) return { error: capRes.error };
   const capacity = capRes.cap!;
@@ -170,7 +209,7 @@ export async function bountyDeclare(env: Env, a: DeclareArgs) {
     `#${tag} bounty ${hash}`,
     `domain: ${domain}`,
     `amount: ${a.amount} ${a.currency ?? "USD"}`,
-    sealedSpec ? `confidential: spec-sealed hash:${specHashNorm!.slice(0, 24)}…${a.spec_cid ? ` cid:${a.spec_cid}` : ""} — claimants reveal via ${a.reveal_endpoint ? "funder endpoint" : "/api/spec/reveal"}`
+    sealedSpec ? `confidential: spec-sealed hash:${specHashNorm!.slice(0, 24)}…${a.spec_cid ? ` cid:${a.spec_cid}` : ""} — claimants reveal via ${a.reveal_endpoint ? "funder endpoint" : a.adjudicator_x25519_pubkeys?.length ? "declared adjudicator jury" : "/api/spec/reveal"}`
       : confidential ? `confidential: spec-sealed — claimants reveal via /api/spec/reveal` : `spec: ${a.spec}`,
     deliverable === "resource" ? `meter:${a.meter} threshold:${a.threshold}${a.window ? ` window:${a.window}` : ""}` : null,
     target && !confidential ? `for: ${target.platform} @${target.handle}` : null,
@@ -200,6 +239,8 @@ export async function bountyDeclare(env: Env, a: DeclareArgs) {
       ...(a.spec_cid ? { spec_cid: a.spec_cid } : {}),
       ...(a.reveal_endpoint ? { reveal_endpoint: a.reveal_endpoint } : {}),
       ...(a.spec_sealed_bridge_b64 ? { spec_sealed_bridge_b64: a.spec_sealed_bridge_b64 } : {}),
+      ...(a.spec_sealed_adjudicators_b64 ? { spec_sealed_adjudicators_b64: a.spec_sealed_adjudicators_b64 } : {}),
+      ...(a.adjudicator_x25519_pubkeys ? { adjudicator_x25519_pubkeys: a.adjudicator_x25519_pubkeys } : {}),
     } : {}),
     ...(a.sighting_bps ? { sighting_bps: Math.min(1000, Math.max(0, Math.round(a.sighting_bps))) } : {}),
     capacity,
@@ -365,6 +406,20 @@ export async function specReveal(
         spec_hash: bounty.spec_hash, spec_cid: bounty.spec_cid ?? null,
         bridge_x25519_pubkey: bridgeX25519PublicKey(env),
         funder_x25519_pubkey: bounty.funder_x25519_pubkey,
+      };
+    }
+    // Private-jury market: no bridge copy, no funder endpoint — the
+    // declared adjudicator operators hold the only spec copies. The
+    // worker contacts a juror directly (out-of-band reveal) or the funder
+    // assigns the work. Honest roster, no fake endpoint.
+    if (bounty.adjudicator_x25519_pubkeys?.length) {
+      return {
+        ok: true, hash: a.hash, mode: "private-jury",
+        adjudicator_x25519_pubkeys: bounty.adjudicator_x25519_pubkeys,
+        spec_cid: bounty.spec_cid ?? null,
+        spec_hash: bounty.spec_hash,
+        funder_x25519_pubkey: bounty.funder_x25519_pubkey,
+        instructions: "spec copies exist only for declared adjudicators — request reveal from a juror out-of-band, or the funder assigns workers directly",
       };
     }
     // Fully bridge-blind: reveal delegates to the funder's endpoint; the

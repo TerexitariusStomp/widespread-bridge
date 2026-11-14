@@ -100,7 +100,10 @@ export async function runReview(
     // the deliverable only needs the funder copy; the bridge can't judge
     // what it can't read (delegated adjudication, oracle-quorum settles).
     const bridgeBlind = !!bounty.spec_sealed && !bounty.spec_sealed_bridge_b64;
-    const { sealed, failures } = parseSealedArtifact(claimEvidence0, sealM?.[1], { requireBridgeCopy: !bridgeBlind });
+    const { sealed, failures } = parseSealedArtifact(claimEvidence0, sealM?.[1], {
+      requireBridgeCopy: !bridgeBlind,
+      adjudicatorPubkeys: bounty.adjudicator_x25519_pubkeys,
+    });
     if (!failures.length && bridgeBlind) {
       const record: ReviewRecord = {
         id, repo, seq, status: "delegated",

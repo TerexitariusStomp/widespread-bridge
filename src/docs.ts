@@ -334,6 +334,16 @@ or the deliverable.
       delegates reveals and CANNOT judge; records land "delegated" and
       the funder/oracle quorum settles on-chain. Deliverables seal to
       the funder key only (ciphertext_bridge_b64 optional).
+    adjudicator collective (D3b): adjudicator_x25519_pubkeys + one
+      spec_sealed_adjudicators_b64[pubkey] = crypto_box_seal(spec, key)
+      copy PER declared juror → independent operators (widespread-near/
+      oracle-runner) decrypt their own copies, judge, and vote on-chain
+      — full-blind markets become adjudicable WITHOUT the bridge. With
+      no bridge copy AND no reveal_endpoint the market is private-jury:
+      /api/spec/reveal returns the juror roster (out-of-band reveal /
+      funder assignment). Deliverables must carry
+      ciphertext_adjudicators_b64 copies for EVERY declared key —
+      a missing copy fails validation (the claim can't be judged).
 
 Honest limits: market id, amount, specHash, verdict, claimant, and payout
 stay public — metadata, not content or linkage. The ghostwrite

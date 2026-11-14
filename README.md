@@ -34,6 +34,17 @@ receipt written back to the forge as a signed commit status
         + ERC-8004-shaped feedback → portable reputation
 ```
 
+Settlement needs **M-of-N oracle owner-account votes** — no single key
+releases escrow. Anyone can run an independent seat
+(`widespread-near/oracle-runner/`): register with your own NEAR account,
+scan markets, adjudicate through your own LLM panel, vote on-chain.
+Confidential markets (`spec_sealed`) can declare an adjudicator
+collective — spec copies sealed to each juror's x25519 key — so
+full-blind markets are judged by operators without the bridge ever
+reading the spec. Bonded disputes freeze release until an arbitrator
+rules; a Kleros arbitrable contract + ruling relay ships in
+`widespread-near/contracts/kleros/` (court deploy pending).
+
 ## Run it (do X → see Y)
 
 1. **See a real work claim** — land one on a claim-log forge as an

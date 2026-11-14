@@ -424,6 +424,13 @@ export interface Bounty {
   spec_cid?: string;               // IPFS CID of the sealed ciphertext bundle
   reveal_endpoint?: string;        // funder-run reveal service (delegated reveals)
   spec_sealed_bridge_b64?: string; // crypto_box_seal(spec, bridge x25519) — judge-capable
+  /** D3b: spec copies sealed to the oracle collective's x25519 keys —
+   *  each operator decrypts its own copy (pubkey -> ciphertext). Public:
+   *  sealed boxes leak nothing to anyone but the holder. */
+  spec_sealed_adjudicators_b64?: Record<string, string>;
+  /** The adjudicator collective — workers seal deliverable copies to
+   *  these keys too (ciphertext_adjudicators_b64 in artifact_sealed). */
+  adjudicator_x25519_pubkeys?: string[];
   created_at: number;
 }
 

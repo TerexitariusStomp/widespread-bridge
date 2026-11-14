@@ -37,6 +37,20 @@ async function revealArgs(hash: string, agent: { secret: Uint8Array; pub: string
            signature_hex: toHex(ed25519.sign(new TextEncoder().encode(canon), agent.secret)) };
 }
 
+async function claimEntry(hash: string, sealed: Record<string, unknown>, sha: string) {
+  const entry = {
+    seq: 1, kind: "push.patch", actor: "did:key:zWorker",
+    payload: {
+      work_id: hash, ref: `sealed://${sha}`,
+      evidence: { artifact_sealed: sealed }, actor: "did:key:zWorker",
+      claimant: "worker.testnet", commits: [],
+    },
+    created_at: Date.now(), prev_hash: "genesis", hash: "",
+  };
+  entry.hash = await entryHash(entry as never, "genesis");
+  return entry;
+}
+
 // ------------------------------------------------------------- declare
 describe("D3 spec_sealed declaration", () => {
   const env = fakeEnv();
@@ -163,20 +177,6 @@ describe("D3 spec reveal lanes", () => {
 
 // ------------------------------------------------------------- review
 describe("D3 spec_sealed review", () => {
-  async function claimEntry(hash: string, sealed: Record<string, unknown>, sha: string) {
-    const entry = {
-      seq: 1, kind: "push.patch", actor: "did:key:zWorker",
-      payload: {
-        work_id: hash, ref: `sealed://${sha}`,
-        evidence: { artifact_sealed: sealed }, actor: "did:key:zWorker",
-        claimant: "worker.testnet", commits: [],
-      },
-      created_at: Date.now(), prev_hash: "genesis", hash: "",
-    };
-    entry.hash = await entryHash(entry as never, "genesis");
-    return entry;
-  }
-
   it("full-blind market: funder-only deliverable → delegated record, no panel", async () => {
     const kv = fakeKV();
     const funder = newSealedKeyPair();
@@ -273,5 +273,139 @@ describe("D3 spec_sealed escrow binding", () => {
     expect(cm.args.specHash).toBe(spec_hash);
     expect(cm.args.spec).toContain("[confidential:writing]");
     expect(cm.args.spec).toContain("cid=bafySpecCid");
+  });
+});
+
+// ------------------------------------------------ D3b adjudicator collective
+describe("D3b adjudicator collective — operators judge, bridge stays blind", () => {
+  it("stores the collective set; reveal returns the private-jury roster", async () => {
+    const kv = fakeKV();
+    const env = fakeEnv({ CLAIMS: kv as unknown as Env["CLAIMS"] });
+    const funder = newSealedKeyPair();
+    const op1 = newSealedKeyPair();
+    const op2 = newSealedKeyPair();
+    const spec_hash = await specHashOf(SPEC);
+    const spec = new TextEncoder().encode(SPEC);
+    const d = await bountyDeclare(env, {
+      spec_sealed: true, spec_hash,
+      adjudicator_x25519_pubkeys: [op1.publicKey, op2.publicKey],
+      spec_sealed_adjudicators_b64: {
+        [op1.publicKey]: sealTo(spec, op1.publicKey),
+        [op2.publicKey]: sealTo(spec, op2.publicKey),
+      },
+      funder_x25519_pubkey: funder.publicKey, domain: "writing", amount: "50", capacity: CAP,
+    });
+    expect(d.error).toBeUndefined();
+    const b = await getDeclared(env, d.hash);
+    expect(b?.spec_sealed_adjudicators_b64?.[op1.publicKey]).toBeDefined();
+    expect(b?.adjudicator_x25519_pubkeys).toEqual([op1.publicKey, op2.publicKey]);
+    expect(b?.spec).toBe("");
+    // An operator opens ITS copy — and no one else's can
+    const pt = sealOpen(b!.spec_sealed_adjudicators_b64![op1.publicKey], op1.secretKey);
+    expect(new TextDecoder().decode(pt!)).toBe(SPEC);
+    expect(sealOpen(b!.spec_sealed_adjudicators_b64![op1.publicKey], op2.secretKey)).toBeNull();
+    expect(sealOpen(b!.spec_sealed_adjudicators_b64![op1.publicKey], funder.secretKey)).toBeNull();
+    // Reveal returns the jury roster, not a fake endpoint
+    const agent = await registerAgent(kv);
+    const res = await specReveal(env, await revealArgs(d.hash as string, agent, newSealedKeyPair().publicKey));
+    expect(res.mode).toBe("private-jury");
+    expect(res.adjudicator_x25519_pubkeys).toEqual([op1.publicKey, op2.publicKey]);
+  });
+
+  it("rejects malformed, duplicate, and drifted collective declarations", async () => {
+    const env = fakeEnv();
+    const funder = newSealedKeyPair();
+    const op = newSealedKeyPair();
+    const spec_hash = await specHashOf(SPEC);
+    const spec = new TextEncoder().encode(SPEC);
+    // malformed key
+    const bad = await bountyDeclare(env, {
+      spec_sealed: true, spec_hash, adjudicator_x25519_pubkeys: ["not-hex"],
+      spec_sealed_adjudicators_b64: { "not-hex": sealTo(spec, op.publicKey) },
+      funder_x25519_pubkey: funder.publicKey, domain: "writing", amount: "50", capacity: CAP,
+    });
+    expect(bad.error).toMatch(/x25519 pubkeys/);
+    // duplicate
+    const dup = await bountyDeclare(env, {
+      spec_sealed: true, spec_hash, adjudicator_x25519_pubkeys: [op.publicKey, op.publicKey.toUpperCase()],
+      spec_sealed_adjudicators_b64: { [op.publicKey]: sealTo(spec, op.publicKey) },
+      funder_x25519_pubkey: funder.publicKey, domain: "writing", amount: "50", capacity: CAP,
+    });
+    expect(dup.error).toMatch(/duplicate/);
+    // copy to an undeclared key
+    const rogue = newSealedKeyPair();
+    const undeclared = await bountyDeclare(env, {
+      spec_sealed: true, spec_hash,
+      adjudicator_x25519_pubkeys: [op.publicKey],
+      spec_sealed_adjudicators_b64: {
+        [op.publicKey]: sealTo(spec, op.publicKey),
+        [rogue.publicKey]: sealTo(spec, rogue.publicKey),
+      },
+      funder_x25519_pubkey: funder.publicKey, domain: "writing", amount: "50", capacity: CAP,
+    });
+    expect(undeclared.error).toMatch(/undeclared key/);
+    // declared key missing its spec copy
+    const op2 = newSealedKeyPair();
+    const missing = await bountyDeclare(env, {
+      spec_sealed: true, spec_hash,
+      adjudicator_x25519_pubkeys: [op.publicKey, op2.publicKey],
+      spec_sealed_adjudicators_b64: { [op.publicKey]: sealTo(spec, op.publicKey) },
+      funder_x25519_pubkey: funder.publicKey, domain: "writing", amount: "50", capacity: CAP,
+    });
+    expect(missing.error).toMatch(/has no spec copy/);
+    // adjudicator fields on a non-sealed market
+    const plain = await bountyDeclare(env, {
+      spec: SPEC, adjudicator_x25519_pubkeys: [op.publicKey],
+      funder_x25519_pubkey: funder.publicKey, domain: "writing", amount: "50", capacity: CAP,
+    });
+    expect(plain.error).toMatch(/requires spec_sealed/);
+  });
+
+  it("full-blind collective market: deliverable must carry every juror's copy; record delegates", async () => {
+    const kv = fakeKV();
+    const funder = newSealedKeyPair();
+    const op1 = newSealedKeyPair();
+    const op2 = newSealedKeyPair();
+    const env = fakeEnv({
+      CLAIMS: kv as unknown as Env["CLAIMS"],
+      FORGES: JSON.stringify({ "widespread/writing": { type: "deltagit", base: "https://forge.test" } }),
+    } as Partial<Env>);
+    const spec = new TextEncoder().encode(SPEC);
+    const d = await bountyDeclare(env, {
+      spec_sealed: true, spec_hash: await specHashOf(SPEC),
+      adjudicator_x25519_pubkeys: [op1.publicKey, op2.publicKey],
+      spec_sealed_adjudicators_b64: {
+        [op1.publicKey]: sealTo(spec, op1.publicKey),
+        [op2.publicKey]: sealTo(spec, op2.publicKey),
+      },
+      funder_x25519_pubkey: funder.publicKey, domain: "writing", amount: "50", capacity: CAP,
+    });
+    const bytes = new TextEncoder().encode(DELIVERABLE);
+    const sha = await sha256Hex(bytes);
+    // Missing op2's copy → rejected
+    const partial = await claimEntry(d.hash as string, {
+      ciphertext_funder_b64: sealTo(bytes, funder.publicKey),
+      ciphertext_adjudicators_b64: { [op1.publicKey]: sealTo(bytes, op1.publicKey) },
+      artifact_sha256: `sha256:${sha}`,
+    }, sha);
+    vi.stubGlobal("fetch", fetchRouter([["/dg/oplog", () => jsonRes({ entries: [partial] })]]));
+    const rec = await runReview(env, "widespread/writing", 1, { force: true });
+    expect(rec.status).toBe("rejected");
+    expect(rec.adjudication?.reasoning).toMatch(/missing copy/);
+    // Every juror's copy present → delegates cleanly, no plaintext in record
+    const full = await claimEntry(d.hash as string, {
+      ciphertext_funder_b64: sealTo(bytes, funder.publicKey),
+      ciphertext_adjudicators_b64: {
+        [op1.publicKey]: sealTo(bytes, op1.publicKey),
+        [op2.publicKey]: sealTo(bytes, op2.publicKey),
+      },
+      artifact_sha256: `sha256:${sha}`,
+    }, sha);
+    vi.stubGlobal("fetch", fetchRouter([["/dg/oplog", () => jsonRes({ entries: [full] })]]));
+    const rec2 = await runReview(env, "widespread/writing", 1, { force: true });
+    expect(rec2.status).toBe("delegated");
+    const blob = JSON.stringify(rec2);
+    expect(blob).not.toContain("eulogy");
+    expect(blob).not.toContain(DELIVERABLE);
   });
 });

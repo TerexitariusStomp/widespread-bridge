@@ -156,6 +156,7 @@ export async function validateForgeSubmission(
     forgeRef: string; forgeUserId?: string; commits?: string[];
     evidence?: Record<string, unknown>;
     market?: { spec?: string; specHash?: string; verification?: { params?: Record<string, unknown> } };
+    sealOpts?: { requireBridgeCopy?: boolean; adjudicatorPubkeys?: string[] };
   },
 ): Promise<{ failures: string[]; evidence: Record<string, unknown> }> {
   const failures: string[] = [];
@@ -179,7 +180,7 @@ export async function validateForgeSubmission(
     return validateJobArtifact(env, art, evidence);
   }
   if (art.kind === "sealed") {
-    return validateSealedArtifact(env, art, evidence);
+    return validateSealedArtifact(env, art, evidence, body.sealOpts);
   }
 
   // github kind — original forge path
@@ -272,6 +273,21 @@ export async function handleClaimPost(req: Request, env: Env): Promise<Response>
     failures.push("specHash does not match market specHash");
   }
 
+  // Collective-sealed / full-blind markets: the on-chain spec stub carries
+  // `decl=<hash>` → resolve the declaration for its adjudicator keys so
+  // sealed deliverables must cover every declared juror (and don't get
+  // wrongly asked for a bridge copy on bridge-blind markets).
+  let sealOpts: { requireBridgeCopy?: boolean; adjudicatorPubkeys?: string[] } | undefined;
+  const declHash = String(market.spec ?? "").match(/decl=([0-9a-f]+)/i)?.[1];
+  if (declHash) {
+    const { getDeclared } = await import("./declare");
+    const bounty = await getDeclared(env, declHash).catch(() => null);
+    if (bounty) {
+      const bridgeBlind = !!bounty.spec_sealed && !bounty.spec_sealed_bridge_b64;
+      sealOpts = { requireBridgeCopy: !bridgeBlind, adjudicatorPubkeys: bounty.adjudicator_x25519_pubkeys };
+    }
+  }
+
   // 2-4. artifact validation (shared with fiat mirror claims) — github PRs,
   // content-addressed CIDs, coordinator job records, or metered receipts.
   const fv = await validateForgeSubmission(env, {
@@ -280,6 +296,7 @@ export async function handleClaimPost(req: Request, env: Env): Promise<Response>
     commits: body.commits,
     evidence: body.evidence,
     market: market as { spec?: string; specHash?: string },
+    sealOpts,
   });
   failures.push(...fv.failures);
   const evidence = fv.evidence;
