@@ -15,14 +15,14 @@
     // unreviewed work claims (each resolves through FORGES → FORGE_BASE).
     "WATCH_REPOS": "slop/slopdotcash,slop/protocol",
     // NEAR market contract — the on-chain source of truth for /api/markets.
-    "NEAR_CONTRACT": "wide-mkt-11561.testnet",
+    "NEAR_CONTRACT": "e2b3936775a4a1e300301f04cd7f7a4902b7a6002ee68c846ab71d4469fbbef2",
     // Ops account that auto-escrows fiat-funded mirrors (key in
     // NEAR_OPS_SECRET_KEY secret). Testnet demo account.
     "NEAR_OPS_ACCOUNT": "wide-ops-328424.testnet",
     "FUTARCHY_CONTRACT": "foreguild-ft-69240.testnet",
     "HATS_CONTRACT": "intentional-hats-632291.testnet",
     "HATS_ORG": "2",
-    "NEAR_RPC_URL": "https://test.rpc.fastnear.com",
+    "NEAR_RPC_URL": "https://rpc.mainnet.near.org",
     // Protocol revenue treasury — mirror platformBps cuts settle here
     // (contract-side 2% FEE_BPS routes via setFeeSink, same account).
     "CUT_SINK": "wide-mkt-11561.testnet",

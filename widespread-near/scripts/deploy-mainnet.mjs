@@ -8,7 +8,7 @@
 // (wide-mkt.<account>) — funded from the main account — and calls
 // init(oracle) if the contract isn't initialised.
 // Dry-run first: DRY_RUN=1 prints the plan only.
-import { Account, KeyPair, KeyPairSigner } from "near-api-js";
+import { Account, KeyPair, KeyPairSigner, JsonRpcProvider } from "near-api-js";
 import { readFileSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -25,19 +25,7 @@ const WASM = path.join(path.dirname(fileURLToPath(import.meta.url)),
 const ORACLE = process.env.ORACLE_ACCOUNT ?? FUNDER; // oracle/adjudicator acct
 const CONTRACT_ID = process.env.CONTRACT_ID ?? `wide-mkt.${FUNDER}`;
 
-const provider = {
-  async callFunction({ contractId, method, args = {} }) {
-    const r = await fetch(RPC, { method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", id: "w", method: "query",
-        params: { request_type: "call_function", finality: "final",
-          account_id: contractId, method_name: method,
-          args_base64: Buffer.from(JSON.stringify(args)).toString("base64") } }) });
-    const out = await r.json();
-    if (out.error) throw new Error(JSON.stringify(out.error));
-    return JSON.parse(Buffer.from(out.result.result).toString());
-  },
-};
+const provider = new JsonRpcProvider({ url: RPC });
 
 const signer = new KeyPairSigner(KeyPair.fromString(KEY));
 const acct = new Account(FUNDER, provider, signer);
@@ -50,13 +38,19 @@ console.log(`deploy plan:
   wasm:      ${WASM}`);
 if (process.env.DRY_RUN) process.exit(0);
 
-// 1. create the contract subaccount (0.5 NEAR storage) — skip if it exists
-try {
-  await sub.getState();
+// 1. create the contract subaccount (2.6 NEAR storage) — skip if it exists
+const exists = await fetch(RPC, { method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ jsonrpc: "2.0", id: "w", method: "query",
+    params: { request_type: "view_account", finality: "final",
+      account_id: CONTRACT_ID } }) }).then(r => r.json())
+  .then(d => !d.error && d.result?.amount !== undefined);
+if (exists) {
   console.log("· contract account exists — skipping create");
-} catch {
-  console.log("· creating contract account (0.5 NEAR)…");
-  await acct.createAccount(CONTRACT_ID, signer.getPublicKey(), "500000000000000000000000");
+} else {
+  console.log("· creating contract account (2.6 NEAR)…");
+  await acct.createAccount({ newAccountId: CONTRACT_ID,
+    publicKey: signer.getPublicKey(), nearToTransfer: 2600000000000000000000000n });
 }
 
 // 2. deploy wasm
