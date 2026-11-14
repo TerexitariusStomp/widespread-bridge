@@ -39,6 +39,10 @@ export interface ClaimBody {
   specHash?: string;
   forgeUserId?: string;       // claimed github numeric id — verified vs author
   evidence?: Record<string, unknown>;
+  /** NEP-245 markets only: presigned intents withdraw payload — release
+   *  chains execute_intents so settlement lands on the worker's home
+   *  chain in one tx. Net payout is deterministic at claim time. */
+  payoutIntent?: unknown;
 }
 
 interface GhAuthor { id: number; login: string }
@@ -326,6 +330,9 @@ export async function handleClaimPost(req: Request, env: Env): Promise<Response>
     forgeUserId: String(evidence.forgeUserId ?? evidence.device_did ?? ""),
     relayer: "widespread-bridge",
     attested: !!token,
+    // Bridge-out: workers on NEP-245 markets may presign an intents
+    // withdraw payload so release settles to their home chain in one tx.
+    payoutIntent: body.payoutIntent ?? null,
   };
 
   return Response.json({

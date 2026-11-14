@@ -293,6 +293,12 @@ export async function tryDeclEscrow(env: Env, hash: string): Promise<unknown> {
 export async function declEscrowPlan(env: Env, hash: string, opts: {
   origin_asset?: string; refund_to?: string; recipient?: string;
   near_amount?: string; quorum_m?: number; oracle_allowlist?: string[];
+  // Token escrow rails: fund the market in an NEP-141 FT (USDC/USDT/wNEAR)
+  // or an NEP-245 intents multi-token (omni-asset). token_contract is the
+  // FT/mt contract account; token_id names the sub-asset for mt markets;
+  // token_amount is raw token units (string). When set, the plan emits a
+  // transfer_call funding tx instead of a native-deposit createMarket.
+  token_contract?: string; token_id?: string; token_amount?: string;
 }): Promise<unknown> {
   const { getDeclared } = await import("./declare");
   const bounty = await getDeclared(env, hash);
@@ -321,19 +327,48 @@ export async function declEscrowPlan(env: Env, hash: string, opts: {
   }
   const deposit = BigInt(Math.round(nearAmount * 1e24));
 
+  const marketSpec = {
+    specHash, spec,
+    deadline: String(BigInt(Date.now()) * 1000000n + 30n * 24n * 3600n * 1000000000n),
+    acceptanceRule: "best sealed claim wins (attested submissions only)",
+    platformBps: 0, platformTo: null,
+    oracleQuorumM: opts.quorum_m ?? 1,
+    oracleAllowlist: opts.oracle_allowlist ?? null,
+    payToHat: null, claimTtlNs: null, acceptanceHash: null,
+  };
   const createMarketArgs = {
     receiver: contract, method: "createMarket",
-    args: {
-      specHash, spec,
-      deadline: String(BigInt(Date.now()) * 1000000n + 30n * 24n * 3600n * 1000000000n),
-      acceptanceRule: "best sealed claim wins (attested submissions only)",
-      platformBps: 0, platformTo: null,
-      oracleQuorumM: opts.quorum_m ?? 1,
-      oracleAllowlist: opts.oracle_allowlist ?? null,
-      payToHat: null, claimTtlNs: null, acceptanceHash: null,
-    },
+    args: marketSpec,
     deposit_yocto: deposit.toString(),
   };
+
+  // Token escrow: one ft_transfer_call / mt_transfer_call funds the
+  // market — escrow, fees, and payout settle in the token (fees accrue
+  // to the sink in-kind); mt payout can bridge out via payoutIntent.
+  const tokenFunding = opts.token_contract ? (
+    opts.token_id ? {
+      receiver: opts.token_contract, method: "mt_transfer_call",
+      args: {
+        receiver_id: contract,
+        token_id: opts.token_id,
+        amount: opts.token_amount ?? null,
+        memo: "open market",
+        msg: JSON.stringify({ kind: "open_market", market: marketSpec }),
+      },
+      deposit_yocto: "1",
+      note: "NEP-245 intents-token escrow — bounty settles in the omni-asset; the worker can bridge out at release",
+    } : {
+      receiver: opts.token_contract, method: "ft_transfer_call",
+      args: {
+        receiver_id: contract,
+        amount: opts.token_amount ?? null,
+        memo: "open market",
+        msg: JSON.stringify({ kind: "open_market", market: marketSpec }),
+      },
+      deposit_yocto: "1",
+      note: "NEP-141 token escrow — the FT contract must trust this receiver (any NEP-141 works)",
+    }
+  ) : null;
 
   // Live 1Click quote when the funder supplies their fresh recipient +
   // origin asset — the deposit address funds THEIR key, never ours.
@@ -355,6 +390,7 @@ export async function declEscrowPlan(env: Env, hash: string, opts: {
 
   return {
     createMarket: createMarketArgs,
+    ...(tokenFunding ? { tokenFunding } : {}),
     quote,
     spec_hash: specHash,
     confidential: !!bounty.confidential,
