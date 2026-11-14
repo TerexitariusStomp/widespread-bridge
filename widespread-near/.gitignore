@@ -1,0 +1,5 @@
+node_modules/
+build/
+.env
+contract.js* contract.js.map contract.wasm
+builder.c methods.h

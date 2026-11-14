@@ -1,0 +1,17 @@
+{
+  "name": "widespread-oracle-runner",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "description": "Independent oracle seat runner — scans markets, adjudicates claims, votes on-chain",
+  "scripts": {
+    "register": "node run.mjs register",
+    "run": "node run.mjs run",
+    "once": "node run.mjs once"
+  },
+  "dependencies": {
+    "@noble/curves": "^2.4.0",
+    "@serenity-kit/noble-sodium": "^0.2.3",
+    "near-api-js": "^7.5.3"
+  }
+}

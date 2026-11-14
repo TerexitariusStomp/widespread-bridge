@@ -1,0 +1,32 @@
+{
+  "name": "widespread-near",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "widespread on NEAR \u2014 permissionless verified-work market: contract + oracle + agent + bot + intents (NEAR HACKATHON submission)",
+  "scripts": {
+    "test": "node --test test/",
+    "test:live": "node --test test/live.test.mjs",
+    "build": "cd contracts/market-rs && cargo +stable build --release --target wasm32-unknown-unknown && wasm-opt -Oz target/wasm32-unknown-unknown/release/widespread_market.wasm -o target/wasm32-unknown-unknown/release/widespread_market.opt.wasm",
+    "test:rs": "cd contracts/market-rs && cargo +stable test --release",
+    "test:rs-live": "cd contracts/market-rs && cargo +stable test --release -- --ignored",
+    "deploy": "near deploy \"$NEAR_ACCOUNT\" contracts/market-rs/target/wasm32-unknown-unknown/release/widespread_market.opt.wasm",
+    "build:legacy": "cd contracts/market-legacy && node node_modules/near-sdk-js/lib/cli/cli.js build contract.src.js build/contract.wasm"
+  },
+  "dependencies": {
+    "@seer-pm/sdk": "^0.0.20",
+    "chainsig.js": "^1.1.16",
+    "esbuild": "^0.24.0",
+    "near-api-js": "^7.4.0",
+    "near-sdk-js": "^2.0.0",
+    "viem": "^2.57.17"
+  },
+  "allowScripts": {
+    "near-sdk-js": true,
+    "esbuild": true
+  },
+  "workspaces": [
+    "contracts/*",
+    "packages/*"
+  ]
+}
