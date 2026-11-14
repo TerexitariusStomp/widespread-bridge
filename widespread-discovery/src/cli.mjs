@@ -28,6 +28,7 @@ const usage = `wsd — widespread-discovery CLI
   wsd publish --platform P --id ID --text "…" [--url U --author A]
   wsd query [--platform P --id ID] [--limit N]
   wsd surface add URL          allowlist a surface (required before watch)
+  wsd cdp-watch --platform web --surface URL   watch via real browser (CDP)
   wsd gen-openapi --file spec.yaml   OpenAPI → draft adapter manifest
   wsd surface                  list allowlisted surfaces
   wsd watch URL… [--kind json|rss]   poll allowlisted surfaces → publish
@@ -101,6 +102,12 @@ switch (cmd) {
       setInterval(() => watchOnce(surfs).catch(console.error), Number(a.interval) * 1000);
       console.log(`polling every ${a.interval}s — ctrl-c to stop`);
     }
+    break;
+  }
+  case "cdp-watch": {
+    const { cdpWatchCli } = await import("./cdp-watch.mjs");
+    await cdpWatchCli(a);
+    closePool(); setTimeout(()=>process.exit(0),300);
     break;
   }
   case "serve": {
