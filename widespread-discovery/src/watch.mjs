@@ -29,19 +29,31 @@ function findArray(o) {
 
 function parseRSS(xml, grammar) {
   const items = [];
-  const re = /<item[\s>]([\s\S]*?)<\/item>/g;
+  // RSS <item> and Atom <entry> share the same field names we need.
+  const re = /<(item|entry)[\s>]([\s\S]*?)<\/\1>/g;
   let m;
   const tag = (block, name) => {
     const r = new RegExp(`<${name}[^>]*>([\\s\\S]*?)</${name}>`, "i");
     const hit = block.match(r);
     return hit ? hit[1].replace(/<!\[CDATA\[|\]\]>/g, "").trim() : "";
   };
+  const atomLink = (block) => {
+    const m = block.match(/<link[^>]*href="([^"]+)"/i);
+    return m ? m[1] : "";
+  };
+  const atomAuthor = (block) => {
+    const m = block.match(/<author[\s\S]*?<name[^>]*>([\s\S]*?)<\/name>/i);
+    return m ? m[1].replace(/<!\[CDATA\[|\]\]>/g, "").trim() : "";
+  };
   while ((m = re.exec(xml))) {
-    const b = m[1];
-    const text = `${tag(b, "title")} ${tag(b, "description")}`;
-    if (grammar.test(text)) items.push({
-      id: tag(b, "guid") || tag(b, "link"), author: tag(b, "author") || tag(b, "dc:creator"),
-      text, url: tag(b, "link"), ts: undefined,
+    const b = m[2];
+    const text = `${tag(b, "title")} ${tag(b, "description") || tag(b, "summary")}`;
+    if (!grammar.test(text)) continue;
+    items.push({
+      id: tag(b, "guid") || atomLink(b) || tag(b, "id"),
+      author: (tag(b, "author") || tag(b, "dc:creator") || atomAuthor(b))
+        .replace(/<[^>]+>/g, "").trim() || undefined,
+      text, url: tag(b, "link") || atomLink(b) || undefined, ts: undefined,
     });
   }
   return items;
