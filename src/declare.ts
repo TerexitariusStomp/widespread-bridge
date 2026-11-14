@@ -367,7 +367,7 @@ export async function specReveal(
   const reg = await env.CLAIMS.get(`agent:${a.agent_pubkey}`, "json").catch(() => null);
   if (!reg) return { error: "agent not registered — run wide_agent_challenge + wide_agent_register first" };
 
-  const { ed25519 } = await import("@noble/curves/ed25519");
+  const { ed25519 } = await import("@noble/curves/ed25519.js");
   const hexToBytes = (h: string) => {
     const b = new Uint8Array(h.length / 2);
     for (let i = 0; i < b.length; i++) b[i] = parseInt(h.slice(i * 2, i * 2 + 2), 16);

@@ -12,7 +12,7 @@ import {
 import { runReview } from "../src/review";
 import { entryHash } from "../src/forges/deltagit";
 import { fakeEnv, fakeKV, fetchRouter, jsonRes } from "./mock";
-import { ed25519 } from "@noble/curves/ed25519";
+import { ed25519 } from "@noble/curves/ed25519.js";
 import type { Env } from "../src/types";
 
 beforeEach(() => vi.unstubAllGlobals());
@@ -167,7 +167,7 @@ describe("C1 claim-gated spec reveal", () => {
       .toMatch(/not confidential/);
 
     // unregistered agent → gate
-    const agentSecret = ed25519.utils.randomPrivateKey();
+    const agentSecret = ed25519.utils.randomSecretKey();
     const agentPub = toHex(ed25519.getPublicKey(agentSecret));
     const claimant = newSealedKeyPair();
     const canon = `widespread-spec-reveal\n${hash}\n${claimant.publicKey}`;

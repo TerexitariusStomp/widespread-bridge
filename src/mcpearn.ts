@@ -4,7 +4,7 @@
 // Nothing sensitive is stored: challenge → pubkey → DID mapping is public
 // material by design (the forge op-log records it anyway).
 
-import { ed25519 } from "@noble/curves/ed25519";
+import { ed25519 } from "@noble/curves/ed25519.js";
 import type { Env } from "./types";
 import { handleClaimPost } from "./claims";
 import { forgeFor } from "./forges";

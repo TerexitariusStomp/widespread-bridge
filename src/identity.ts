@@ -273,7 +273,7 @@ async function vEd25519Chain(chain: string, { did, platform, handle, proof }: Bi
     const pkBytes = /^[0-9a-f]{64}$/i.test(p.pubkey ?? "") ? hexBytes(p.pubkey!) : b58decode((p.pubkey ?? handle).replace(/^ed25519:/, ""));
     const sigBytes = /^[0-9a-f]{128}$/i.test(p.sig ?? "") ? hexBytes(p.sig!) : new Uint8Array(atob(p.sig ?? "").split("").map((c) => c.charCodeAt(0)));
     if (pkBytes.length !== 32 || sigBytes.length !== 64) return bad("sig", "bad key/sig length", ev);
-    const { ed25519 } = await import("@noble/curves/ed25519");
+    const { ed25519 } = await import("@noble/curves/ed25519.js");
     if (!ed25519.verify(sigBytes, msg, pkBytes)) return bad("sig", "invalid signature", ev);
     if (p.pubkey && p.pubkey !== handle && chain === "solana") return bad("sig", "pubkey != handle", ev);
     return { ok: true, tier: "sig", evidence: { ...ev, pubkey: p.pubkey ?? handle } };
@@ -547,7 +547,7 @@ export async function revokeBinding(env: Env, input: { did: string; platform: st
   if (!reg?.pubkey) return { ok: false, error: "DID has no registered key — delete the bind statement and call reverify instead" };
   if (!input.sig_hex) return { ok: false, error: "sig_hex required (sign `widespread-revoke:v1\\n<did>\\n<platform>\\n<handle>`)" };
   const msg = new TextEncoder().encode(`widespread-revoke:v1\n${input.did}\n${input.platform}\n${input.handle}`);
-  const { ed25519 } = await import("@noble/curves/ed25519");
+  const { ed25519 } = await import("@noble/curves/ed25519.js");
   if (!ed25519.verify(hexBytes(input.sig_hex), msg, hexBytes(reg.pubkey))) return { ok: false, error: "invalid signature" };
   b.revoked_at = Date.now();
   await env.CLAIMS.put(bindKey(input.did, input.platform, input.handle), JSON.stringify(b));

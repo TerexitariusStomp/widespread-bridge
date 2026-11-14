@@ -141,8 +141,8 @@ describe("signature proofs", () => {
   });
 
   it("solana ed25519 verifies", async () => {
-    const { ed25519 } = await import("@noble/curves/ed25519");
-    const sk = ed25519.utils.randomPrivateKey();
+    const { ed25519 } = await import("@noble/curves/ed25519.js");
+    const sk = ed25519.utils.randomSecretKey();
     const pk = ed25519.getPublicKey(sk);
     const hex = (b: Uint8Array) => [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
     const sig = ed25519.sign(new TextEncoder().encode(bindStatement(DID, "solana", hex(pk))), sk);
@@ -185,8 +185,8 @@ describe("storage, replay, revocation", () => {
   });
 
   it("revoke requires the DID's registered key signature", async () => {
-    const { ed25519 } = await import("@noble/curves/ed25519");
-    const sk = ed25519.utils.randomPrivateKey();
+    const { ed25519 } = await import("@noble/curves/ed25519.js");
+    const sk = ed25519.utils.randomSecretKey();
     const pk = ed25519.getPublicKey(sk);
     const hex = (b: Uint8Array) => [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
     const kv = fakeKV({ [`agentdid:${DID}`]: JSON.stringify({ pubkey: hex(pk) }) });

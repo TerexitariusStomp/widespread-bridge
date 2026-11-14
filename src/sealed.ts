@@ -14,7 +14,7 @@
 // inside reveals nothing about the claimant.
 
 import { cryptoBoxSeal, cryptoBoxSealOpen, cryptoBoxKeyPair } from "@serenity-kit/noble-sodium";
-import { x25519 } from "@noble/curves/ed25519";
+import { x25519 } from "@noble/curves/ed25519.js";
 import type { Env } from "./types";
 
 export interface SealedArtifact {

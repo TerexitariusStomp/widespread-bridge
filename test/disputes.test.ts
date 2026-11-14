@@ -5,13 +5,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { disputePlan, getDisputes, evidenceBundle, submitRuling } from "../src/disputes";
 import { fakeEnv, fakeKV, jsonRes } from "./mock";
 import { b58encode } from "../src/nearops";
-import { ed25519 } from "@noble/curves/ed25519";
+import { ed25519 } from "@noble/curves/ed25519.js";
 import type { Env } from "../src/types";
 
 beforeEach(() => vi.unstubAllGlobals());
 
 const CONTRACT = "mkt.testnet";
-const seed = ed25519.utils.randomPrivateKey();
+const seed = ed25519.utils.randomSecretKey();
 const pub = ed25519.getPublicKey(seed);
 const fakeSecretKey = `ed25519:${b58encode(new Uint8Array([...seed, ...pub]))}`;
 

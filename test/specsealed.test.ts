@@ -10,7 +10,7 @@ import {
 import { runReview } from "../src/review";
 import { entryHash } from "../src/forges/deltagit";
 import { fakeEnv, fakeKV, fetchRouter, jsonRes } from "./mock";
-import { ed25519 } from "@noble/curves/ed25519";
+import { ed25519 } from "@noble/curves/ed25519.js";
 import type { Env } from "../src/types";
 
 beforeEach(() => vi.unstubAllGlobals());
@@ -25,7 +25,7 @@ async function specHashOf(text: string) {
 }
 
 async function registerAgent(kv: ReturnType<typeof fakeKV>) {
-  const secret = ed25519.utils.randomPrivateKey();
+  const secret = ed25519.utils.randomSecretKey();
   const pub = toHex(ed25519.getPublicKey(secret));
   await kv.put(`agent:${pub}`, JSON.stringify({ pubkey: pub, did: "did:key:zAgent", label: "t" }));
   return { secret, pub };

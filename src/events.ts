@@ -73,7 +73,7 @@ export async function emitEvent(
     if (cfg) {
       // Derive the pubkey from the seed — never trust env's separate
       // ORACLE_PUBKEY_HEX, which can drift and produce unverifiable sigs.
-      const { ed25519 } = await import("@noble/curves/ed25519");
+      const { ed25519 } = await import("@noble/curves/ed25519.js");
       const seed = Uint8Array.from(cfg.oracleKeyHex.match(/.{2}/g)!.map((h) => parseInt(h, 16)));
       pubkey = [...ed25519.getPublicKey(seed)].map((b) => b.toString(16).padStart(2, "0")).join("");
       sig = await ed25519SignHex(`wide-event|${hash}`, cfg.oracleKeyHex);
@@ -113,7 +113,7 @@ export async function verifyChain(env: Env): Promise<{
 }> {
   const { events, head } = await listEvents(env, 0, 100000);
   const breaks: { seq: number; reason: string }[] = [];
-  const { ed25519 } = await import("@noble/curves/ed25519");
+  const { ed25519 } = await import("@noble/curves/ed25519.js");
   const hexToBytes = (h: string) => {
     const b = new Uint8Array(h.length / 2);
     for (let i = 0; i < b.length; i++) b[i] = parseInt(h.slice(i * 2, i * 2 + 2), 16);

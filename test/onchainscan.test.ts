@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { scanOnchain, scanMirrorPayouts } from "../src/onchainscan";
 import { fakeEnv, fakeKV, jsonRes } from "./mock";
 import { b58encode } from "../src/nearops";
-import { ed25519 } from "@noble/curves/ed25519";
+import { ed25519 } from "@noble/curves/ed25519.js";
 import type { Env } from "../src/types";
 
 const CONTRACT = "wide-mkt-11561.testnet";
@@ -13,7 +13,7 @@ const PK = "ab".repeat(32); // our oracle pubkey hex
 
 // A REAL ed25519 keypair — nearFunctionCall signs the tx with WebCrypto
 // JWK import which rejects non-curve bytes even when send_tx is mocked.
-const seed = ed25519.utils.randomPrivateKey();
+const seed = ed25519.utils.randomSecretKey();
 const pub = ed25519.getPublicKey(seed);
 const fakeSecretKey = `ed25519:${b58encode(new Uint8Array([...seed, ...pub]))}`;
 
