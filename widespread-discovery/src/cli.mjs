@@ -34,6 +34,7 @@ const usage = `wsd — widespread-discovery CLI
   wsd keygen                      generate watcher identity (~/.widespread-discovery)
   wsd import --nsec nsec1…         import existing nostr identity
   wsd publish --platform P --id ID --text "…" [--url U --author A]
+  wsd flush                       batch-publish queued sightings (pipelined WS)
   wsd query [--platform P --id ID] [--limit N]
   wsd surface add URL          allowlist a surface (required before watch)
   wsd cdp-watch --platform web --surface URL   watch via real browser (CDP)
@@ -85,6 +86,15 @@ switch (cmd) {
       await queueSighting(sight);
       console.log(`queued for retry (relays unreachable): ${e.message}`);
     }
+    closePool(); setTimeout(()=>process.exit(0),300); break;
+  }
+  case "flush": {
+    needId();
+    const { flushOutbox, loadOutbox } = await import("./node.mjs");
+    const pending = loadOutbox().length;
+    if (!pending) { console.log("outbox empty"); break; }
+    const n = await flushOutbox();
+    console.log(`flushed ${n}/${pending} queued sightings (pipelined batch publish + retention verify)`);
     closePool(); setTimeout(()=>process.exit(0),300); break;
   }
   case "query": {

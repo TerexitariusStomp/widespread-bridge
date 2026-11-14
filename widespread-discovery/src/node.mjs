@@ -139,6 +139,47 @@ export async function publishRawEvent(ev) {
   if (!oks.length) throw new Error("all relays failed");
   return { event: ev, oks: oks.length };
 }
+/** Publish already-finalized events pipelined over raw WebSocket — all
+ *  EVENT frames are sent back-to-back per relay without waiting for OKs
+ *  (NIP-01 allows this; relays process messages concurrently). This is the
+ *  protocol-native batch path: one connection carries N events, so bulk
+ *  ingest costs ~1 request-equivalent of handshake, not N.
+ *  Returns Map<relayUrl, Map<eventId, {ok, message}>>. */
+export async function publishEventsPipelined(events) {
+  const rs = relays();
+  const out = new Map();
+  await Promise.allSettled(rs.map(async (r) => {
+    out.set(r, await publishPipelinedOnRelay(r, events));
+  }));
+  return out;
+}
+
+function publishPipelinedOnRelay(url, events) {
+  return new Promise((resolve) => {
+    const results = new Map();
+    let pending = events.length;
+    let settled = false;
+    const finish = () => { if (!settled && pending === 0) { settled = true; try { ws.close(); } catch {} resolve(results); } };
+    const ws = new WebSocket(url);
+    const timer = setTimeout(() => {
+      // unresolved events count as failures — never claim unverified ACKs
+      for (const ev of events) if (!results.has(ev.id)) results.set(ev.id, { ok: false, message: "timeout" });
+      try { ws.close(); } catch {}
+      resolve(results);
+    }, 30000);
+    ws.onopen = () => { for (const ev of events) ws.send(JSON.stringify(["EVENT", ev])); };
+    ws.onmessage = (m) => {
+      let msg; try { msg = JSON.parse(m.data); } catch { return; }
+      if (msg[0] !== "OK") return;
+      const [, id, ok, reason] = msg;
+      results.set(id, { ok: !!ok, message: reason ?? "" });
+      if (--pending === 0) { clearTimeout(timer); finish(); }
+    };
+    ws.onerror = () => { clearTimeout(timer); resolve(results); };
+    ws.onclose = () => { clearTimeout(timer); resolve(results); };
+  });
+}
+
 /** Verify + ingest event envelopes from any transport; returns count of
  *  new sightings indexed. Meta/adapter envelopes are passed through to
  *  callers via the returned `other` list for gossiping. */
@@ -204,11 +245,48 @@ export async function queueSighting(s) {
 export async function flushOutbox() {
   const items = loadOutbox();
   if (!items.length) return 0;
+  const id = loadIdentity();
+  if (!id) return 0;
+  const { buildSighting, sightingEventTemplate } = await import("./core.mjs");
+  // Batch path: finalize all events, publish pipelined over one WS per
+  // relay (N events per connection, not N connections), then verify
+  // retention with a single ids-query per relay.
+  const pairs = items.map((s) => ({
+    s,
+    ev: N.finalizeEvent(sightingEventTemplate(id.pk, buildSighting({
+      platform: s.platform, native_id: s.native_id, url: s.url,
+      author: s.author, text: s.text, ts: s.ts ?? Math.floor(Date.now() / 1000),
+    })), id.sk),
+  }));
+  const events = pairs.map((p) => p.ev);
+  const perRelay = await publishEventsPipelined(events);
+  // accepted = OK:true on ≥1 relay
+  const accepted = new Map(); // eventId -> bool
+  for (const verdicts of perRelay.values()) {
+    for (const [eid, v] of verdicts) {
+      if (v.ok) accepted.set(eid, true);
+    }
+  }
+  // Retention verify: one REQ per relay covering all ids (filters accept
+  // ids arrays). D1 replicas lag — retry briefly before declaring drops.
+  const rs = relays();
+  const storedIds = new Set();
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt) await new Promise((r) => setTimeout(r, 3000));
+    try {
+      const found = await Promise.race([
+        getPool().querySync(rs, { ids: events.map((e) => e.id) }),
+        new Promise((_, rej) => setTimeout(() => rej(new Error("verify timeout")), 20000)),
+      ]);
+      for (const ev of found) storedIds.add(ev.id);
+      if (storedIds.size) break;
+    } catch { /* inconclusive */ }
+  }
   const remaining = [];
   let flushed = 0;
-  for (const s of items) {
-    try { await publishSighting(s); flushed++; }
-    catch { remaining.push(s); }
+  for (const { s, ev } of pairs) {
+    if (accepted.get(ev.id) && storedIds.has(ev.id)) { appendEventLog(ev); flushed++; }
+    else remaining.push(s);
   }
   saveOutbox(remaining);
   return flushed;
