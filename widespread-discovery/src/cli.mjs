@@ -42,6 +42,7 @@ const usage = `wsd — widespread-discovery CLI
   wsd serve [--port 8787]         localhost HTTP API + background watcher
   wsd mcp                         stdio MCP server (agent integration)
   wsd stats                       local index stats
+  wsd snapshot                   publish capacity snapshot event (public C(t) index)
   wsd sync-out / wsd sync-in      publish/fetch encrypted watcher state
   env: WSD_RELAYS="wss://a,wss://b"`;
 
@@ -146,6 +147,25 @@ switch (cmd) {
     for (const s of rows) { byPlatform[s.platform] = (byPlatform[s.platform] ?? 0) + 1; byTier[s.tier ?? "?"] = (byTier[s.tier ?? "?"] ?? 0) + 1; }
     console.log(JSON.stringify({ sightings: rows.length, by_platform: byPlatform, by_tier: byTier, watermark: idx.watermark, relays: relays() }, null, 2));
     break;
+  }
+  case "snapshot": {
+    needId();
+    const idx = loadIndex();
+    const byPlatform = {}, byTier = {};
+    let n = 0;
+    for (const s of Object.values(idx.sightings)) {
+      n++; byPlatform[s.platform] = (byPlatform[s.platform] ?? 0) + 1;
+      const t = s.tier ?? "lead"; byTier[t] = (byTier[t] ?? 0) + 1;
+    }
+    const { capacitySnapshotEventTemplate } = await import("./core.mjs");
+    const { publish } = await import("./node.mjs");
+    const id = loadIdentity();
+    const r = await publish(capacitySnapshotEventTemplate(id.pk, {
+      v: 1, sightings: n, by_platform: byPlatform, by_tier: byTier,
+      watermark: idx.watermark ?? null, at: Math.floor(Date.now() / 1000),
+    }));
+    console.log(`snapshot published: ${n} sightings, ${r.oks.length} relays`);
+    closePool(); setTimeout(()=>process.exit(0),300); break;
   }
   case "sync-out": needId(); console.log(JSON.stringify((await publishState(await collectState())).event.id)); closePool(); setTimeout(()=>process.exit(0),300); break;
   case "sync-in": needId(); console.log(JSON.stringify(await fetchState(), null, 2)); closePool(); setTimeout(()=>process.exit(0),300); break;

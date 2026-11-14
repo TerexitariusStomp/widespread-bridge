@@ -35,6 +35,7 @@ import {
 } from "./feed";
 import { bountyDeclare, bountyBroadcast, getDeclared } from "./declare";
 import { ingestSighting, listSightings, discoveryStats } from "./sightings";
+import { submitOutcome, disputeOutcome, resolveDispute, getOutcome } from "./outcome";
 import { publishSighting as gossipPublishSighting } from "./gossip";
 import { handleWebhook } from "./webhooks";
 import { bindStatement, bindInstructions, registerBinding, listBindings, resolveHandle, revokeBinding, reverifyBinding } from "./identity";
@@ -581,6 +582,28 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
     }
     // Unified forge bounty feed — normalized cross-forge discovery index.
     // JSON canonical · Atom RSS · minimal MCP · self-describing doc.
+    // MORE outcome tranche: watcher-submitted re-verification post-horizon,
+    // dispute freeze, trustee resolution.
+    if (pathname === "/api/outcome/submit" && req.method === "POST") {
+      const body = (await req.json().catch(() => ({}))) as { id?: string; ref?: string; evidence?: Record<string, unknown>; attester?: string };
+      if (!body.id) return json({ error: "id required (repo:seq)" }, 400);
+      return json(await submitOutcome(env, body.id, body));
+    }
+    if (pathname === "/api/outcome/dispute" && req.method === "POST") {
+      const body = (await req.json().catch(() => ({}))) as { id?: string; by?: string; reason?: string };
+      if (!body.id || !body.by) return json({ error: "id + by required" }, 400);
+      return json(await disputeOutcome(env, body.id, body.by, body.reason ?? ""));
+    }
+    if (pathname === "/api/outcome/resolve" && req.method === "POST") {
+      const body = (await req.json().catch(() => ({}))) as { id?: string; resolution?: "verified" | "failed" };
+      if (!body.id || !body.resolution) return json({ error: "id + resolution required" }, 400);
+      return json(await resolveDispute(env, body.id, body.resolution));
+    }
+    if (pathname.startsWith("/api/outcome/") && req.method === "GET") {
+      const id = decodeURIComponent(pathname.slice("/api/outcome/".length));
+      const st = await getOutcome(env, id);
+      return st ? json(st) : json({ error: "not found" }, 404);
+    }
     if (pathname === "/api/bounty/declare" && req.method === "POST") {
       const body = (await req.json().catch(() => ({}))) as Parameters<typeof bountyDeclare>[1];
       return json(await bountyDeclare(env, body));

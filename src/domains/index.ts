@@ -2,9 +2,10 @@
 // a claim can always fall back to platform-url or payer-accept.
 import { packs } from "./social";
 import { computePacks } from "./compute";
+import { lifeCapacityPacks } from "./lifecapacity";
 import type { DomainPack, MarketRef, ClaimRef, ValidateResult } from "./types";
 
-const allPacks = [...packs, ...computePacks];
+const allPacks = [...packs, ...computePacks, ...lifeCapacityPacks];
 
 export function getDomain(name: string | undefined): DomainPack | null {
   if (!name) return null;

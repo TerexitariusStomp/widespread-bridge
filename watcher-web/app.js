@@ -6,6 +6,7 @@ import {
   parseSightingContent, corroborationTier, dedupeKey, textHash,
   encryptState, decryptState, exportEncrypted, importEncrypted,
   bytesToHex, hexToBytes, bytesToB64, DEFAULT_RELAYS,
+  capacitySnapshotEventTemplate,
 } from "./core.mjs";
 
 const N = window.NostrTools;
@@ -336,6 +337,7 @@ async function renderFeed() {
     if (!byTask.has(k)) byTask.set(k, []);
     byTask.get(k).push(s);
   }
+  renderCapacity(all);
   $("feed").innerHTML = [...byTask.entries()].slice(-50).reverse().map(([k, rows]) => {
     const s = rows[0];
     const tier = tierOf(s.platform, s.native_id, all);
@@ -345,6 +347,29 @@ async function renderFeed() {
       <span class="meta">watchers:${rows.length} ${s.author ? "by " + esc(s.author) : ""}</span><br>
       <span class="${cls}" style="font-size:12px">${esc(s.text.slice(0, 200))}</span></div>`;
   }).join("") || "<div class='meta'>no sightings yet</div>";
+}
+
+// Capacity view: parse `dims: C_e,C_h` declarations out of sighting text
+// and aggregate — a local C(t) index any observer can recompute.
+const DIMS = ["C_e", "C_h", "C_k", "C_inst", "C_m"];
+function capacityView(all) {
+  const byDim = Object.fromEntries(DIMS.map((d) => [d, 0]));
+  let tagged = 0;
+  for (const s of all) {
+    const m = s.text.match(/dims:\s*([A-Za-z_,\s]+)/i);
+    if (!m) continue;
+    tagged++;
+    for (const d of m[1].split(",")) {
+      const t = d.trim();
+      if (byDim[t] != null) byDim[t]++;
+    }
+  }
+  return { byDim, tagged };
+}
+function renderCapacity(all) {
+  const { byDim, tagged } = capacityView(all);
+  $("capacity").innerHTML = `<div class="meta">${tagged} capacity-tagged sightings</div>` +
+    DIMS.map((d) => `<div class="item"><b>${d}</b> <span class="meta">${byDim[d]} declarations</span></div>`).join("");
 }
 
 $("btn-query-local").onclick = async () => {
@@ -363,6 +388,25 @@ $("btn-query-relay").onclick = async () => {
     $("btn-query-local").onclick();
     log("relay-log", `relay query → ${evs.length} events`);
   } catch (e) { log("relay-log", "query failed: " + e.message); }
+};
+
+$("btn-snapshot").onclick = async () => {
+  try {
+    const all = await store.allSightings();
+    const { byDim } = capacityView(all);
+    const byPlatform = {}, byTier = {};
+    for (const s of all) {
+      byPlatform[s.platform] = (byPlatform[s.platform] ?? 0) + 1;
+      const t = tierOf(s.platform, s.native_id, all); byTier[t] = (byTier[t] ?? 0) + 1;
+    }
+    const pk = await currentPubkey();
+    const ev = capacitySnapshotEventTemplate(pk, {
+      v: 1, sightings: all.length, by_platform: byPlatform, by_tier: byTier,
+      capacity_dims: byDim, at: Math.floor(Date.now() / 1000),
+    });
+    await publishEvent(ev);
+    $("snapshot-log").textContent = "snapshot published";
+  } catch (e) { $("snapshot-log").textContent = "failed: " + e.message; }
 };
 
 $("btn-wake").onclick = toggleWakeLock;

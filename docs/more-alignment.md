@@ -410,6 +410,18 @@ lesson). Stages B/C can wait indefinitely without debt.
 `watcher`/`protocol` (the unbiased pair). The "unverifiable-
 contribution" class is closed at the door rather than labeled.
 
+**Stages B+C shipped (same change):** adjudicator floor axis
+(`floor_violation` → forced reject) + `capacity_delta` on every
+tagged verdict; `ecological`/`knowledge` packs
+(`src/domains/lifecapacity.ts`); `src/outcome.ts` two-stage escrow
+state machine (horizon gate, watcher attestation, tranche_bps 30–70%,
+dispute freeze, trustee resolve) + `/api/outcome/*` + `wide_outcome`
+MCP; `src/maximin.ts` scarcity ledger + `pool_match` hint (PotLock
+money leg still pending — advisory entitlements recorded); trustee_ref
+resolves via hats; `#widespread dispute repo:seq` sighting verb;
+`widespread-capacity-snapshot` events + `wsd snapshot` + watcher-web
+Ĉ view.
+
 **Exit criteria per gate (observable, not vibes):**
 - A→B: ≥1 real funder requests a capacity-tagged market, OR demo
   demand (impact-funder audience responds to the wedge)

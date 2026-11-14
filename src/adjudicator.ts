@@ -27,7 +27,11 @@ Weigh:
 
 Reply with ONLY a JSON object, no prose, no markdown fence:
 {"verdict":"accept"|"reject","reasoning":"<2-4 sentences citing concrete evidence>","confidence":<0..1>}
-confidence is your own calibrated certainty in the verdict.`;
+confidence is your own calibrated certainty in the verdict.
+
+When the bounty carries a capacity declaration, also include:
+"capacity_delta":{"C_e":<−1..1>,"C_h":<−1..1>,"C_k":<−1..1>,"C_inst":<−1..1>,"C_m":<−1..1>} — your estimate of the work's effect on each declared dimension (0 = none, negative = harm);
+"floor_violation":true|false — true if the work plausibly pushes any declared dimension BELOW its floor (paid astroturfing, engagement farming, scraping, harassment, covert promo). A floor violation is disqualifying regardless of spec-fit — a perfect spam campaign still fails.`;
 
 interface AdjudicatorInput {
   repo: string;
@@ -69,6 +73,7 @@ function buildPrompt(input: AdjudicatorInput): string {
       },
       bounty_spec: input.bounty?.spec ?? null,
       bounty_amount: input.bounty ? `${input.bounty.amount} ${input.bounty.currency}` : null,
+      capacity: input.bounty?.capacity ?? null,
       crosscheck: input.check,
       derivative_use: input.derivative ?? null,
       commits,
@@ -205,7 +210,19 @@ async function callJudge(env: Env, input: AdjudicatorInput, model: string, blind
   }
 
   const parsed = extractJson(raw);
-  const verdict = parsed?.verdict === "accept" ? "accept" : "reject";
+  let verdict: "accept" | "reject" = parsed?.verdict === "accept" ? "accept" : "reject";
+  // MORE floor axis: a declared floor violation is disqualifying
+  // regardless of the model's spec-fit verdict (feasibility tier).
+  const floorViolation = parsed?.floor_violation === true;
+  if (floorViolation) verdict = "reject";
+  // capacity_delta: model estimate, clamped to [-1,1] per dim, labeled.
+  const rawDelta = parsed?.capacity_delta;
+  const capacityDelta = rawDelta && typeof rawDelta === "object" && !Array.isArray(rawDelta)
+    ? Object.fromEntries(Object.entries(rawDelta as Record<string, unknown>)
+        .filter(([, v]) => typeof v === "number" && Number.isFinite(v))
+        .map(([k, v]) => [k, Math.max(-1, Math.min(1, v as number))]))
+    : null;
+  const hasCapacity = !!input.bounty?.capacity?.dims?.length;
   const confidence =
     typeof parsed?.confidence === "number" && Number.isFinite(parsed.confidence)
       ? Math.max(0, Math.min(1, parsed.confidence))
@@ -216,10 +233,16 @@ async function callJudge(env: Env, input: AdjudicatorInput, model: string, blind
       : "adjudicator returned no parseable verdict";
   return {
     verdict,
-    reasoning,
+    reasoning: floorViolation
+      ? `floor violation: ${reasoning}`
+      : reasoning,
     confidence,
     model,
     raw_excerpt: raw.slice(0, 500),
+    ...(hasCapacity ? {
+      capacity_delta: capacityDelta,
+      floors_respected: !floorViolation,
+    } : {}),
     ...(sig.signature_id ? { signature_id: sig.signature_id } : {}),
     ...(sig.tee_signature ? { tee_signature: sig.tee_signature } : {}),
     ...(parsed ? {} : { error: "unparseable-output" }),

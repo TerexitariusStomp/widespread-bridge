@@ -424,6 +424,13 @@ export interface Adjudication {
   panel?: { model: string; verdict: "accept" | "reject"; confidence: number; signature_id?: string }[];
   /** Minority-veto fired — verdict was escalated rather than majority-decided. */
   panel_escalated?: boolean;
+  /** MORE typed contribution estimate — per-dimension delta, model-estimated
+   *  and labeled as such (never presented as measured capacity). Null when
+   *  the market carries no capacity tag. */
+  capacity_delta?: Record<string, number> | null;
+  /** Floor axis: false = the work plausibly pushes a declared dimension
+   *  below its floor — disqualifying regardless of spec-fit (Stage B). */
+  floors_respected?: boolean;
 }
 
 /** Typed proof a market can require of submissions — the human-side

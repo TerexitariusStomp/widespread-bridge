@@ -9,6 +9,7 @@ export const SIGHTING_KIND = 30078;
 export const T_SIGHTING = "widespread-sighting";
 export const T_SNAPSHOT = "widespread-feed-snapshot";
 export const T_STATE = "widespread-watcher-state";
+export const T_CAPACITY_SNAPSHOT = "widespread-capacity-snapshot";
 export const DEFAULT_RELAYS = [
   "wss://nos.lol",
   "wss://relay.snort.social",
@@ -111,6 +112,19 @@ export function snapshotEventTemplate(pubkey, snapshot, nowSec = Math.floor(Date
     kind: SIGHTING_KIND,
     created_at: nowSec,
     tags: [["t", T_SNAPSHOT], ["d", "snapshot"]],
+    content: typeof snapshot === "string" ? snapshot : canonicalJson(snapshot),
+    pubkey,
+  };
+}
+
+/** Public C(t) index snapshot (MORE P7): per-dimension/per-platform
+ *  sighting counts any observer can recompute. Parameterized-replaceable
+ *  d:"capacity" → latest wins per watcher. */
+export function capacitySnapshotEventTemplate(pubkey, snapshot, nowSec = Math.floor(Date.now() / 1000)) {
+  return {
+    kind: SIGHTING_KIND,
+    created_at: nowSec,
+    tags: [["t", T_CAPACITY_SNAPSHOT], ["d", "capacity"]],
     content: typeof snapshot === "string" ? snapshot : canonicalJson(snapshot),
     pubkey,
   };

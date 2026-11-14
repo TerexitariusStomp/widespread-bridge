@@ -242,6 +242,12 @@ export async function runReview(
   const origin = (record.claim?.payload as Record<string, unknown> | undefined)?.origin_platform;
   record.reputation_8004 = rep8004For(record, typeof origin === "string" ? origin : undefined);
   await putRecord(env, record);
+  // MORE two-stage escrow: accepted + capacity-tagged → schedule the
+  // outcome tranche (tranche 2) for watcher re-verification post-horizon.
+  if (accepted) {
+    const { scheduleOutcome } = await import("./outcome");
+    await scheduleOutcome(env, record).catch(() => null);
+  }
   return record;
 }
 

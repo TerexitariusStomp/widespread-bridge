@@ -155,6 +155,10 @@ export async function bountyDeclare(env: Env, a: DeclareArgs) {
   };
   await env.CLAIMS.put(`decl:${hash}`, JSON.stringify(bounty));
   await env.CLAIMS.put(`declhash:${repo}`, hash);
+  // Maximin pool ledger: every tagged market feeds the scarcity signal.
+  const { recordFunding, matchFor } = await import("./maximin");
+  await recordFunding(env, capacity.dims, a.amount).catch(() => {});
+  const poolMatch = await matchFor(env, capacity.dims).catch(() => null);
 
   const record: FeedRecord = {
     id, source: "declared", forge: "generic", kind: "bounty",
@@ -183,8 +187,19 @@ export async function bountyDeclare(env: Env, a: DeclareArgs) {
   await env.CLAIMS.put(`feedrec:${id}`, JSON.stringify(record));
   const warnings: string[] = [];
   if (target && !bound) warnings.push(`target ${target.platform}/@${target.handle} is not bound — funder should POST /api/identity/bind so style/history verification can run`);
+  // Trustee standing (Stage C): capacity.trustee_ref must resolve to a
+  // real hat — orgs whose stance.vetoes map floor conditions and whose
+  // prefs weight capacity dims. Unresolvable → warn, never block.
+  if (capacity.trustee_ref) {
+    const { hatsHat } = await import("./hats");
+    const hat = await hatsHat(env as never, capacity.trustee_ref).catch(() => null);
+    if (!hat || "error" in hat) {
+      warnings.push(`trustee_ref ${capacity.trustee_ref} did not resolve to a hat — check HATS_CONTRACT/org`);
+    }
+  }
   return {
     hash, repo, canonical, record, warnings: warnings.length ? warnings : undefined, intent_urls: intentUrls(canonical),
+    ...(poolMatch ? { pool_match: poolMatch } : {}),
     watch_hint: "After posting, run surf_watch on the thread (or POST sightings) so claims/receipts on this declaration are ingested — watchers earn sighting_bps when it funds.",
   };
 }

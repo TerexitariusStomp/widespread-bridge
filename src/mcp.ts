@@ -15,6 +15,7 @@ import { listRunners } from "./feed";
 import { agentChallenge, agentRegister, marketClaim, shipPrepare, shipSubmit, marketsList, bountiesList, agentStatus } from "./mcpearn";
 import { getCoordinator } from "./coordinator";
 import { listSightings, discoveryStats, ingestSighting, type Sighting } from "./sightings";
+import { submitOutcome, disputeOutcome, getOutcome } from "./outcome";
 
 const json = (v: unknown) => ({
   content: [{ type: "text" as const, text: JSON.stringify(v, null, 1) }],
@@ -376,6 +377,27 @@ export async function handleMcpRequest(req: Request, env: Env, ctx: ExecutionCon
     description: "Live decentralized-discovery metrics: surfaces watched, sightings by platform/tier/source, active watchers — the auditable answer to 'how much of the surface area is actually covered?'",
     inputSchema: {},
   }, async () => json(await discoveryStats(env)));
+
+  server.registerTool("wide_outcome", {
+    annotations: { title: 'Outcome Tranche', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    description: "MORE two-stage escrow: submit post-horizon outcome evidence for a settled claim (id = repo:seq), check status, or file a dispute that freezes tranche 2. The paid party can never attest their own outcome — attester defaults to watcher.",
+    inputSchema: {
+      action: z.enum(["submit", "status", "dispute"]),
+      id: z.string().describe("repo:seq of the settled claim"),
+      ref: z.string().optional().describe("outcome evidence ref (url/cid/doi)"),
+      evidence: z.record(z.string(), z.unknown()).optional(),
+      reason: z.string().optional(),
+      attester: z.string().optional(),
+    },
+  }, async (a) => {
+    if (a.action === "status") return json(await getOutcome(env, a.id) ?? { error: "not found" });
+    if (a.action === "dispute") {
+      return json(await disputeOutcome(env, a.id, a.attester ?? "agent", a.reason ?? ""));
+    }
+    return json(await submitOutcome(env, a.id, {
+      ref: a.ref, evidence: a.evidence, attester: a.attester,
+    }));
+  });
 
   const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
   await server.connect(transport);
