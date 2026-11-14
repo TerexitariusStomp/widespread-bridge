@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import { canonicalJson as discoveryCanonicalJson } from "../widespread-discovery/src/core.mjs";
 import {
   parseArtifactRef, isCid, validateCidArtifact, validateReceipt,
   receiptCanonical, receiptId, meterSpec, verifyJobRecordSig, canonicalJson,
@@ -239,5 +240,21 @@ describe("validateForgeSubmission dispatch", () => {
   it("github refs still work", async () => {
     const { failures } = await validateForgeSubmission(fakeEnv(), { forgeRef: "bogus" });
     expect(failures[0]).toMatch(/forgeRef must be/);
+  });
+});
+
+// canonicalJson must stay byte-identical across runtimes — the worker,
+// discovery node, and watchers all sign/verify the same encodings.
+describe("canonicalJson cross-runtime parity", () => {
+  const FIXTURES = [
+    { b: 1, a: { z: [3, 2, 1], y: "x" }, nested: { deep: { k: null } } },
+    [1, "two", { three: 3, arr: [{ x: true }], nil: null }],
+    "plain string", 42, null, [], {},
+    { unicode: "café ☕", esc: 'a"b\\c', num: -0.5e3 },
+  ];
+  it("worker and discovery implementations emit identical bytes", () => {
+    for (const f of FIXTURES) {
+      expect(canonicalJson(f)).toBe(discoveryCanonicalJson(f));
+    }
   });
 });
