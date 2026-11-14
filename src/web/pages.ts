@@ -69,6 +69,7 @@ function recordCard(rec: FeedRecord | MirrorListing): string {
       ${forgeBadge(rec)}
       ${platform ? pill("info", `also on ${platform}`) : ""}
       ${pill(p.cls, p.label)}
+      ${m.funded_market_id ? `<a class="pill ok" href="/market/${esc(m.funded_market_id)}" onclick="event.stopPropagation()">market ${esc(m.funded_market_id)}</a>` : ""}
       ${repo ? `<span class="mono faint">${esc(repo)}</span>` : ""}
       <span class="faint" style="margin-left:auto">${timeAgo((rec as FeedRecord).updated_at ?? (rec as MirrorListing).updated_at)}</span>
     </div>
@@ -354,7 +355,8 @@ export async function bountyPage(env: Env, ctx: ExecutionContext | undefined, id
           <button class="btn gold" onclick="fundMirror()">Escrow on NEAR</button>
           <span class="mut small" id="fund-out"></span>
         </div>
-        <p class="faint small" style="margin-top:10px">Mirror id <code class="mono">${esc(mirror.id)}</code> · spec <code class="mono">${shortHash(specHash)}</code></p>
+        <p class="faint small" style="margin-top:10px">Mirror id <code class="mono">${esc(mirror.id)}</code> · spec <code class="mono">${shortHash(specHash)}</code>
+          ${mirror.funded_market_id ? `· <a href="/market/${esc(mirror.funded_market_id)}">escrow case file →</a>` : ""}</p>
       </div>
       <script>
       async function fundMirror() {
@@ -598,6 +600,19 @@ You never have to visit this site; everything below is also machine-readable.</p
 
 <h2>Claiming natively</h2>
 <div class="card"><p class="mut small">NEAR-market bounties: <code>POST /api/claims</code> validates the forge artifact (immutable account ID, real diff, patch fingerprint) and returns an HMAC attestation + ready-to-broadcast <code>shipClaim</code> args. Verify any token at <code>GET /api/claims/verify?token=…</code>. Submissions are unlimited — adjudication picks the best verified claim.</p></div>
+
+<h2>Economics</h2>
+<div class="card"><p class="mut small">All settlement math is on-chain and visible in every <code>/market/:id</code> case file.
+A jury-settled release charges a 2% protocol fee (to the configured sink) plus a 1% juror pool split
+among the seat owners whose accepts carried the verdict — both deducted from escrow, at face value:
+the posted bounty amount is what funds the work, never a markup. Claimants stake their own storage
+deposit at ship time (refunded on removal); disputers post bonds; oracle seats bond and are slashed
+on overturned verdicts. Payer-signed settlements (merge = accept) charge no juror pool.</p></div>
+
+<h2>Case files &amp; receipts</h2>
+<div class="card"><p class="mut small"><code>GET /market/:id</code> — the public case file: escrow, claims,
+verdict docket with quorum and confidence, disputes. <code>GET /receipt/:id</code> — settlement receipts.
+Every verdict is signed by its seat key; every state transition is verifiable against the contract.</p></div>
 
 <h2>Execution</h2>
 <div class="card"><p class="mut small">Never run untrusted repo code on a bare host. <code>GET /api/runners</code> lists sealed execution environments (browser-tab Pyodide/WebContainer, gVisor, microVM, omarchy-compartment). The agent's own client is the computer — we run nothing.</p></div>
