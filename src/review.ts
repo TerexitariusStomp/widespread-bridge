@@ -16,6 +16,21 @@ import type {
   ShipClaim,
 } from "./types";
 
+/** Stored-record copy of a bounty — confidential markets keep the real
+ *  spec in private KV only; the public record carries a redacted stub. */
+function redactBounty(bounty: Bounty | null): Bounty | null {
+  if (!bounty?.confidential) return bounty;
+  return { ...bounty, spec: `[confidential:${bounty.domain ?? "other"}]` };
+}
+
+/** Domain packs echo artifact text into evidence — strip every plaintext
+ *  field before the evidence can reach a stored record (confidential). */
+function stripDomainText(v: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (!v) return v;
+  const { text: _t, draft: _d, artifact_inline: _i, ...clean } = v;
+  return clean;
+}
+
 function claimantFor(claim: ShipClaim, bounty: Bounty | null, actor: string): string | null {
   // Worker's own signed instruction wins — then a funder-named recipient
   // for this actor, then the bounty default.
@@ -60,6 +75,43 @@ export async function runReview(
   // Declared markets: per-repo bounty may not exist — resolve by work_id.
   const bounty = repoBounty ?? (claim.work_id ? await getDeclared(env, claim.work_id) : null);
 
+  // Confidential markets: the deliverable must arrive as crypto_box_seal
+  // ciphertext (sealed:// ref + evidence.artifact_sealed). Plaintext lanes
+  // (evidence.text / artifact_inline) are forbidden. The bridge opens its
+  // adjudication copy inside this request only — plaintext reaches the
+  // judge via adjudicatorInput.sealed_text and is NEVER stored.
+  const claimEvidence0 = ((claim as unknown as Record<string, unknown>).evidence ?? {}) as Record<string, unknown>;
+  let sealedPlaintext: string | null = null;
+  if (bounty?.confidential) {
+    const earlyRef = (claim as unknown as Record<string, unknown>).ref as string | undefined
+      ?? claimEvidence0.url as string | undefined;
+    const sealM = String(earlyRef ?? "").match(/^sealed:\/\/([0-9a-f]{64})/i);
+    const { parseSealedArtifact, decryptSealedForBridge } = await import("./sealed");
+    const { sealed, failures } = parseSealedArtifact(claimEvidence0, sealM?.[1]);
+    if (claimEvidence0.text ?? claimEvidence0.draft ?? claimEvidence0.artifact_inline) {
+      failures.push("confidential markets forbid inline plaintext — seal the deliverable");
+    }
+    if (!earlyRef || !sealM) {
+      failures.push("confidential claims need a sealed://<sha256> artifact ref");
+    }
+    if (!failures.length && sealed) {
+      const dec = await decryptSealedForBridge(env, sealed);
+      if (dec.error) failures.push(dec.error);
+      else sealedPlaintext = new TextDecoder().decode(dec.plaintext);
+    }
+    if (failures.length) {
+      const record: ReviewRecord = {
+        id, repo, seq, status: "rejected",
+        claim: entry, chain, commits: [], crosscheck: crosscheck(claim, []),
+        bounty: redactBounty(bounty),
+        adjudication: { verdict: "reject", reasoning: `confidential: ${failures.join("; ")}`, confidence: 1, model: "domain(sealed-shape)" },
+        payout: null, writeback: null, reviewed_at: Date.now(),
+      };
+      await putRecord(env, record);
+      return record;
+    }
+  }
+
   // Recompute each claimed commit's diff independently of the forge verdict.
   const commits = await Promise.all(
     (claim.commits ?? []).map((sha) =>
@@ -90,8 +142,10 @@ export async function runReview(
   let domainEvidence: Record<string, unknown> | null = null;
   if (bounty?.domain && bounty.domain !== "code") {
     const { validateDomain } = await import("./domains/index");
-    const claimEvidence = ((claim as unknown as Record<string, unknown>).evidence ?? {}) as Record<string, unknown>;
-    const draftText = (claimEvidence.text ?? claimEvidence.draft) as string | undefined;
+    const claimEvidence = claimEvidence0;
+    // Sealed plaintext plays the draftText role — the judge reads it,
+    // the record doesn't.
+    const draftText = (sealedPlaintext ?? claimEvidence.text ?? claimEvidence.draft) as string | undefined;
     const claimRef = (claim as unknown as Record<string, unknown>).ref as string | undefined
       ?? claimEvidence.url as string | undefined;
     // draft-class deliverables ride evidence.text — no URL needed
@@ -103,7 +157,7 @@ export async function runReview(
     } else {
       const v = await validateDomain(
         { id: repo, spec: bounty.spec, domain, verification: { class: "platform-url", params: undefined }, created_at: bounty.created_at },
-        { ref: claimRef ?? "draft:inline", actor: (claim as unknown as Record<string, unknown>).actor as string | undefined, evidence: { text: draftText } },
+        { ref: sealedPlaintext ? "draft:sealed" : (claimRef ?? "draft:inline"), actor: (claim as unknown as Record<string, unknown>).actor as string | undefined, evidence: { text: draftText } },
         env as unknown as Record<string, string | undefined>,
       );
       domainEvidence = v as unknown as Record<string, unknown>;
@@ -111,9 +165,9 @@ export async function runReview(
       if (v.failures.length) {
         const record: ReviewRecord = {
           id, repo, seq, status: "rejected",
-          claim: entry, chain, commits, crosscheck: check, bounty,
+          claim: entry, chain, commits, crosscheck: check, bounty: redactBounty(bounty),
           adjudication: { verdict: "reject", reasoning: `domain ${v.pack}: ${v.failures.join("; ")}`, confidence: 1, model: `domain(${v.pack})` },
-          domain_evidence: v as unknown as Record<string, unknown>,
+          domain_evidence: bounty?.confidential ? stripDomainText(v as unknown as Record<string, unknown>) : v as unknown as Record<string, unknown>,
           payout: null, writeback: null, reviewed_at: Date.now(),
         };
         await putRecord(env, record);
@@ -132,9 +186,9 @@ export async function runReview(
           && author.toLowerCase() !== bounty.target.handle.toLowerCase()) {
         const record: ReviewRecord = {
           id, repo, seq, status: "rejected",
-          claim: entry, chain, commits, crosscheck: check, bounty,
+          claim: entry, chain, commits, crosscheck: check, bounty: redactBounty(bounty),
           adjudication: { verdict: "reject", reasoning: `bind-identity: publish-class artifact authored by @${author}, not target @${bounty.target.handle}`, confidence: 1, model: "domain(bind-target)" },
-          domain_evidence: domainEvidence,
+          domain_evidence: bounty?.confidential ? stripDomainText(domainEvidence) : domainEvidence,
           payout: null, writeback: null, reviewed_at: Date.now(),
         };
         await putRecord(env, record);
@@ -148,13 +202,24 @@ export async function runReview(
       }
     }
   }
-  const adjudicatorInput = { repo, entry, chain, bounty, commits, check, derivative, domain_evidence: domainEvidence };
-  const adjudication = (!claim.commits?.length || bounty?.proof_requirements?.length)
+  // Record hygiene for confidential markets: domain packs may echo the
+  // artifact text into their evidence — strip every plaintext field.
+  if (bounty?.confidential) domainEvidence = stripDomainText(domainEvidence);
+  const adjudicatorInput = {
+    repo, entry, chain, bounty, commits, check, derivative,
+    domain_evidence: domainEvidence,
+    ...(sealedPlaintext ? { sealed_text: sealedPlaintext } : {}),
+  };
+  // Confidential claims have no recomputable evidence — always panel.
+  const adjudication = (bounty?.confidential || !claim.commits?.length || bounty?.proof_requirements?.length)
     ? await adjudicatePanel(env, adjudicatorInput)
     : await adjudicate(env, adjudicatorInput);
 
   // Money moves only on: model says accept + confidence floor + intact chain.
-  const minConfidence = Number(env.MIN_CONFIDENCE ?? "0.6");
+  // Confidential markets get a stricter floor — a hidden spec means weaker
+  // community screening, so the protocol compensates on adjudication.
+  const minConfidence = Math.min(0.95,
+    Number(env.MIN_CONFIDENCE ?? "0.6") + (bounty?.confidential ? 0.1 : 0));
   const accepted =
     adjudication.verdict === "accept" &&
     adjudication.confidence >= minConfidence &&
@@ -230,7 +295,7 @@ export async function runReview(
     chain,
     commits,
     crosscheck: check,
-    bounty,
+    bounty: redactBounty(bounty),
     adjudication,
     derivative,
     attestation,
@@ -239,6 +304,21 @@ export async function runReview(
     forge_base: binding?.base ?? null,
     reviewed_at: Date.now(),
   };
+  // C5 receipt lint — defense in depth: a confidential record must never
+  // serialize the spec text or the decrypted deliverable. If any future
+  // code path leaks them, the record is stored as an error, not a leak.
+  if (bounty?.confidential) {
+    const blob = JSON.stringify(record);
+    const leaked =
+      (bounty.spec.length > 8 && blob.includes(bounty.spec)) ||
+      (sealedPlaintext && sealedPlaintext.length > 8 && blob.includes(sealedPlaintext));
+    if (leaked) {
+      record.status = "error";
+      record.adjudication = { verdict: "reject", reasoning: "confidential lint: record attempted to store spec or deliverable plaintext — sanitized", confidence: 1, model: "lint(confidential)" };
+      record.domain_evidence = null;
+      record.payout = null;
+    }
+  }
   // ERC-8004-shaped reputation record — settled verdicts become portable
   // trust signals in the emerging standard's schema.
   const origin = (record.claim?.payload as Record<string, unknown> | undefined)?.origin_platform;
@@ -246,7 +326,7 @@ export async function runReview(
   await putRecord(env, record);
   // MORE two-stage escrow: accepted + capacity-tagged → schedule the
   // outcome bonus for watcher re-verification post-horizon.
-  if (accepted) {
+  if (accepted && record.status !== "error") {
     const { scheduleOutcome } = await import("./outcome");
     await scheduleOutcome(env, record).catch(() => null);
   }

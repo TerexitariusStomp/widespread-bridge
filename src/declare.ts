@@ -11,6 +11,14 @@ const tag = "widespread";
 export interface DeclareArgs {
   domain?: string;             // code | social-media | research | writing | design | data | other
   spec: string;                // task spec / acceptance rules
+  /** Confidential market — canonical declaration + feed carry only
+   *  domain+amount+specHash; real spec stays in private KV and is
+   *  revealed to claimants via /api/spec/reveal. Deliverables must
+   *  arrive as artifact_sealed ciphertext to funder_x25519_pubkey. */
+  confidential?: boolean;
+  /** Funder's x25519 pubkey (hex, 32-byte) — receives sealed
+   *  deliverables + wrapped adjudication key. Fresh per market. */
+  funder_x25519_pubkey?: string;
   amount: string;
   currency?: string;
   verification?: { class?: string; params?: Record<string, unknown> };
@@ -119,6 +127,9 @@ export async function bountyDeclare(env: Env, a: DeclareArgs) {
     ? { platform: a.target_platform.toLowerCase(), handle: a.target_handle.replace(/^@/, "") }
     : null;
   const bound = target ? await resolveHandle(env, target.platform, target.handle) : null;
+  if (a.confidential && !/^[0-9a-f]{64}$/i.test(a.funder_x25519_pubkey ?? "")) {
+    return { error: "confidential markets require funder_x25519_pubkey (hex, 32 bytes) — generate a fresh x25519 pair; deliverables + adjudication key wrap to it" };
+  }
   const capRes = normalizeCapacity(a);
   if (capRes.error) return { error: capRes.error };
   const capacity = capRes.cap!;
@@ -127,7 +138,7 @@ export async function bountyDeclare(env: Env, a: DeclareArgs) {
     `#${tag} bounty ${hash}`,
     `domain: ${domain}`,
     `amount: ${a.amount} ${a.currency ?? "USD"}`,
-    `spec: ${a.spec}`,
+    a.confidential ? `confidential: spec-sealed — claimants reveal via /api/spec/reveal` : `spec: ${a.spec}`,
     deliverable === "resource" ? `meter:${a.meter} threshold:${a.threshold}${a.window ? ` window:${a.window}` : ""}` : null,
     target ? `for: ${target.platform} @${target.handle}` : null,
     target && deliverable === "draft" ? `deliverable: draft text (you publish)` : null,
@@ -148,6 +159,7 @@ export async function bountyDeclare(env: Env, a: DeclareArgs) {
     target: target ?? undefined,
     deliverable_class: deliverable === "resource" ? "resource" : (target ? deliverable : undefined),
     funder_did: a.funder_did,
+    ...(a.confidential ? { confidential: true, funder_x25519_pubkey: a.funder_x25519_pubkey } : {}),
     ...(a.sighting_bps ? { sighting_bps: Math.min(1000, Math.max(0, Math.round(a.sighting_bps))) } : {}),
     capacity,
     ...(flags.length ? { floor_flags: flags } : {}),
@@ -162,7 +174,8 @@ export async function bountyDeclare(env: Env, a: DeclareArgs) {
 
   const record: FeedRecord = {
     id, source: "declared", forge: "generic", kind: "bounty",
-    title: a.spec.slice(0, 120), spec: a.spec,
+    title: a.confidential ? `confidential ${domain} market` : a.spec.slice(0, 120),
+    ...(a.confidential ? { confidential: true } : { spec: a.spec }),
     amount: a.amount, currency: a.currency ?? "USD",
     escrow: { state: "label-only" },
     verification: {
@@ -227,6 +240,57 @@ export async function bountyBroadcast(env: Env, a: DeclareArgs) {
 /** Load a declared bounty (feed scanners + claim path). */
 export async function getDeclared(env: Env, hash: string): Promise<Bounty | null> {
   return env.CLAIMS.get(`decl:${hash}`, "json");
+}
+
+/** Claim-gated spec reveal for confidential markets. A registered agent
+ *  signs `widespread-spec-reveal\n{hash}\n{x25519_pubkey}` — the bridge
+ *  returns the spec crypto_box_seal'd to that x25519 pubkey and logs the
+ *  reveal so the funder can see who peeked. Plaintext crosses only this
+ *  boundary; the public record never carries it. */
+export async function specReveal(
+  env: Env,
+  a: { hash?: string; agent_pubkey?: string; x25519_pubkey?: string; signature_hex?: string },
+): Promise<Record<string, unknown>> {
+  if (!a.hash || !a.agent_pubkey || !a.x25519_pubkey || !a.signature_hex) {
+    return { error: "hash, agent_pubkey, x25519_pubkey, signature_hex required" };
+  }
+  const bounty = await getDeclared(env, a.hash);
+  if (!bounty) return { error: "declaration not found" };
+  if (!bounty.confidential) return { error: "market is not confidential — the spec is already public" };
+
+  const { isHex, sealTo, bridgeX25519PublicKey } = await import("./sealed");
+  if (!isHex(a.x25519_pubkey, 32)) return { error: "x25519_pubkey must be 64 hex chars" };
+  if (!isHex(a.agent_pubkey, 32) || !isHex(a.signature_hex, 64)) {
+    return { error: "agent_pubkey 64-hex + signature_hex 128-hex required" };
+  }
+  // Gate: the claimant must be a registered agent — a real identity in
+  // the protocol, not a throwaway key.
+  const reg = await env.CLAIMS.get(`agent:${a.agent_pubkey}`, "json").catch(() => null);
+  if (!reg) return { error: "agent not registered — run wide_agent_challenge + wide_agent_register first" };
+
+  const { ed25519 } = await import("@noble/curves/ed25519");
+  const hexToBytes = (h: string) => {
+    const b = new Uint8Array(h.length / 2);
+    for (let i = 0; i < b.length; i++) b[i] = parseInt(h.slice(i * 2, i * 2 + 2), 16);
+    return b;
+  };
+  const canonical = `widespread-spec-reveal\n${a.hash}\n${a.x25519_pubkey.toLowerCase()}`;
+  const ok = ed25519.verify(hexToBytes(a.signature_hex), new TextEncoder().encode(canonical), hexToBytes(a.agent_pubkey));
+  if (!ok) return { error: "signature invalid — sign `widespread-spec-reveal\\n<hash>\\n<x25519_pubkey>` with your agent key" };
+
+  // Access log — the funder's audit of who peeked at the sealed spec.
+  const logKey = `specreveal:${a.hash}:${a.agent_pubkey.slice(0, 16)}`;
+  await env.CLAIMS.put(logKey, JSON.stringify({
+    hash: a.hash, agent_pubkey: a.agent_pubkey, did: (reg as { did?: string }).did ?? null,
+    x25519_pubkey: a.x25519_pubkey, revealed_at: Date.now(),
+  })).catch(() => {});
+
+  return {
+    ok: true, hash: a.hash,
+    spec_sealed_b64: sealTo(new TextEncoder().encode(bounty.spec), a.x25519_pubkey),
+    bridge_x25519_pubkey: bridgeX25519PublicKey(env),
+    note: "Open with your x25519 secret (crypto_box_seal_open). Seal deliverables to the market's funder_x25519_pubkey + bridge_x25519_pubkey.",
+  };
 }
 export async function getDeclaredRecord(env: Env, hash: string): Promise<FeedRecord | null> {
   return env.CLAIMS.get(`feedrec:decl:${hash}`, "json");

@@ -34,7 +34,7 @@ import {
   feedDoc, queryFeed, feedRss, FEED_MD,
   listRunners, registerRunner, refreshFeed, handleMirrorQuote,
 } from "./feed";
-import { bountyDeclare, bountyBroadcast, getDeclared } from "./declare";
+import { bountyDeclare, bountyBroadcast, getDeclared, specReveal } from "./declare";
 import { ingestSighting, listSightings, discoveryStats } from "./sightings";
 import { submitOutcome, disputeOutcome, resolveDispute, getOutcome } from "./outcome";
 import { poolStatus, creditTreasury } from "./maximin";
@@ -44,7 +44,7 @@ import { bindStatement, bindInstructions, registerBinding, listBindings, resolve
 import { putFeedDoc } from "./feedstore";
 import { bountiesList, marketsList } from "./mcpearn";
 import { handleClaimPost, handleClaimVerify } from "./claims";
-import { tryOpsEscrow } from "./escrow";
+import { tryOpsEscrow, tryDeclEscrow } from "./escrow";
 import { handleMirrorClaimPost, handleMirrorClaimsList, handleMirrorClaimTimeout, handleMirrorRequestChanges, handleMirrorVerdict, handleMirrorPayout } from "./mirrorclaims";
 import { scanMirrorSubmissions } from "./ingest";
 import { agentCard, createDispatch, handleA2a, listDispatches, markDispatch, settleCalldata } from "./dispatch";
@@ -623,6 +623,14 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
       const body = (await req.json().catch(() => ({}))) as Parameters<typeof bountyBroadcast>[1];
       return json(await bountyBroadcast(env, body));
     }
+    // Confidential markets: registered agents reveal the sealed spec —
+    // returns crypto_box_seal'd spec to the claimant's x25519 pubkey.
+    if (pathname === "/api/spec/reveal" && req.method === "POST") {
+      const rl = await checkLimit(env, "specreveal", callerKey(req), 20, 100);
+      if (!rl.ok) return rateLimited(rl.retryAfter);
+      const body = (await req.json().catch(() => ({}))) as Parameters<typeof specReveal>[1];
+      return json(await specReveal(env, body));
+    }
     if (pathname.startsWith("/api/declarations/") && req.method === "GET") {
       const hash = pathname.split("/").pop() ?? "";
       const [bounty, claims, sights] = await Promise.all([
@@ -630,7 +638,11 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
         env.CLAIMS.get(`hclaim:${hash}`, "json"),
         env.CLAIMS.get(`declsight:${hash}`, "json"),
       ]);
-      return bounty ? json({ hash, bounty, reply_claims: claims ?? [], sightings: sights ?? [] }) : json({ error: "not found" }, 404);
+      if (!bounty) return json({ error: "not found" }, 404);
+      // Confidential markets: the spec never leaves this endpoint — the
+      // claim-gated /api/spec/reveal path is the only way in.
+      const pub = bounty.confidential ? { ...bounty, spec: undefined, spec_redacted: true } : bounty;
+      return json({ hash, bounty: pub, reply_claims: claims ?? [], sightings: sights ?? [] });
     }
     // Decentralized discovery — watcher sightings (direct), platform
     // webhooks (push), Nostr gossip (feed-refresh backfill). The bridge
@@ -925,6 +937,18 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
       if (!mirror) return bad("mirror not found", 404);
       try {
         return json({ escrow: await tryOpsEscrow(env, mirror) });
+      } catch (e) {
+        return bad(`escrow failed: ${e instanceof Error ? e.message : e}`, 500);
+      }
+    }
+    // C4 blind funder: ops-pool escrow for a confidential declared
+    // market — on-chain payer = NEAR_OPS_ACCOUNT, on-chain spec = stub.
+    // Ops-gated: the real funder settles ops off-chain first.
+    const declEscrow = pathname.match(/^\/api\/declarations\/([0-9a-f]{8,16})\/escrow$/i);
+    if (declEscrow && req.method === "POST") {
+      if (!isAuthorized(req, env)) return bad("unauthorized", 401);
+      try {
+        return json({ escrow: await tryDeclEscrow(env, declEscrow[1]) });
       } catch (e) {
         return bad(`escrow failed: ${e instanceof Error ? e.message : e}`, 500);
       }

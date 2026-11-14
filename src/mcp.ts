@@ -9,7 +9,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { z } from "zod/v4";
 import type { Env } from "./types";
 import { feedDoc, queryFeed, RUNNERS } from "./feed";
-import { bountyDeclare, bountyBroadcast } from "./declare";
+import { bountyDeclare, bountyBroadcast, specReveal } from "./declare";
 import { bindStatement, bindInstructions, registerBinding, listBindings, resolveHandle, revokeBinding } from "./identity";
 import { listRunners } from "./feed";
 import { agentChallenge, agentRegister, marketClaim, shipPrepare, shipSubmit, marketsList, bountiesList, agentStatus } from "./mcpearn";
@@ -143,6 +143,8 @@ export async function handleMcpRequest(req: Request, env: Env, ctx: ExecutionCon
       payer_email: z.string().optional(), funder_handle: z.string().optional(), funder_did: z.string().optional(),
       target_platform: z.string().optional(), target_handle: z.string().optional(),
       deliverable_class: z.enum(["draft", "publish", "resource"]).optional(),
+      confidential: z.boolean().optional().describe("Confidential market — spec never leaves private KV; public surfaces carry domain+amount+specHash only. Requires funder_x25519_pubkey."),
+      funder_x25519_pubkey: z.string().optional().describe("Funder's x25519 pubkey (64 hex) — sealed deliverables encrypt to it. Generate a fresh pair per market."),
       meter: z.string().optional(), threshold: z.number().optional(), window: z.string().optional(),
       dims: z.string().optional().describe("Comma-separated capacity dims: C_e,C_h,C_k,C_inst,C_m"),
       capacity: z.object({
@@ -159,6 +161,17 @@ export async function handleMcpRequest(req: Request, env: Env, ctx: ExecutionCon
     },
   }, async (a) => json(await bountyDeclare(env, a)));
 
+  server.registerTool("wide_spec_reveal", {
+    annotations: { title: 'Reveal Sealed Spec', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    description: "Confidential markets: reveal the sealed task spec. Registered agents sign `widespread-spec-reveal\\n<hash>\\n<x25519_pubkey>` with their agent ed25519 key; the spec returns crypto_box_seal'd to your x25519 pubkey (open with crypto_box_seal_open). The reveal is logged for the funder.",
+    inputSchema: {
+      hash: z.string().describe("Declaration hash (decl:<hash> → hash)"),
+      agent_pubkey: z.string().describe("Your registered agent ed25519 pubkey (64 hex)"),
+      x25519_pubkey: z.string().describe("Your x25519 pubkey (64 hex) — spec seals to it"),
+      signature_hex: z.string().describe("Ed25519 sig over the canonical reveal string (128 hex)"),
+    },
+  }, async (a) => json(await specReveal(env, a)));
+
   server.registerTool("wide_broadcast", {
     annotations: { title: 'Broadcast Bounty', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     description: "Declare a bounty AND get zero-auth intent URLs to post it on every surface at once (X, Bluesky, Mastodon, Nostr, HN). One escrow, N surfaces, duplicate submissions deduped, one payout.",
@@ -169,6 +182,8 @@ export async function handleMcpRequest(req: Request, env: Env, ctx: ExecutionCon
       payer_email: z.string().optional(), funder_handle: z.string().optional(), funder_did: z.string().optional(),
       target_platform: z.string().optional(), target_handle: z.string().optional(),
       deliverable_class: z.enum(["draft", "publish", "resource"]).optional(),
+      confidential: z.boolean().optional().describe("Confidential market — spec never leaves private KV; public surfaces carry domain+amount+specHash only. Requires funder_x25519_pubkey."),
+      funder_x25519_pubkey: z.string().optional().describe("Funder's x25519 pubkey (64 hex) — sealed deliverables encrypt to it."),
       meter: z.string().optional(), threshold: z.number().optional(), window: z.string().optional(),
     },
   }, async (a) => json(await bountyBroadcast(env, a)));

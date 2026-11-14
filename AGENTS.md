@@ -31,3 +31,14 @@ run `npm run sync` (drift fails CI via `npm run sync:check` in `test:all`).
 `npm test` — worker suite (101 tests). Public endpoints verified post-deploy.
 
 Generated with the widespread-skills distribution.
+
+## Confidential markets
+
+`confidential:true` on declare → spec stays in private KV; public surfaces
+carry domain+amount+specHash only. Claims submit `sealed://<sha256>` refs
+with `evidence.artifact_sealed` (crypto_box_seal ciphertext to funder +
+bridge x25519 pubkeys). The bridge opens its copy in-request only —
+plaintext reaches the judge via `sealed_text`, never a record.
+`BRIDGE_X25519_SECRET` (wrangler secret) backs the adjudication keypair;
+the public half is returned by `/api/spec/reveal`. Ops-pool escrow for
+blind funders: `POST /api/declarations/{hash}/escrow` (ops-auth).

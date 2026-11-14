@@ -165,3 +165,102 @@ export async function tryOpsEscrow(env: Env, mirror: MirrorListing): Promise<unk
              ? "tx broadcast but market not yet visible — will reconcile on next attempt"
              : "contract rejected the call — check ops account balance / args" };
 }
+
+/** C4 blind funder — escrow a confidential declared market through the
+ *  ops pool. On-chain `payer` is NEAR_OPS_ACCOUNT, not the real funder;
+ *  the on-chain `spec` is the redacted stub, never the sealed spec text.
+ *  The real funder settles the ops account off-chain or via Intents to a
+ *  fresh account. Same idempotent reconcile-by-specHash discipline as
+ *  the mirror lane — retries can't double-fund. */
+export async function tryDeclEscrow(env: Env, hash: string): Promise<unknown> {
+  const { getDeclared } = await import("./declare");
+  const bounty = await getDeclared(env, hash);
+  if (!bounty) return { error: "declaration not found" };
+  if (!bounty.confidential) return { error: "market is not confidential — the funder escrows directly" };
+
+  const acct = env.NEAR_OPS_ACCOUNT, key = env.NEAR_OPS_SECRET_KEY, contract = env.NEAR_CONTRACT;
+  if (!acct || !key || !contract) return { skipped: "NEAR_OPS_ACCOUNT/SECRET_KEY or NEAR_CONTRACT not configured" };
+  const usd = parseFloat(bounty.amount ?? "");
+  if (!Number.isFinite(usd) || usd <= 0) return { skipped: "declaration has no numeric USD amount" };
+
+  const declId = `decl:${hash}`;
+  const prior = await getEscrowState(env, declId);
+  if (prior?.status === "confirmed" && prior.marketId) {
+    return { escrowed: true, already: true, market_id: prior.marketId, txHash: prior.txHash };
+  }
+
+  // On-chain: redacted stub spec + sha256 of the REAL spec — binds the
+  // hidden text without revealing it.
+  const { sha256Hex } = await import("./sealed");
+  const spec = `[confidential:${bounty.domain ?? "other"}] decl=${hash}`;
+  const specHash = `sha256:${await sha256Hex(new TextEncoder().encode(bounty.spec))}`;
+
+  const existing = await findMarketBySpecHash(env, contract, specHash);
+  if (existing) {
+    const s: EscrowState = {
+      mirror_id: declId, status: "confirmed",
+      usd: String(usd), near_price: prior?.near_price ?? 0,
+      near_amount: prior?.near_amount ?? "", deposit_yocto: prior?.deposit_yocto ?? "",
+      txHash: prior?.txHash, marketId: existing,
+      attempts: prior?.attempts ?? 1, updated_at: 0,
+    };
+    await putEscrowState(env, s);
+    return { escrowed: true, reconciled: true, market_id: existing, txHash: prior?.txHash };
+  }
+  if (prior && prior.attempts > 0 && Date.now() - prior.updated_at < PENDING_RETRY_MS) {
+    return { pending: "prior escrow attempt unresolved — retry after confirmation window",
+             txHash: prior.txHash, attempts: prior.attempts };
+  }
+
+  const price = await nearPriceUsd();
+  if (!price || !Number.isFinite(price) || price <= 0) {
+    return { skipped: "NEAR price unavailable or invalid (intents /tokens)" };
+  }
+  const nearAmount = usd / price;
+  if (nearAmount <= 0.001) return { skipped: `converted ${nearAmount.toFixed(4)} NEAR below minimum` };
+  const deposit = BigInt(Math.round(nearAmount * 1e24));
+
+  const state: EscrowState = {
+    mirror_id: declId, status: "pending",
+    usd: String(usd), near_price: price, near_amount: nearAmount.toFixed(6),
+    deposit_yocto: deposit.toString(),
+    attempts: (prior?.attempts ?? 0) + 1, updated_at: 0,
+  };
+  await putEscrowState(env, state);
+
+  const bps = Number(env.CUT_BPS ?? "200");
+  let res: { txHash: string; status: unknown };
+  try {
+    res = await nearFunctionCall(env,
+      { accountId: acct, secretKey: key }, contract,
+      {
+        methodName: "createMarket",
+        args: {
+          specHash, spec,
+          deadline: String(BigInt(Date.now()) * 1000000n + 30n * 24n * 3600n * 1000000000n),
+          acceptanceRule: "best sealed claim wins (attested submissions only)",
+          platformBps: bps, platformTo: env.CUT_SINK ?? "widespread-dao.near",
+          payToHat: null, claimTtlNs: null, acceptanceHash: null,
+        },
+        gas: 50_000_000_000_000n, deposit,
+      });
+  } catch (e) {
+    state.status = "failed";
+    state.error = e instanceof Error ? e.message : String(e);
+    await putEscrowState(env, state);
+    return { escrowed: false, error: state.error, attempts: state.attempts };
+  }
+
+  state.txHash = res.txHash || undefined;
+  const marketId = await findMarketBySpecHash(env, contract, specHash);
+  if (marketId) {
+    state.status = "confirmed";
+    state.marketId = marketId;
+    await putEscrowState(env, state);
+    return { escrowed: true, market_id: marketId, txHash: res.txHash,
+             payer: acct, note: "on-chain payer is the ops pool — funder identity stays off-chain" };
+  }
+  state.status = nearTxFailed(res.status) ? "failed" : "pending";
+  await putEscrowState(env, state);
+  return { escrowed: false, status: state.status, txHash: res.txHash, attempts: state.attempts };
+}

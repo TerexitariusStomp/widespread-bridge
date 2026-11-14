@@ -21,6 +21,7 @@ export type ArtifactRef =
   | { kind: "github"; owner: string; repo: string; issueKind: "issue" | "pr"; number: number }
   | { kind: "cid"; scheme: "btfs" | "ipfs"; cid: string }
   | { kind: "job"; jobId: string }
+  | { kind: "sealed"; sha256: string }
   | { kind: "receipt"; receiptId: string };
 
 /** CIDv0 (Qm… base58) or CIDv1 (b… base32 / z… base58) shape check —
@@ -45,6 +46,8 @@ export function parseArtifactRef(ref: string): ArtifactRef | null {
   if (m && isCid(m[2])) {
     return { kind: "cid", scheme: m[1].toLowerCase() as "btfs" | "ipfs", cid: m[2] };
   }
+  m = r.match(/^sealed:\/\/([0-9a-f]{64})$/i);
+  if (m) return { kind: "sealed", sha256: m[1].toLowerCase() };
   m = r.match(/^rcpt:\/\/([A-Za-z0-9._:-]{4,128})$/i);
   if (m) return { kind: "receipt", receiptId: m[1] };
   m = r.match(/^(?:widespread:\/\/job\/|job:)([A-Za-z0-9._:-]{4,128})$/i)
@@ -127,6 +130,25 @@ export async function validateCidArtifact(
   }
   out.resolved = resolved;
   if (!resolved) failures.push(`cid not resolvable via public gateways (${lastErr || "none tried"}) — pin the artifact before claiming`);
+  return { failures, evidence: out };
+}
+
+// --------------------------------------------------------------- sealed
+
+/** Validate a sealed:// claim — confidential deliverables as
+ *  crypto_box_seal ciphertext. Public record keeps hash + ciphertext
+ *  only; the bridge opens its adjudication copy in-request (review.ts).
+ *  Shape-checked here; content is verified after decryption there. */
+export async function validateSealedArtifact(
+  _env: Env, ref: Extract<ArtifactRef, { kind: "sealed" }>, evidence: Record<string, unknown>,
+): Promise<{ failures: string[]; evidence: Record<string, unknown> }> {
+  const { parseSealedArtifact } = await import("./sealed");
+  const { sealed, failures } = parseSealedArtifact(evidence, ref.sha256);
+  const out: Record<string, unknown> = {
+    ...evidence, artifact: "sealed", artifact_sha256: sealed?.artifact_sha256, forge: "sealed",
+    // ciphertext rides through — safe in the public record; plaintext
+    // never appears anywhere but inside the adjudication request.
+  };
   return { failures, evidence: out };
 }
 

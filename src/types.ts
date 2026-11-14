@@ -89,6 +89,10 @@ export interface Env {
    * secretKey = ed25519:<base58> full-access key (NEAR_OPS_SECRET_KEY). */
   NEAR_OPS_ACCOUNT?: string;
   NEAR_OPS_SECRET_KEY?: string;
+  /** Bridge x25519 secret (hex, 32B) — opens the adjudication copy of
+   *  sealed deliverables in-request. Public half is derivable for
+   *  claimants to seal against (GET /api/spec/reveal response). */
+  BRIDGE_X25519_SECRET?: string;
   /** EVM address our oracle occupies as the `evaluator` on outbound 8183
    * jobs — named in createJob calldata so our verdict lands on-chain. */
   ORACLE_EVM_ADDRESS?: string;
@@ -192,6 +196,8 @@ export interface FeedRecord {
    * funder's LinkedIn handle on a ghostwrite task). bound=true once the
    * handle resolves to a DID via idbind. Never inferred. */
   for?: { platform: string; handle: string; bound?: boolean };
+  /** Confidential market — spec withheld; only domain+amount+hash public. */
+  confidential?: boolean;
   /** draft = deliverable is text reviewed before publication (ghostwriting);
    * publish = deliverable must be a published artifact on the target. */
   deliverable_class?: "draft" | "publish" | "resource";
@@ -402,6 +408,12 @@ export interface Bounty {
   capacity?: CapacityTag;
   /** Display-only floor screen hits — flag, don't censor (P6 polycentric). */
   floor_flags?: string[];
+  /** Confidential market — spec text never leaves the bridge's private
+   * KV; public surfaces carry domain+amount+specHash only. Deliverables
+   * arrive as artifact_sealed ciphertext. */
+  confidential?: boolean;
+  /** Funder's x25519 pubkey (hex) — sealed-deliverable recipient. */
+  funder_x25519_pubkey?: string;
   created_at: number;
 }
 

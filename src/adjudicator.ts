@@ -43,6 +43,9 @@ interface AdjudicatorInput {
   /** Derivative-use proof: a later upstream commit landed the same patch
    *  fingerprint — the payer may have used the work without merging. */
   derivative?: { sha: string; matched: boolean } | null;
+  /** Confidential deliverable plaintext, opened in-request by the bridge
+   *  (C3). Judges read it here; it is never written to any record. */
+  sealed_text?: string;
 }
 
 function buildPrompt(input: AdjudicatorInput): string {
@@ -76,6 +79,7 @@ function buildPrompt(input: AdjudicatorInput): string {
       capacity: input.bounty?.capacity ?? null,
       crosscheck: input.check,
       derivative_use: input.derivative ?? null,
+      sealed_deliverable: input.sealed_text ?? null,
       commits,
     },
     null,

@@ -21,7 +21,7 @@
 import { nearView } from "./near";
 import type { Env } from "./types";
 import {
-  parseArtifactRef, validateCidArtifact, validateReceipt,
+  parseArtifactRef, validateCidArtifact, validateReceipt, validateSealedArtifact,
   loadJobRecord, verifyJobRecordSig, type ArtifactRef,
 } from "./artifacts";
 
@@ -162,7 +162,7 @@ export async function validateForgeSubmission(
   const evidence = { ...(body.evidence ?? {}) };
   const art = parseArtifactRef(body.forgeRef);
   if (!art) {
-    return { failures: ["forgeRef must be a github.com owner/repo/(issues|pull)/N, owner/repo#N, btfs://cid, ipfs://cid, rcpt://id, or a /api/jobs/ ref"], evidence };
+    return { failures: ["forgeRef must be a github.com owner/repo/(issues|pull)/N, owner/repo#N, btfs://cid, ipfs://cid, sealed://<sha256>, rcpt://id, or a /api/jobs/ ref"], evidence };
   }
   evidence.artifact_kind = art.kind;
 
@@ -177,6 +177,9 @@ export async function validateForgeSubmission(
   }
   if (art.kind === "job") {
     return validateJobArtifact(env, art, evidence);
+  }
+  if (art.kind === "sealed") {
+    return validateSealedArtifact(env, art, evidence);
   }
 
   // github kind — original forge path
