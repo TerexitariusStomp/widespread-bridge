@@ -51,8 +51,37 @@ export function forgeLabel(rec: FeedRecord | MirrorListing): string {
   return "generic";
 }
 
+/** Canonical homepage for every forge/platform we surface — badges link out. */
+const SITE_URLS: Record<string, string> = {
+  github: "https://github.com", gitlab: "https://gitlab.com", forgejo: "https://forgejo.org",
+  tangled: "https://tangled.org", radicle: "https://radicle.xyz", codeberg: "https://codeberg.org",
+  gitea: "https://about.gitea.com", algora: "https://algora.io", opire: "https://opire.dev",
+  immunefi: "https://immunefi.com", devto: "https://dev.to", hashnode: "https://hashnode.com",
+  bluesky: "https://bsky.app", bsky: "https://bsky.app", mastodon: "https://joinmastodon.org",
+  lemmy: "https://join-lemmy.org", misskey: "https://misskey-hub.net",
+  pixelfed: "https://pixelfed.org", peertube: "https://joinpeertube.org", nostr: "https://nostr.com",
+  hive: "https://hive.io", steem: "https://steem.com", wordpress: "https://wordpress.org",
+  blogger: "https://www.blogger.com", substack: "https://substack.com", audius: "https://audius.co",
+  kick: "https://kick.com", youtube: "https://www.youtube.com", x: "https://x.com",
+  twitter: "https://x.com", linkedin: "https://www.linkedin.com", tiktok: "https://www.tiktok.com",
+  gnosis: "https://www.gnosis.io", near: "https://near.org", ipfs: "https://ipfs.tech",
+  activitypub: "https://activitypub.rocks", hackernews: "https://news.ycombinator.com",
+  hn: "https://news.ycombinator.com",
+};
+
+/** Resolve a forge/platform label ("GitHub", "devto", "forge-thirdparty:x") to its site URL. */
+export function siteUrl(name: string | null | undefined): string | null {
+  if (!name) return null;
+  const key = name.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return SITE_URLS[key] ?? null;
+}
+
 export function forgeBadge(rec: FeedRecord | MirrorListing): string {
-  return `<span class="forge-badge">${esc(forgeLabel(rec))}</span>`;
+  const label = forgeLabel(rec);
+  const url = siteUrl(label);
+  return url
+    ? `<a class="forge-badge" href="${url}" target="_blank" rel="noopener" title="${esc(label)}">${esc(label)}</a>`
+    : `<span class="forge-badge">${esc(label)}</span>`;
 }
 
 /** Map a feed source to the third-party platform name for "also on" badges. */
@@ -87,6 +116,13 @@ export function escrowPill(rec: FeedRecord | MirrorListing): { cls: string; labe
 
 export function pill(cls: string, label: string): string {
   return `<span class="pill ${cls}">${esc(label)}</span>`;
+}
+
+/** Pill that links out to the named platform's site in a new tab. */
+export function pillSite(cls: string, label: string, site: string | null): string {
+  return site
+    ? `<a class="pill ${cls}" href="${site}" target="_blank" rel="noopener">${esc(label)}</a>`
+    : pill(cls, label);
 }
 
 export function bountyHref(rec: FeedRecord | MirrorListing): string {

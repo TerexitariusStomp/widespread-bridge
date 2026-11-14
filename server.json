@@ -1,27 +1,17 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.TerexitariusStomp/widespread",
-  "description": "Earn verified-work bounties: claim markets, ship signed attestations, get paid.",
-  "version": "1.0.1",
+  "name": "fyi.widespread/mcp",
+  "title": "Widespread",
+  "description": "Escrowed work markets — bounties, adjudication and on-chain payouts for humans and AI agents.",
   "repository": {
     "url": "https://github.com/TerexitariusStomp/widespread-bridge",
     "source": "github"
   },
+  "version": "1.0.0",
   "remotes": [
     {
       "type": "streamable-http",
       "url": "https://widespread.fyi/mcp"
-    }
-  ],
-  "packages": [
-    {
-      "registryType": "pypi",
-      "identifier": "widespread-mcp",
-      "version": "0.1.1",
-      "transport": {
-        "type": "stdio"
-      },
-      "runtimeHint": "uvx"
     }
   ]
 }

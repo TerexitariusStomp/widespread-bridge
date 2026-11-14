@@ -13,7 +13,7 @@
 //   scheduled(*/5m)           scan WATCH_REPOS claim streams, review new work claims
 
 import { OPS_HTML } from "./ops";
-import { homePage, bountiesPage, bountyPage, fundPage, receiptPage, docsPage, bountyMarkdown, marketPage, postPage } from "./web/pages";
+import { homePage, bountiesPage, bountyPage, fundPage, receiptPage, docsPage, bountyMarkdown, marketPage, securityPage, faqPage, brandPage } from "./web/pages";
 import { reviewOutstanding, runReview } from "./review";
 import { handleBotVerdict, type BotVerdictBody } from "./botverdict";
 import { attestClaim, ecosystem, openDispute } from "./ecosystem";
@@ -29,7 +29,7 @@ import { nearViewCall } from "./nearops";
 import { oracleEnv, oracleVote, signVerdict } from "./oracle";
 import { scanOnchain, scanMirrorPayouts } from "./onchainscan";
 import { handleMcpRequest } from "./mcp";
-import { OPENAPI, LLMS_TXT, SKILL_MD, INSTALL_HTML, PRIVACY_HTML, TERMS_HTML } from "./docs";
+import { OPENAPI, LLMS_TXT, SKILL_MD, INSTALL_HTML, PRIVACY_HTML, TERMS_HTML, ROBOTS_TXT, HOME_MD, DOCS_MD } from "./docs";
 import { checkLimit, callerKey, rateLimited } from "./ratelimit";
 import { handleEvaluate } from "./evaluator";
 import { deleteBounty, listBounties, listRecords, putBounty } from "./store";
@@ -393,7 +393,7 @@ app.get("/api/funding/1click/status/:addr{.+}", async (c) => {
 const ctxOf = (c: { executionCtx: unknown }) => c.executionCtx as unknown as ExecutionContext;
 app.get("/", (c) => cachedPage(new URL(c.req.url), c.req.raw, () => homePage(c.env, ctxOf(c))));
 app.get("/index.html", (c) => cachedPage(new URL(c.req.url), c.req.raw, () => homePage(c.env, ctxOf(c))));
-app.get("/post", (c) => cachedPage(new URL(c.req.url), c.req.raw, () => Promise.resolve(postPage())));
+app.get("/post", (c) => c.redirect("/docs", 301));
 app.get("/bounties", (c) => cachedPage(new URL(c.req.url), c.req.raw, () => bountiesPage(c.env, ctxOf(c))));
 app.get("/bounties/:id{.+}", (c) => {
   const id = c.req.param("id");
@@ -447,6 +447,11 @@ app.get("/receipt", (c) => {
       c.req.query("repo") ?? null, Number.isFinite(seq) ? seq : null));
 });
 app.get("/docs", () => docsPage());
+app.get("/security", (c) => securityPage(c.env));
+app.get("/faq", () => faqPage());
+app.get("/brand", () => brandPage());
+app.get("/index.md", () => new Response(HOME_MD, { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=300" } }));
+app.get("/docs.md", () => new Response(DOCS_MD, { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=300" } }));
 // Ops dashboard — the claim→evidence→verdict→payout console. Gated like
 // the other admin surfaces: open when ADMIN_TOKEN is unset (dev/testnet),
 // Bearer-required once configured.
@@ -928,6 +933,22 @@ app.post("/poe", async (c) => {
 });
 app.get("/openapi.json", () => json(OPENAPI));
 app.get("/llms.txt", () => new Response(LLMS_TXT, { headers: { "content-type": "text/plain; charset=utf-8" } }));
+app.get("/robots.txt", () => new Response(ROBOTS_TXT, { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "public, max-age=3600" } }));
+app.get("/sitemap.xml", async (c) => {
+  const base = c.env.PUBLIC_BASE ?? new URL(c.req.url).origin;
+  const doc = await feedDoc(c.env, ctxOf(c)).catch(() => null);
+  const staticPaths = ["/", "/bounties", "/docs", "/security", "/faq", "/brand", "/install", "/privacy", "/terms"];
+  const items = [
+    ...(doc?.records ?? []).map((r) => ({ id: r.id, ts: r.updated_at ?? 0 })),
+    ...(doc?.mirrors ?? []).map((m) => ({ id: m.id, ts: m.updated_at ?? 0 })),
+  ].sort((a, b) => b.ts - a.ts).slice(0, 100);
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${staticPaths.map((p) => `  <url><loc>${base}${p}</loc></url>`).join("\n")}
+${items.map((i) => `  <url><loc>${base}/bounties/${encodeURIComponent(i.id)}</loc>${i.ts ? `<lastmod>${new Date(i.ts).toISOString().slice(0, 10)}</lastmod>` : ""}</url>`).join("\n")}
+</urlset>`;
+  return new Response(xml, { headers: { "content-type": "application/xml; charset=utf-8", "cache-control": "public, max-age=300" } });
+});
 app.get("/skill.md", () => new Response(SKILL_MD, { headers: { "content-type": "text/markdown; charset=utf-8" } }));
 app.get("/privacy", () => new Response(PRIVACY_HTML, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=3600" } }));
 app.get("/terms", () => new Response(TERMS_HTML, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=3600" } }));

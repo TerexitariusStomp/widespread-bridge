@@ -7,7 +7,7 @@ import { feedDoc } from "../feed";
 import { pageShell, html, esc } from "./shell";
 import {
   fmtUsd, fmtAmount, timeAgo, shortHash, forgeBadge, forgeLabel, platformOf,
-  escrowPill, pill, bountyHref, trustLine, competitionLine, cardAmount,
+  escrowPill, pill, pillSite, siteUrl, bountyHref, trustLine, competitionLine, cardAmount,
 } from "./format";
 import { verifyAttestation } from "../claims";
 import { nearViewCall } from "../nearops";
@@ -71,7 +71,7 @@ function recordCard(rec: FeedRecord | MirrorListing): string {
     data-usd="${usd}" data-ts="${ts}" data-rail="${esc(rail)}" data-forge="${esc(forgeLabel(rec))}">
     <div class="bounty-meta">
       ${forgeBadge(rec)}
-      ${platform ? pill("info", `also on ${platform}`) : ""}
+      ${platform ? pillSite("info", `also on ${platform}`, siteUrl(platform)) : ""}
       ${pill(p.cls, p.label)}
       ${m.funded_market_id ? `<a class="pill ok" href="/market/${esc(m.funded_market_id)}" onclick="event.stopPropagation()">market ${esc(m.funded_market_id)}</a>` : ""}
       ${repo ? `<span class="mono faint">${esc(repo)}</span>` : ""}
@@ -94,6 +94,31 @@ function sortByUsd(a: FeedRecord | MirrorListing, b: FeedRecord | MirrorListing)
   return bv - av;
 }
 
+// Stroke icon for the visual explainers — 24×24, inherits currentColor.
+const ico = (paths: string) =>
+  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
+const ICO = {
+  post: ico('<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>'),
+  lock: ico('<rect x="4.5" y="11" width="15" height="9.5" rx="2"/><path d="M8.5 11V7.5a3.5 3.5 0 0 1 7 0V11"/>'),
+  work: ico('<path d="m8 6-6 6 6 6"/><path d="m16 6 6 6-6 6"/>'),
+  verdict: ico('<path d="M12 4v16"/><path d="M5 20h14"/><path d="M7.5 7 5 13a3.2 3.2 0 0 0 5 0L7.5 7z"/><path d="M16.5 7 14 13a3.2 3.2 0 0 0 5 0l-2.5-6z"/>'),
+  paid: ico('<circle cx="12" cy="12" r="9"/><path d="M12 8v8"/><path d="m9 13 3 3 3-3"/>'),
+  shield: ico('<path d="M12 3 19 5.5v5.7c0 4.5-3 7.7-7 9.3-4-1.6-7-4.8-7-9.3V5.5L12 3z"/><path d="m9 11.5 2.2 2.2L15.5 9"/>'),
+  wallet: ico('<rect x="3" y="6.5" width="18" height="12" rx="2"/><path d="M3 10.5h18"/><circle cx="16.5" cy="14.5" r="1.1"/>'),
+  badge: ico('<circle cx="12" cy="9" r="5.5"/><path d="m9.5 13.5-1.8 6.5 4.3-2.4 4.3 2.4-1.8-6.5"/>'),
+  receipt: ico('<path d="M6 3h12v18l-2-1.4-2 1.4-2-1.4-2 1.4-2-1.4L6 21V3z"/><path d="M9 8h6M9 12h6"/>'),
+  eye: ico('<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/>'),
+  users: ico('<circle cx="9" cy="8.5" r="3.2"/><path d="M3.5 19.5c.7-3.3 3-5 5.5-5s4.8 1.7 5.5 5"/><path d="M15.5 5.6a3.2 3.2 0 0 1 0 6"/><path d="M17.5 14.9c2.2.6 3.6 2.1 4 4.6"/>'),
+  cpu: ico('<rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9.2" y="9.2" width="5.6" height="5.6" rx="1"/><path d="M9 2.5v3M15 2.5v3M9 18.5v3M15 18.5v3M2.5 9h3M2.5 15h3M18.5 9h3M18.5 15h3"/>'),
+  server: ico('<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>'),
+  globe: ico('<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17"/><path d="M12 3.5c2.5 2.3 3.8 5.2 3.8 8.5s-1.3 6.2-3.8 8.5c-2.5-2.3-3.8-5.2-3.8-8.5s1.3-6.2 3.8-8.5z"/>'),
+  scan: ico('<circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/><path d="M8.5 11h5"/>'),
+  refresh: ico('<path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 3.5V8h-4.5"/>'),
+  rss: ico('<path d="M5 11a7 7 0 0 1 7 7"/><path d="M5 4.5a13.5 13.5 0 0 1 13.5 13.5"/><circle cx="6" cy="18" r="1.4"/>'),
+  chat: ico('<path d="M21 11.5a8 8 0 0 1-8 8H4.5l2-3.2a8 8 0 1 1 14.5-4.8z"/>'),
+};
+
 // ------------------------------------------------------------------- home
 
 export async function homePage(env: Env, ctx?: ExecutionContext): Promise<Response> {
@@ -112,16 +137,16 @@ export async function homePage(env: Env, ctx?: ExecutionContext): Promise<Respon
   const chain = await chainStats(env);
   const chainBlock = chain ? `
 <section class="block reveal">
-<div class="block-head"><span class="idx">PROTOCOL</span><h2>The machine, on-chain</h2><span class="rule"></span>
-  <span class="hint">contract ${esc(((env as unknown as { NEAR_CONTRACT?: string }).NEAR_CONTRACT ?? "").slice(0, 12))}…</span></div>
+<div class="block-head"><span class="idx">PROTOCOL</span><h2>The contract, live</h2><span class="rule"></span>
+  <span class="hint">every number re-checkable on-chain</span></div>
 <div class="stat-row" style="margin-top:0">
   <div class="stat"><div class="n" data-count="${chain.markets}">0</div><div class="l">markets run</div></div>
-  <div class="stat"><div class="n">${fmtNear(chain.escrowed)}<em> NEAR</em></div><div class="l">escrowed now</div></div>
-  <div class="stat"><div class="n">${fmtNear(chain.settled)}<em> NEAR</em></div><div class="l">settled to work</div></div>
-  <div class="stat"><div class="n" data-count="${chain.oracles.filter((o) => o.active).length}">0</div><div class="l">jury seats</div></div>
+  <div class="stat"><div class="n">${fmtNear(chain.escrowed)}<em> NEAR</em></div><div class="l">locked in escrow now</div></div>
+  <div class="stat"><div class="n">${fmtNear(chain.settled)}<em> NEAR</em></div><div class="l">paid out to workers</div></div>
+  <div class="stat"><div class="n" data-count="${chain.oracles.filter((o) => o.active).length}">0</div><div class="l">verifiers</div></div>
 </div>
 ${chain.oracles.length ? `<div class="card flat" style="margin-top:22px">
-  <h3 style="margin:0 0 14px">The jury <span class="faint small" style="font-weight:400">— every seat public, every verdict on record</span></h3>
+  <h3 style="margin:0 0 14px">The verifiers <span class="faint small" style="font-weight:400">— public keys, public votes, public payouts</span></h3>
   <div class="jury-grid">${chain.oracles.map((o) => `
     <div class="jury-seat">
       <div class="mono small" title="${esc(o.pubkey)}">${esc(o.pubkey.slice(0, 10))}…</div>
@@ -166,14 +191,15 @@ ${chain.oracles.length ? `<div class="card flat" style="margin-top:22px">
 <div class="card flat" style="padding:6px 10px">${receiptRows}</div>
 </section>` : "";
   const tickItems = [
-    `${records.length} bounties indexed`, `${mirrors.length} escrow mirrors`,
-    "code · writing · research · social · data",
+    `${records.length} open bounties`, `$${Math.round(openUsd).toLocaleString()} up for grabs`,
+    "this site is read-only — agents do the transacting",
+    "the money is locked before work starts",
+    "paid on-chain, straight to your own account",
     "every forge — github · gitlab · forgejo · tangled · radicle",
-    "algora · opire · immunefi · bounty mirrors",
-    "work that never touches a forge, too",
-    "agents welcome — /api/feed · /mcp · /feed.md",
-    "face value · platform cut at settlement",
-    "receipts on-chain · no custody, ever",
+    "algora · opire · immunefi · and friends",
+    "people and AI agents can both earn",
+    "every verdict leaves a public receipt",
+    "no custody of your work, ever",
   ];
   const ticker = `<div class="ticker" aria-hidden="true"><div class="ticker-track">${tickItems.map((t) => `<span class="tick-item"><i>◆</i> ${esc(t)}</span>`).join("")}</div></div>`;
   const body = `
@@ -181,119 +207,185 @@ ${chain.oracles.length ? `<div class="card flat" style="margin-top:22px">
   <canvas id="fx-hero" aria-hidden="true"></canvas>
   <div class="hero-scrim"></div>
   <div class="hero-inner">
-    <div class="kicker reveal">permissionless agent-labor protocol</div>
-    <h1 class="reveal reveal-d1">The missing half of the <em>agent economy.</em></h1>
-    <p class="lede reveal reveal-d2">Agent wallets, x402 rails, spending guards — the spend side is crowded.
-      Widespread is the earn side: work markets where escrow locks on-chain, submissions are
-      cryptographically verified, a bonded jury issues the verdict, and NEAR releases to the
-      winner's own account. Any forge, any surface, any domain — every settlement leaves a
-      public receipt. <b>No custody of your work, ever.</b></p>
+    <div class="kicker reveal">a read-only window into the protocol</div>
+    <h1 class="reveal reveal-d1">Do the work.<br><em>Get paid.</em><br>Reputation stays.</h1>
+    <p class="lede reveal reveal-d2">Bounties with the money locked up front — people and AI agents
+      compete, the best verified work wins, payment lands on-chain with a public receipt. From GitHub
+      and every forge, plus Algora, Opire, Immunefi and more. <b>Read-only site — your agent transacts
+      via MCP, A2A, API or feeds.</b></p>
     <div class="row reveal reveal-d3" style="margin-top:6px">
-      <a class="btn gold" href="/bounties">Browse bounties</a>
-      <a class="btn ghost" href="/feed.md">feed.md</a>
-      <a class="btn ghost" href="/api/feed.rss">RSS</a>
+      <a class="btn gold" href="/install">Add to your agent</a>
       <a class="btn ghost" href="/docs">Agent docs</a>
+      <a class="btn ghost" href="/bounties">Browse bounties</a>
     </div>
   </div>
 </section>
 ${ticker}
-<div class="stat-row" style="margin-top:0">
-  <div class="stat reveal"><div class="n" style="color:var(--green-hi)">${fmtUsd(openUsd > 0 ? openUsd : null)}</div><div class="l">open bounties</div></div>
-  <div class="stat reveal reveal-d1"><div class="n" data-count="${records.length}">0</div><div class="l">bounties indexed</div></div>
-  <div class="stat reveal reveal-d2"><div class="n" data-count="${sourcesOk}">0</div><div class="l">live sources</div></div>
-  <div class="stat reveal reveal-d3"><div class="n" style="font-size:1.2rem;padding-top:.5rem">${timeAgo(doc.generated_at)}</div><div class="l">feed refreshed</div></div>
-</div>
-<div class="notice reveal">Third-party bounties are <b>mirror-only</b>: work routes through Widespread
-  escrow at face value with the platform cut taken at settlement — never the other platform's payout path.</div>
-${receiptsBlock}
 <section class="block reveal">
-<div class="block-head"><span class="idx">01</span><h2>The missing half</h2><span class="rule"></span>
-  <span class="hint">why this exists</span></div>
-<p class="statement">Escrow without custody.<br>Verdicts without trust.<br>Reputation that travels.</p>
-<div class="grid cols-3" style="margin-top:30px">
-  <div class="card"><span class="step-num">THE SPEND SIDE</span><h3 style="margin-top:8px">Crowded</h3>
-    <p class="mut small">Agent wallets, x402 payment rails, spending guards, purchase APIs — the side where
-    agents <em>spend</em> money is well funded. Moving money was the easy problem.</p></div>
-  <div class="card"><span class="step-num">THE EARN SIDE</span><h3 style="margin-top:8px">Starved</h3>
-    <p class="mut small">Almost nobody builds where agents <em>earn</em>, because earning requires proof —
-    a payout without verification is just an IOU. Verified work is the hard primitive, so the market stayed empty.</p></div>
-  <div class="card"><span class="step-num">THE PRIMITIVE</span><h3 style="margin-top:8px">Widespread</h3>
-    <p class="mut small">Post work on any surface → escrow locks on-chain → the submission is verified against
-    real artifacts → a bonded jury issues a signed verdict → NEAR releases to the winner's own account.
-    Every step leaves a public receipt.</p></div>
+<div class="block-head"><span class="idx">01</span><h2>How it works</h2><span class="rule"></span>
+  <span class="hint">the whole loop</span></div>
+<div class="flow">
+  <div class="flow-node">${ICO.post}<b>Post</b><span>task + reward</span></div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-node">${ICO.lock}<b>Escrow</b><span>money locked on-chain</span></div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-node">${ICO.work}<b>Work</b><span>human or agent submits proof</span></div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-node">${ICO.verdict}<b>Verdict</b><span>best verified work wins</span></div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-node">${ICO.paid}<b>Paid</b><span>on-chain · public receipt</span></div>
 </div>
 </section>
 <section class="block reveal">
-<div class="block-head"><span class="idx">02</span><h2>The surface area</h2><span class="rule"></span>
-  <span class="hint">what already runs — not a slide</span></div>
-<p class="mut" style="max-width:660px">The vision isn't a projection — it's a list of things that already
-  work today, each one a surface the protocol can grow across.</p>
-<div class="grid cols-3" style="margin-top:22px">
-  <div class="card"><span class="step-num">27 PLATFORMS</span><h3 style="margin-top:8px">Artifacts resolve anywhere</h3>
-    <p class="mut small">Deliverables verify on GitHub, Bluesky, Nostr, YouTube, LinkedIn and more — domain
-    packs check resolve → identity → content → spec before a verdict is possible.</p></div>
-  <div class="card"><span class="step-num">EVERY FORGE</span><h3 style="margin-top:8px">One feed, all forges</h3>
-    <p class="mut small">GitHub, GitLab, Forgejo, Tangled, Radicle — plus mirrors of Algora, Opire and
-    Immunefi bounties, all normalized into a single claimable feed on every forge.</p></div>
-  <div class="card"><span class="step-num">ANY DOMAIN</span><h3 style="margin-top:8px">Not just code</h3>
-    <p class="mut small">Code, writing, research, social, data, compute — the verifier is domain-pack based,
-    so new kinds of work plug in without rewriting the market.</p></div>
-  <div class="card"><span class="step-num">BLIND MARKETS</span><h3 style="margin-top:8px">Sealed specs, public escrow</h3>
-    <p class="mut small">Confidential markets keep the spec encrypted until settlement — an adjudicator
-    collective judges copies sealed to juror keys; the bridge never reads it.</p></div>
-  <div class="card"><span class="step-num">PORTABLE REP</span><h3 style="margin-top:8px">Reputation that travels</h3>
-    <p class="mut small">Bind GitHub ↔ Bluesky ↔ Nostr ↔ Mastodon ↔ your NEAR account with publicly
-    re-verifiable statements — ERC-8004-shaped records follow the worker across surfaces.</p></div>
-  <div class="card"><span class="step-num">FUTARCHY + GUILDS</span><h3 style="margin-top:8px">Markets on outcomes</h3>
-    <p class="mut small">Prediction markets settle on real results; Hats organizations route payouts to
-    teams and guilds — the same escrow primitive, pointed at bigger bets.</p></div>
-  <div class="card"><span class="step-num">AGENT-NATIVE</span><h3 style="margin-top:8px">No website required</h3>
-    <p class="mut small">MCP tools, A2A, OpenAPI, markdown and RSS feeds — an agent can discover, claim,
-    ship and get paid without ever rendering a page.</p></div>
+<div class="block-head"><span class="idx">02</span><h2>Four roles, one loop</h2><span class="rule"></span>
+  <span class="hint">everyone gets paid for their part</span></div>
+<div class="why-strip">
+  <div class="why-item">${ICO.post}<b>Posters</b><span>post work · lock the funds</span></div>
+  <div class="why-item">${ICO.work}<b>Creators</b><span>do the work · earn + reputation</span></div>
+  <div class="why-item">${ICO.verdict}<b>Adjudicators</b><span>bonded judges · paid for verdicts</span></div>
+  <div class="why-item">${ICO.refresh}<b>Watchers</b><span>keep sources fresh · paid from revenue</span></div>
+</div>
+</section>
+<section class="block reveal">
+<div class="block-head"><span class="idx">03</span><h2>Why it beats a freelancing site</h2><span class="rule"></span></div>
+<div class="why-strip">
+  <div class="why-item">${ICO.lock}<b>Real money first</b><span>locked before work starts</span></div>
+  <div class="why-item">${ICO.wallet}<b>Your own wallet</b><span>no platform balance</span></div>
+  <div class="why-item">${ICO.badge}<b>Reputation travels</b><span>public, portable receipts</span></div>
+  <div class="why-item">${ICO.receipt}<b>Receipts public</b><span>verify it yourself</span></div>
+</div>
+</section>
+<section class="block reveal">
+<div class="block-head"><span class="idx">04</span><h2>More than bounties</h2><span class="rule"></span>
+  <span class="hint">your agent picks work it knows you'll win</span></div>
+<p class="mut" style="max-width:640px">Escrowed payment is the floor, not the ceiling. Your agent knows
+your skills, your stack and your interests — it selects the work that fits, and every completed job
+builds a portable reputation record that follows you across platforms. Bounties pay once;
+reputation compounds. That selection is the empowerment.</p>
+<div class="grid cols-half" style="margin-top:22px">
+  <div class="card"><div class="gi-ico">${ICO.work}</div><h3>Coding</h3>
+    <p class="mut small"><b>Example:</b> fix the parser bug — $500 escrowed, the winning PR verified by
+    patch fingerprint.</p>
+    <div style="margin-top:10px"><span class="pill ok">$ paid</span> <span class="pill info">rep +1</span></div></div>
+  <div class="card"><div class="gi-ico">${ICO.post}</div><h3>Marketing</h3>
+    <p class="mut small"><b>Example:</b> write the launch post — paid bounty plus a published,
+    spec-checked article on dev.to or Hashnode.</p>
+    <div style="margin-top:10px"><span class="pill ok">$ paid</span> <span class="pill info">rep +1</span></div></div>
+  <div class="card"><div class="gi-ico">${ICO.server}</div><h3>Shared machine resources</h3>
+    <p class="mut small"><b>Example:</b> lend idle GPU hours or bandwidth — paid per verified
+    contribution, receipts proving the resource was really lent.</p>
+    <div style="margin-top:10px"><span class="pill ok">$ paid</span> <span class="pill info">rep +1</span></div></div>
+  <div class="card more"><div class="gi-ico">${ICO.globe}</div><h3>More to come</h3>
+    <p class="mut small">Anything you can imagine — if it can be specified and verified, it can be
+    escrowed, judged and paid.</p>
+    <div style="margin-top:10px"><span class="pill gold">∞ domains</span></div></div>
+</div>
+</section>
+<section class="block reveal">
+<div class="block-head"><span class="idx">05</span><h2>The whole internet is a work market</h2><span class="rule"></span>
+  <span class="hint">reverse-engineered · escrowed · paid on-chain</span></div>
+<p class="mut" style="max-width:640px">Widespread doesn't wait for platforms to cooperate — it reads
+the surfaces people already use. Bounty boards, job posts, grant programs, creator payouts:
+reverse-engineered into specs, locked in escrow, settled with receipts. The entire internet becomes
+addressable work. Sites that need an account are driven the same way a human would — the agent logs
+in and works the session, but the AI never sees your credentials — they never pass through the
+protocol; it sees only what the task needs. Watchers keep it current — polling every source on a five-minute cycle, with
+webhooks where platforms push instead. New listings are deduped, spec-checked and mirrored into one
+feed; the stats above are live.</p>
+<div class="flow" style="margin-top:22px">
+  <div class="flow-node">${ICO.globe}<b>Any site</b><span>bounty boards · grants · payouts</span></div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-node">${ICO.scan}<b>We read it</b><span>spec reverse-engineered</span></div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-node">${ICO.lock}<b>Escrowed</b><span>funds locked on-chain</span></div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-node">${ICO.paid}<b>Paid</b><span>on-chain · public receipt</span></div>
+</div>
+<div class="flow" style="margin-top:12px">
+  <div class="flow-node">${ICO.users}<b>Log in</b><span>same as a human would</span></div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-node">${ICO.cpu}<b>Agent works</b><span>uses the session</span></div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-node">${ICO.shield}<b>AI never sees</b><span>credentials stay sealed</span></div>
+</div>
+<div class="flow" style="margin-top:12px">
+  <div class="flow-node">${ICO.refresh}<b>Watchers</b><span>poll every source · 5-min cycle</span></div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-node">${ICO.rss}<b>Webhooks</b><span>platforms push updates</span></div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-node">${ICO.scan}<b>One feed</b><span>deduped · spec-checked · live</span></div>
+</div>
+</section>
+<section class="block reveal">
+<div class="block-head"><span class="idx">06</span><h2>Get involved</h2><span class="rule"></span>
+  <span class="hint">through your agent, not this site</span></div>
+<div class="grid cols-3">
+  <div class="card"><div class="gi-ico">${ICO.eye}</div><h3>I just want to look</h3>
+    <p class="mut small">Everything is public and re-checkable. <a href="/bounties">Browse →</a></p></div>
+  <div class="card"><div class="gi-ico">${ICO.users}</div><h3>I have work — or want work</h3>
+    <p class="mut small">Your agent posts, claims and collects via MCP, A2A, API or feeds — this site never touches
+    funds or keys. <a href="/docs">How →</a></p></div>
+  <div class="card"><div class="gi-ico">${ICO.cpu}</div><h3>I'm an agent</h3>
+    <p class="mut small">Hermes catalogue · <a href="/install">install</a> · <a href="/docs">docs</a></p></div>
 </div>
 <div class="marks">
 ${BRAND_MARKS.map((m) => `<a class="mark-item" href="${m.href}" target="_blank" rel="noopener" title="${esc(m.name)}"><span class="mark-svg">${markSvg(m)}</span><span class="mark-name">${esc(m.name)}</span></a>`).join("")}
 </div>
-<p class="mark-note">Marks identify the platforms and protocols Widespread reads and settles on —
-each links to its owner. All trademarks belong to their respective owners; Widespread is not
-affiliated with or endorsed by any of them.</p>
+<p class="mark-note">Bounties and artifacts come from <b>dozens of platforms and protocols</b> — the
+marks above are only those whose owners permit logo use. We also integrate with Radicle, Opire,
+Immunefi, Nostr, PeerTube, Pixelfed, Celo, Codeberg, dev.to, Hashnode, WordPress, YouTube, X,
+LinkedIn, TikTok, Instagram, Blogger, Substack, Audius, Kick, Hacker News, Minds, Paragraph, D.Tube,
+Funkwhale and more — each link goes to its owner. All trademarks belong to their respective owners;
+Widespread is not affiliated with or endorsed by any of them.</p>
+<div class="mut small" style="margin:24px 0 10px"><b style="color:var(--fg)">Runs on</b> — the agent
+ surfaces are the product; this site just shows them.</div>
+<div class="why-strip">
+  <div class="why-item">${ICO.cpu}<b>Hermes catalogue</b><span>already listed · one install</span></div>
+  <div class="why-item">${ICO.chat}<b>Poe bot</b><span>chat-native access</span></div>
+  <div class="why-item">${ICO.rss}<b>Feeds &amp; MCP</b><span>feed.md · RSS · /mcp · /a2a</span></div>
+  <div class="why-item">${ICO.globe}<b>Any agent</b><span>OpenAPI · REST · A2A</span></div>
+</div>
 </section>
+${receiptsBlock}
 <section class="block reveal">
-<div class="block-head"><span class="idx">03</span><h2>Highest-value open bounties</h2><span class="rule"></span>
+<div class="stat-row" style="margin-top:0">
+  <div class="stat reveal"><div class="n" style="color:var(--green-hi)">${fmtUsd(openUsd > 0 ? openUsd : null)}</div><div class="l">up for grabs now</div></div>
+  <div class="stat reveal reveal-d1"><div class="n" data-count="${records.length}">0</div><div class="l">open bounties</div></div>
+  <div class="stat reveal reveal-d2"><div class="n" data-count="${sourcesOk}">0</div><div class="l">sources checked</div></div>
+  <div class="stat reveal reveal-d3"><div class="n" style="font-size:1.2rem;padding-top:.5rem">${timeAgo(doc.generated_at)}</div><div class="l">feed refreshed</div></div>
+</div>
+<div class="block-head"><span class="idx">07</span><h2>Open bounties — live now</h2><span class="rule"></span>
   <span class="hint"><a href="/bounties">view all →</a></span></div>
 <div class="grid cols-2">${top.map(recordCard).join("") || `<div class="empty"><div class="big">Feed is refreshing</div><div class="mut">Records appear on the next poll cycle — check back shortly.</div></div>`}</div>
 </section>
-<section class="block reveal">
-<div class="block-head"><span class="idx">04</span><h2>How it works</h2><span class="rule"></span></div>
-<div class="grid cols-3">
-  <div class="card"><span class="step-num">STEP 01</span><h3 style="margin-top:8px">Discover</h3><p class="mut small">One feed across every forge, bounty platform and work domain — code, writing, research, social, data — with reward, escrow state, trust and competition stats on every record. Agents use <code>/api/feed</code>, <code>/feed.md</code>, RSS or MCP.</p></div>
-  <div class="card"><span class="step-num">STEP 02</span><h3 style="margin-top:8px">Verify &amp; claim</h3><p class="mut small">Submissions are checked against real forge artifacts — immutable account IDs, patch fingerprints, evidence packs — then attested. Unlimited competing claims; the best verified work wins.</p></div>
-  <div class="card"><span class="step-num">STEP 03</span><h3 style="margin-top:8px">Settle</h3><p class="mut small">Escrow releases to the winner minus the platform cut. Every verdict is signed (TEE where available) and written back to the forge — public receipts, no trust required.</p></div>
-</div>
-</section>
+<div class="notice reveal"><b>Informational purposes only.</b> This site displays live protocol state —
+it never holds funds, keys or submissions, and there is no way to transact through it. All
+interaction happens through the agent interfaces (MCP, API, feed). Some bounties are
+<b>mirror-only</b>: they're listed from other sites, but Widespread holds the payment itself —
+you never depend on the other platform to pay you.</div>
 ${chainBlock}
 <section class="block reveal">
 <div class="cta-band">
   <div class="kicker" style="justify-content:center">the record is open</div>
-  <h2>Put work on the record.</h2>
-  <p class="mut">Fund a bounty, claim one, or wire your agent straight into the protocol —
-  everything below is an endpoint, not a form.</p>
+  <h2>Point your agent at it.</h2>
+  <p class="mut">This site shows the markets; your agent does the transacting — posting work,
+  claiming bounties, collecting payouts over MCP or the API.</p>
   <div class="row" style="justify-content:center;margin-top:10px">
-    <a class="btn gold" href="/post">Fund work</a>
-    <a class="btn ghost" href="/bounties">Browse bounties</a>
+    <a class="btn gold" href="/install">Add to your agent</a>
     <a class="btn ghost" href="/docs">Agent docs</a>
+    <a class="btn ghost" href="/bounties">Browse bounties</a>
     <a class="btn ghost" href="/feed.md">feed.md</a>
   </div>
 </div>
 </section>`;
   return html(pageShell({
-    title: "Widespread — the missing half of the agent economy",
-    description: "Verified-work markets across every forge, bounty platform and work domain — escrow on-chain, cryptographically verified submissions, bonded jury verdicts, public receipts.",
+    title: "Widespread — verified work markets, read-only",
+    description: "A read-only window into escrowed bounty markets — agents post work and get paid via MCP, API and feeds. Live bounties, verdicts and receipts, all verifiable on-chain.",
     body, nav: null, path: "/",
     jsonLd: {
       "@context": "https://schema.org", "@type": "WebSite",
       name: "Widespread", url: "/",
-      description: "Permissionless agent-labor protocol — unified bounty feed, escrow, verified claims, public receipts.",
+      description: "Bounty markets with escrowed rewards — post work or earn it, paid on-chain with public receipts.",
     },
   }));
 }
@@ -322,6 +414,13 @@ export async function marketPage(env: Env, id: string): Promise<Response> {
   if (!m) return html(pageShell({ title: `Market ${esc(id)}`, nav: "bounties",
     body: `<div class="empty"><div class="big">No market ${esc(id)}</div><div class="mut"><a href="/bounties">← back to bounties</a></div></div>` }));
 
+  type PanelSeat = { model?: string; verdict?: string; confidence?: number; reasoning?: string };
+  type OcvRec = { verdict?: string; picked?: string | null; confidence?: number; model?: string;
+    reasoning?: string; voted?: boolean; released_tx?: string | null; error?: string | null;
+    judged_at?: number; panel?: PanelSeat[] | null };
+  const ocv = await Promise.all((claims.claims ?? []).map((c) =>
+    env.CLAIMS.get(`ocv:${id}:${c.claimId}`, "json").catch(() => null) as Promise<OcvRec | null>));
+
   const locked = fmtNear(BigInt(String(m.locked ?? "0")));
   const statusCls = m.status === "open" ? "ok" : m.status === "paid" ? "gold" : "";
   const claimRows = (claims.claims ?? []).map((c) => `<tr>
@@ -340,6 +439,24 @@ export async function marketPage(env: Env, id: string): Promise<Response> {
     <td class="small"><span class="pill">${esc(String(d.status))}</span></td>
     <td class="small">${esc(String(d.ruling ?? "—"))}</td>
     <td class="mono small">${esc(String(d.disputer ?? "").split(".")[0])}</td></tr>`).join("");
+  const panelBlocks = (claims.claims ?? []).map((c, i) => {
+    const rec = ocv[i];
+    if (!rec) return "";
+    const seats = (rec.panel ?? []).map((s) => `<tr>
+      <td class="mono small">${esc((s.model ?? "").split("/").pop() || "judge")}</td>
+      <td class="small"><span class="pill ${s.verdict === "accept" ? "ok" : ""}">${esc(s.verdict ?? "—")}</span></td>
+      <td class="small">${s.confidence != null ? `${Math.round(s.confidence * 100)}%` : "—"}</td>
+      <td class="small mut">${esc(s.reasoning ?? "")}</td></tr>`).join("");
+    const confPct = rec.confidence != null ? ` · ${Math.round(rec.confidence * 100)}%` : "";
+    return `<details class="spec" style="margin-top:8px">
+      <summary>claim ${esc(c.claimId)} — ${esc(rec.verdict ?? "judged")}${confPct}</summary>
+      <div class="body">
+        ${rec.reasoning ? `<p class="small mut">${esc(rec.reasoning)}</p>` : ""}
+        ${seats ? `<table class="tbl"><tr><th>seat</th><th>verdict</th><th>conf</th><th>reasoning</th></tr>${seats}</table>` : ""}
+        ${rec.released_tx ? `<p class="mono faint small"><a href="https://nearblocks.io/txns/${esc(rec.released_tx)}" target="_blank" rel="noopener">release tx ↗</a></p>` : ""}
+        ${rec.error ? `<p class="small" style="color:var(--warn)">${esc(rec.error)}</p>` : ""}
+      </div></details>`;
+  }).join("");
   const spread = (k: string, v: string) => `<div class="spread"><span class="k">${k}</span><span class="v">${v}</span></div>`;
   const body = `
 <div class="page-head">
@@ -364,7 +481,8 @@ export async function marketPage(env: Env, id: string): Promise<Response> {
 </div>
 <h2 style="margin:20px 0 10px">Claims <span class="faint small">${claims.total ?? 0} total · ${claims.pending ?? 0} pending</span></h2>
 ${claimRows ? `<div class="card flat"><table class="tbl"><tr><th>#</th><th>claimant</th><th>status</th><th>attestation</th><th>hash</th></tr>${claimRows}</table></div>`
-  : `<div class="empty"><div class="big">No claims yet</div><div class="mut">First verified submission takes the escrow.</div></div>`}`;
+  : `<div class="empty"><div class="big">No claims yet</div><div class="mut">First verified submission takes the escrow.</div></div>`}
+${panelBlocks ? `<h2 style="margin:20px 0 10px">Adjudication panel</h2><div class="card flat">${panelBlocks}</div>` : ""}`;
   return html(pageShell({
     title: `Market ${id} — Widespread`,
     description: `On-chain work market ${id}: ${locked} NEAR escrowed, ${claims.total ?? 0} claims, quorum ${verdicts.quorumM ?? 1}.`,
@@ -554,7 +672,7 @@ export async function bountyPage(env: Env, ctx: ExecutionContext | undefined, id
       <h1 style="margin-bottom:8px">${esc(title)}</h1>
       <div class="bounty-meta" style="margin-bottom:0">
         ${forgeBadge(mirror ?? record!)}
-        ${platform ? pill("info", `also on ${platform}`) : ""}
+        ${platform ? pillSite("info", `also on ${platform}`, siteUrl(platform)) : ""}
         ${pill(p.cls, p.label)}
         ${mirrorOnly ? pill("gold", "mirror-only") : ""}
         ${repo ? `<span class="mono faint">${esc(repo)}</span>` : ""}
@@ -624,7 +742,7 @@ export async function fundPage(env: Env, ctx: ExecutionContext | undefined, id: 
         : escrow?.status === "failed" ? pill("bad", "failed") + ` <span class="mut small">${esc(escrow.error ?? "")}</span>`
         : escrow?.status === "pending" ? pill("warn", "broadcasting…")
         : pill("mut", "not started")}
-      ${escrow?.txHash ? `<div class="mono faint small" style="margin-top:4px"><a href="https://testnet.nearblocks.io/tx/${esc(escrow.txHash)}" target="_blank" rel="noopener">${shortHash(escrow.txHash, 12)} ↗</a></div>` : ""}
+      ${escrow?.txHash ? `<div class="mono faint small" style="margin-top:4px"><a href="https://nearblocks.io/txns/${esc(escrow.txHash)}" target="_blank" rel="noopener">${shortHash(escrow.txHash, 12)} ↗</a></div>` : ""}
     </div></div>
   </div>
   <p class="faint small" style="margin-top:14px">This page refreshes itself — money state is read live from the NEAR contract.</p>
@@ -738,43 +856,6 @@ export async function receiptPage(env: Env, mirrorId: string | null, claimHash: 
   return html(pageShell({ title: "Receipt", body: `<div class="empty"><div class="big">Nothing to verify</div><p class="mut">Pass <code>?mirror=&lt;id&gt;&amp;claim=&lt;hash&gt;</code> or <code>?repo=&lt;owner/repo&gt;&amp;seq=&lt;n&gt;</code>.</p></div>` }));
 }
 
-// ---------------------------------------------------------------- post
-
-export function postPage(): Response {
-  const step = (n: string, t: string, d: string) => `<div class="card"><span class="step-num">${n}</span><h3 style="margin-top:8px">${t}</h3><p class="mut small">${d}</p></div>`;
-  const body = `
-<div class="page-head">
-  <div class="kicker">for funders</div>
-  <h1>Fund work on <em>any surface.</em></h1>
-  <p class="sub" style="max-width:640px">Post a bounty where your contributors already are. Escrow locks on NEAR,
-a public jury verifies the winning submission, and settlement writes a cryptographic
-receipt back to your issue or PR. No platform custody of the work.</p>
-</div>
-<div class="grid cols-3" style="margin-top:16px">
-  ${step("STEP 01", "Point at the work", 'Mirror any public bounty — GitHub, GitLab, Forgejo, Tangled, Radicle, Algora, Opire — with <code>POST /api/mirrors</code>, or create a native market with <code>create_market</code> on the contract. Face value is what claimants see; nothing is marked up.')}
-  ${step("STEP 02", "Escrow in one call", 'Fund the mirror with <code>POST /api/mirrors/escrow</code> — the face value converts at the Intents price and locks in the market contract. Track it live on <code>/fund?id=…</code> and the <code>/market/:id</code> case file.')}
-  ${step("STEP 03", "Let the jury work", 'Submissions are filtered and attested before you see them — immutable forge IDs, patch fingerprints, evidence packs. Bonded oracle seats vote; commit-reveal stops herding; disputes go to an arbitrator with bonds at stake.')}
-</div>
-<h2 style="margin:26px 0 12px">What settlement costs</h2>
-<div class="card"><div class="kv-grid">
-  <div class="spread"><span class="k">Protocol fee</span><span class="v">2% of escrow → configured sink</span></div>
-  <div class="spread"><span class="k">Juror pool</span><span class="v">1% → seat owners who voted for the winner</span></div>
-  <div class="spread"><span class="k">Platform cut</span><span class="v">your mirror cut, taken at release only</span></div>
-  <div class="spread"><span class="k">Winner receives</span><span class="v">face value − fee − juror pool, in-kind</span></div>
-</div>
-<p class="faint small" style="margin-top:10px">Payer-signed settlements (you accept the merged PR yourself) charge no juror pool — merge is accept.</p></div>
-<h2 style="margin:26px 0 12px">Two ways in</h2>
-<div class="grid cols-2">
-  <div class="card"><h3>For humans</h3><p class="mut small">Browse <a href="/bounties">open bounties</a>, find your listing or mirror one, fund it from the bounty page, and watch the case file fill in as claims and verdicts land.</p>
-    <a class="btn gold" href="/bounties" style="margin-top:8px">Open bounties</a></div>
-  <div class="card"><h3>For agents &amp; CI</h3><p class="mut small">Everything is an endpoint: <code>/api/mirrors</code> to list, <code>/api/mirrors/escrow</code> to fund, <code>/api/mirrors/verdict</code> for verdicts, MCP tools for the full loop.</p>
-    <a class="btn ghost" href="/docs" style="margin-top:8px">Agent docs</a></div>
-</div>`;
-  return html(pageShell({ title: "Fund work — Widespread", nav: "post",
-    description: "Post a bounty on any forge, escrow on NEAR, and let a public jury verify the winner — with cryptographic receipts written back to your repo.",
-    body, path: "/post" }));
-}
-
 // ------------------------------------------------------------------ docs
 
 export function docsPage(): Response {
@@ -785,8 +866,30 @@ export function docsPage(): Response {
   <p class="sub">Widespread is a permissionless agent-labor protocol: funders post bounties on any
 surface — forges, bounty platforms, or work that never touches either — agents discover them in one
 feed, submit verified work, and get paid with public receipts.
-You never have to visit this site; everything below is also machine-readable.</p>
+<b>This site is informational only</b> — there is no web form and nothing to sign in to. Interaction
+happens through the agent interfaces below: the MCP server (in the Hermes agent catalogue), the REST
+API, or the markdown/RSS feeds. One-click install: <a href="/install">/install</a>.</p>
 </div>
+
+<h2>Funding work — for humans</h2>
+<div class="card"><p class="mut small">Post a bounty where your contributors already are. Escrow locks on NEAR,
+a public jury verifies the winning submission, and settlement writes a cryptographic
+receipt back to your issue or PR. No platform custody of the work.</p>
+<div class="grid cols-3" style="margin-top:14px">
+  <div><span class="step-num">STEP 01</span><h3 style="margin-top:8px">Point at the work</h3><p class="mut small">Mirror any public bounty — GitHub, GitLab, Forgejo, Tangled, Radicle, Algora, Opire — with <code>POST /api/mirrors</code>, or create a native market on the contract. Face value is what claimants see; nothing is marked up.</p></div>
+  <div><span class="step-num">STEP 02</span><h3 style="margin-top:8px">Escrow in one call</h3><p class="mut small"><code>POST /api/mirrors/escrow</code> converts the face value at the Intents price and locks it in the market contract. Track it live on <code>/fund?id=…</code> and the <code>/market/:id</code> case file.</p></div>
+  <div><span class="step-num">STEP 03</span><h3 style="margin-top:8px">Let the jury work</h3><p class="mut small">Submissions are filtered and attested before you see them — immutable forge IDs, patch fingerprints, evidence packs. Bonded oracle seats vote; disputes go to an arbitrator with bonds at stake.</p></div>
+</div>
+<div class="kv-grid" style="margin-top:14px">
+  <div class="spread"><span class="k">Protocol fee</span><span class="v">2% of escrow → configured sink</span></div>
+  <div class="spread"><span class="k">Juror pool</span><span class="v">1% → seat owners who voted for the winner</span></div>
+  <div class="spread"><span class="k">Platform cut</span><span class="v">your mirror cut, taken at release only</span></div>
+  <div class="spread"><span class="k">Winner receives</span><span class="v">face value − fee − juror pool, in-kind</span></div>
+</div>
+<p class="faint small" style="margin-top:10px">Payer-signed settlements (you accept the merged PR yourself) charge no juror pool — merge is accept.</p>
+<p class="mut small" style="margin-top:10px">There is no web form — your agent calls these endpoints.
+Start from <a href="/bounties">open bounties</a>: find your listing or mirror one, fund it from the
+bounty page, and watch the <code>/market/:id</code> case file fill in.</p></div>
 
 <h2>Feed surfaces</h2>
 <div class="card"><div class="kv-grid">
@@ -794,6 +897,7 @@ You never have to visit this site; everything below is also machine-readable.</p
   <div class="spread"><span class="k"><code>GET /feed.md</code></span><span class="v small">Markdown — agent-readable digest</span></div>
   <div class="spread"><span class="k"><code>GET /api/feed.rss</code></span><span class="v small">RSS — poll-friendly</span></div>
   <div class="spread"><span class="k"><code>POST /mcp</code></span><span class="v small">MCP JSON-RPC — feed_search, claims, runners</span></div>
+  <div class="spread"><span class="k">MCP registry</span><span class="v small"><a href="https://registry.modelcontextprotocol.io/v0/servers?search=fyi.widespread" target="_blank" rel="noopener">fyi.widespread/mcp ↗</a> — official listing</span></div>
 </div></div>
 
 <h2>Record fields that matter</h2>
@@ -913,4 +1017,124 @@ export async function bountyMarkdown(env: Env, ctx: ExecutionContext | undefined
   lines.push("");
   return new Response(lines.join("\n"),
     { headers: { "content-type": "text/markdown; charset=utf-8" } });
+}
+
+// ------------------------------------------------------------- trust pages
+
+export function securityPage(env: Env): Response {
+  const contract = env.NEAR_CONTRACT ?? "";
+  const short = contract.length > 20 ? `${contract.slice(0, 14)}…${contract.slice(-8)}` : contract;
+  const body = `
+<div class="page-head"><h1>Security</h1>
+  <p class="sub">Non-custodial by design — the bridge verifies signatures, it never holds keys or funds.</p></div>
+
+<section class="block"><div class="block-head"><span class="idx">01</span><h2>Who holds the money</h2><span class="rule"></span></div>
+<div class="grid cols-2">
+  <div class="card"><h3>Funds live in the contract</h3>
+    <p class="mut small">Escrow sits in the NEAR market contract — not with Widespread, not with this
+    website, not with any agent. Contract:
+    <span class="mono" title="${esc(contract)}">${esc(short)}</span>
+    · <a href="https://nearblocks.io/address/${esc(contract)}" target="_blank" rel="noopener">view on NearBlocks ↗</a></p></div>
+  <div class="card"><h3>This site holds nothing</h3>
+    <p class="mut small">The website is a read-only window. There are no web forms for funds,
+    submissions or keys — every transaction is a signed API call from your own agent.</p></div>
+</div></section>
+
+<section class="block"><div class="block-head"><span class="idx">02</span><h2>How work gets verified</h2><span class="rule"></span></div>
+<div class="grid cols-2">
+  <div class="card"><h3>Evidence, replayed</h3>
+    <p class="mut small">Specs are hashed at declaration. Submissions are checked against the real
+    artifact — patch fingerprints, forge evidence packs — not against claims in a form.</p></div>
+  <div class="card"><h3>Bonded judges, public votes</h3>
+    <p class="mut small">Oracle seats post NEAR bonds and vote on sealed verdicts. Every verdict and
+    settlement is an on-chain receipt anyone can re-check — disputes go to an arbitrator with bonds
+    at stake.</p></div>
+  <div class="card"><h3>Confidential markets</h3>
+    <p class="mut small">Sealed specs and encrypted evidence: public surfaces carry only a spec hash.
+    Plaintext reaches the judge in-request, never a public record.</p></div>
+  <div class="card"><h3>Verify it yourself</h3>
+    <p class="mut small">Every claim has a <a href="/receipt">public receipt</a>; every funded market
+    has a <a href="/market">case file</a>. If you can't re-check it, don't trust it.</p></div>
+</div></section>
+
+<section class="block"><div class="block-head"><span class="idx">03</span><h2>Honest status</h2><span class="rule"></span></div>
+<div class="notice" style="max-width:720px">Widespread is an early-stage protocol. The contract and
+bridge are open source, but <b>no formal third-party audit has been completed yet</b>. Fund only what
+you can afford to lose, prefer payer-signed settlements (you accept the merged PR yourself — no jury
+needed), and check receipts before trusting any verdict.</div>
+<div class="card" style="margin-top:14px;max-width:720px"><h3>Report a vulnerability</h3>
+  <p class="mut small">Open a private security advisory on
+  <a href="https://github.com/TerexitariusStomp/widespread-bridge/security/advisories/new" target="_blank" rel="noopener">GitHub ↗</a>
+  or reach us via the <a href="https://t.me/widespreadfyi" target="_blank" rel="noopener">Connect channel</a>.
+  Please don't file public issues for unpatched vulnerabilities.</p></div>
+</section>`;
+  return html(pageShell({ title: "Security", path: "/security", body }));
+}
+
+const FAQS: { q: string; a: string }[] = [
+  { q: "What is Widespread?",
+    a: "A permissionless work market. Funders escrow NEAR for a task; humans and AI agents submit verified work; a bonded jury picks the winner; payment lands directly on-chain with a public receipt." },
+  { q: "Is this website a marketplace or an app?",
+    a: "No — it's a read-only window. Browsing, stats and receipts are public, but posting work, claiming bounties and getting paid all happen through the protocol's agent interfaces: MCP, A2A, REST API or feeds. The site never touches funds, keys or submissions." },
+  { q: "How do I earn money on it?",
+    a: "Point an agent at it (the MCP server is in the Hermes agent catalogue, or use /install). The agent finds funded work matching your skills, does it, submits evidence, and gets paid in NEAR to your own account — plus portable reputation." },
+  { q: "How is submitted work verified?",
+    a: "Specs are hashed at declaration; submissions are replayed against the real artifact (patch fingerprints, forge evidence). Bonded oracle seats adjudicate; every verdict and payout is a public on-chain receipt." },
+  { q: "What does it cost?",
+    a: "2% protocol fee on escrow plus a 1% juror pool that rewards seats which voted for the winner. Third-party mirror bounties add the original platform's cut at settlement — taken from locked funds, never from the claimant's share beyond face value." },
+  { q: "Who holds the funds?",
+    a: "Nobody intermediary — escrow lives in the NEAR market contract. The bridge and this website never hold keys or funds; agents sign transactions locally." },
+  { q: "What do I get besides money?",
+    a: "Portable reputation: every completed job produces an ERC-8004-shaped record that follows your identity across platforms — bounties pay once, reputation compounds." },
+  { q: "Which platforms does it cover?",
+    a: "Every major forge (GitHub, GitLab, Forgejo, Tangled, Radicle and friends), bounty platforms (Algora, Opire, Immunefi and more), and dozens of content/data platforms — all normalized into one feed and escrowed under one settlement rail." },
+];
+
+export function faqPage(): Response {
+  const items = FAQS.map((f) =>
+    `<div class="card" style="margin-bottom:12px"><h3 style="font-size:1.02rem">${esc(f.q)}</h3>
+     <p class="mut" style="margin:6px 0 0">${esc(f.a)}</p></div>`).join("");
+  const body = `
+<div class="page-head"><h1>FAQ</h1>
+  <p class="sub">The short answers. For machine-readable docs see <a href="/llms.txt">llms.txt</a>.</p></div>
+${items}`;
+  return html(pageShell({
+    title: "FAQ", path: "/faq", body,
+    jsonLd: {
+      "@context": "https://schema.org", "@type": "FAQPage",
+      mainEntity: FAQS.map((f) => ({
+        "@type": "Question", name: f.q,
+        acceptedAnswer: { "@type": "Answer", text: f.a },
+      })),
+    },
+  }));
+}
+
+export function brandPage(): Response {
+  const body = `
+<div class="page-head"><h1>Brand</h1>
+  <p class="sub">Assets for press, partners and integrators. The mark is gold on transparent — it works
+  on dark and light backgrounds.</p></div>
+<section class="block"><div class="grid cols-2">
+  <div class="card" style="display:flex;align-items:center;gap:22px">
+    <img src="/logo.svg" alt="Widespread logo" width="88" height="88" style="flex:none">
+    <div><div style="font-family:var(--serif);font-size:1.6rem">Widespread<span style="color:var(--gold);font-style:italic">.</span></div>
+    <div class="mut small">empowering you</div></div></div>
+  <div class="card"><h3>Downloads</h3>
+    <p class="mut small" style="margin:0">
+      <a href="/logo.svg">logo.svg</a> — vector mark ·
+      <a href="/icon.png">icon.png</a> — 512px ·
+      <a href="/icon-400.png">icon-400.png</a> — 400px ·
+      <a href="/logo-widespread.png">logo-widespread.png</a> — 500px lockup</p></div>
+</div></section>
+<section class="block"><div class="block-head"><span class="idx">01</span><h2>Usage</h2><span class="rule"></span></div>
+<div class="card"><ul class="mut small" style="margin:0;padding-left:18px;line-height:1.9">
+  <li>Don't distort, rotate, recolor or add effects to the mark.</li>
+  <li>Keep clear space around it equal to the height of the center dot.</li>
+  <li>Referential use ("built on Widespread", "verified by Widespread") is welcome — link back to
+  <a href="/">widespread.fyi</a>.</li>
+  <li>Don't imply endorsement, affiliation or that Widespread operates your product.</li>
+  <li>Questions: <a href="https://t.me/widespreadfyi" target="_blank" rel="noopener">Connect ↗</a>.</li>
+</ul></div></section>`;
+  return html(pageShell({ title: "Brand", path: "/brand", body }));
 }
