@@ -14,7 +14,7 @@ Defense, Privacy & Private AI, Autonomous Business, Real-World Money
 | **1 settled market** — 4 bonded claims adjudicated, 1 winner paid | https://widespread.fyi/market/2 |
 | Settlement tx: `0.097` winner · `0.002` DAO sink · `0.001` juror | https://nearblocks.io/txns/G8MSw74uY9pG51cTwXUEbxEN3rbAYbrHjNWx4TV9WiKq |
 | **Anti-slop catch** — judge rejected a claim whose commit bundled the market-setup script (self-dealing), reasoning public | https://widespread.fyi/market/2 → claim 3 → Adjudication panel |
-| **Live claim judged during the demo** — panel verified commit `5bbc524`, hash chain valid → accept | https://widespread.fyi/market/3 |
+| **Claim filed on-camera, judged and *paid* before the video finished** — panel verified commit `5bbc524`, hash chain valid → accept → release | https://widespread.fyi/market/3 |
 | Market contract (mainnet) | https://nearblocks.io/address/98ae0514a19c52d33f5e037f1705d0cc4f5be8a74adb2c86f9403c8ebbe774c7 |
 | 100 bounties across 20+ sources | https://widespread.fyi/api/feed |
 | Try it yourself | `uvx widespread-mcp` → `wide_feed` |
@@ -62,9 +62,10 @@ net (2% protocol sink, 1% juror pool) in one public transaction, three
 losers marked `outcompeted` with per-seat reasoning published on the
 case file. The losing claims weren't silent no-ops: the panel caught
 one claimant bundling the market-setup script into its work commit —
-self-dealing, rejected publicly. Market 3's claim was filed live during
-the demo video and accepted by the panel minutes later. Nothing is
-mocked; every step is a public API or on-chain call judges can replay.
+self-dealing, rejected publicly. Market 3's claim was filed on camera
+during the demo video — the panel accepted it and the contract paid it
+out before the recording finished. Nothing is mocked; every step is a
+public API or on-chain call judges can replay.
 
 ## How we built it
 
