@@ -1,16 +1,31 @@
 // hats.test.mjs — IntentionalHats contract tests against the COMPILED
 // wasm in a real nearcore sandbox (near-workspaces). No stub runtime:
-// the contract executes exactly as it does on testnet.
-//
-// Prereq: contracts/hats/build/contract.wasm — rebuild with
-//   cd contracts/hats && node ../../node_modules/near-sdk-js/lib/cli/cli.js build contract.src.js build/contract.wasm
+// the contract executes exactly as it does on testnet. Hermetic — the
+// wasm is built from source in test.before if missing or stale.
 
 import test from "node:test";
 import assert from "node:assert/strict";
+import { existsSync, statSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import nearWorkspaces from "near-workspaces";
 const { Worker } = nearWorkspaces;
 
-const WASM = new URL("../contracts/hats/build/contract.wasm", import.meta.url).pathname;
+const here = dirname(fileURLToPath(import.meta.url));
+const CONTRACT_DIR = join(here, "..", "contracts", "hats");
+const WASM = join(CONTRACT_DIR, "build", "contract.wasm");
+const SRC = join(CONTRACT_DIR, "contract.src.js");
+
+function ensureWasm() {
+  const stale = !existsSync(WASM) ||
+    statSync(WASM).mtimeMs < statSync(SRC).mtimeMs;
+  if (!stale) return;
+  execFileSync("node", [
+    join(here, "..", "node_modules", "near-sdk-js", "lib", "cli", "cli.js"),
+    "build", "contract.src.js", "build/contract.wasm",
+  ], { stdio: "inherit", cwd: CONTRACT_DIR });
+}
 const GAS = "300000000000000";
 
 let worker, root, contract, alice, bob, carol;
@@ -20,6 +35,7 @@ const view = (method, args = {}) => contract.view(method, args);
 const reverts = (p, re) => assert.rejects(p, re ? new RegExp(re) : undefined);
 
 test.before(async () => {
+  ensureWasm();
   worker = await Worker.init();
   root = worker.rootAccount;
   contract = await root.devDeploy(WASM);
