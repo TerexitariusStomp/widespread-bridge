@@ -40,7 +40,7 @@
     "MARKETS_TTL_S": "60",
     // Public base URL of this deployment — used for receipt target_urls
     // written back to the forge. Set after first deploy.
-    "PUBLIC_BASE": "https://widespread-bridge.widespread.workers.dev",
+    "PUBLIC_BASE": "https://widespread.fyi",
     // Upstream EVM provers — public JSON-RPC endpoints for live tx-receipt
     // verification of golem (Polygon) and hopr (Gnosis) upstream refs.
     "UPSTREAM_GOLEM_RPC": "https://polygon-rpc.com",
@@ -86,4 +86,11 @@
   // triggers/account — if the deploy below fails on the trigger limit,
   // the dashboard's /api/state polling still drives the same scan.
   "triggers": { "crons": ["*/5 * * * *"] },
+  // Primary domain — everything (MCP, A2A, feed, case files, jury) serves
+  // directly off widespread.fyi. Uncomment once the zone is added to this
+  // Cloudflare account (dash → Add site → change nameservers at registrar).
+  // "routes": [
+  //   { "pattern": "widespread.fyi", "custom_domain": true },
+  //   { "pattern": "www.widespread.fyi", "custom_domain": true },
+  // ],
 }

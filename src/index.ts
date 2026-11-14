@@ -918,7 +918,7 @@ app.post("/poe", async (c) => {
     text = `Open escrowed work markets: ${JSON.stringify(await marketsList(env, {})).slice(0, 3000)}`;
   } else {
     const recs = doc.records.slice(0, 15);
-    text = `Widespread — verified-work protocol (https://widespread.fyi). ${doc.records.length} funded-work records across forges. Latest: ${JSON.stringify(recs).slice(0, 2400)} — ask about "bounties", "markets", or search the feed. MCP: https://widespread-bridge.widespread.workers.dev/mcp`;
+    text = `Widespread — verified-work protocol (https://widespread.fyi). ${doc.records.length} funded-work records across forges. Latest: ${JSON.stringify(recs).slice(0, 2400)} — ask about "bounties", "markets", or search the feed. MCP: https://widespread.fyi/mcp`;
   }
   const sse = (ev: string, data: unknown) => `event: ${ev}\ndata: ${JSON.stringify(data)}\n\n`;
   const payload =

@@ -21,7 +21,7 @@ async function agentIdentity() {
       DG_AGENT_DID: "did:key:zTestAgent",
       DG_AGENT_KEY_PKCS8_B64: btoa(String.fromCharCode(...new Uint8Array(pkcs8))),
       FORGE_BASE: "https://code.widespread.fyi",
-      PUBLIC_BASE: "https://widespread-bridge.widespread.workers.dev",
+      PUBLIC_BASE: "https://widespread.fyi",
     },
     publicJwk: jwk,
   };

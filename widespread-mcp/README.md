@@ -44,4 +44,4 @@ widespread-mcp wide_claim '{"market_id": "..."}'
 · governance: `wide_hat_list` `wide_hat_stance` `wide_hat_work`
 
 Remote (non-key-holding) endpoint for clients that sign their own requests:
-`POST https://widespread-bridge.widespread.workers.dev/mcp`
+`POST https://widespread.fyi/mcp`

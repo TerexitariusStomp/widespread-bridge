@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 
-const BASE = process.env.E2E_BASE ?? "https://widespread-bridge.widespread.workers.dev";
+const BASE = process.env.E2E_BASE ?? "https://widespread.fyi";
 const LIVE = process.env.E2E_LIVE === "1";
 
 const get = async (path: string) => {

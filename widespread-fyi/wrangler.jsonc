@@ -1,0 +1,13 @@
+{
+  "name": "widespread-fyi",
+  // Terexmaps account — the account that owns the widespread.fyi zone.
+  // Custom domains must live in the same account as the zone; the real
+  // worker is on the Widespread account, so this is a thin pass-through.
+  "account_id": "6c0140469651854b2e358517371a03d3",
+  "main": "index.ts",
+  "compatibility_date": "2025-10-01",
+  "routes": [
+    { "pattern": "widespread.fyi", "custom_domain": true },
+    { "pattern": "www.widespread.fyi", "custom_domain": true },
+  ],
+}

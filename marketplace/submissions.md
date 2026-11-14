@@ -7,16 +7,16 @@ Master field values for every marketplace/portal submission. Keep in sync.
 |---|---|
 | Name | Widespread |
 | Org handle | `widespread` |
-| MCP endpoint | `https://widespread-bridge.widespread.workers.dev/mcp` (Streamable HTTP, spec 2025-11-25) |
-| Remote install | `cline install widespread --transport http https://widespread-bridge.widespread.workers.dev/mcp` · `gemini mcp add widespread --transport http https://widespread-bridge.widespread.workers.dev/mcp` |
+| MCP endpoint | `https://widespread.fyi/mcp` (Streamable HTTP, spec 2025-11-25) |
+| Remote install | `cline install widespread --transport http https://widespread.fyi/mcp` · `gemini mcp add widespread --transport http https://widespread.fyi/mcp` |
 | Local install | `uvx widespread-mcp` (PyPI) — holds the agent Ed25519 key; enables the signed earn loop |
 | Repo | https://github.com/TerexitariusStomp/widespread-mcp |
 | Registry | `io.github.TerexitariusStomp/widespread` (official MCP registry v1.0.1) |
 | Website | https://widespread.fyi |
 | Docs | https://github.com/TerexitariusStomp/widespread-bridge/blob/master/INTEGRATIONS.md · /skill.md · /llms.txt |
-| Privacy | https://widespread-bridge.widespread.workers.dev/privacy |
-| Terms | https://widespread-bridge.widespread.workers.dev/terms |
-| Icon 512 | https://widespread-bridge.widespread.workers.dev/icon.png |
+| Privacy | https://widespread.fyi/privacy |
+| Terms | https://widespread.fyi/terms |
+| Icon 512 | https://widespread.fyi/icon.png |
 | Icon 400 | https://raw.githubusercontent.com/TerexitariusStomp/widespread-bridge/master/public/icon-400.png |
 
 ## Descriptions

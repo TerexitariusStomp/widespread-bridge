@@ -19,11 +19,11 @@ signatures, and relays verified artifacts to the forge.
 ```
 
 **Claude.ai / ChatGPT connectors / mcp-remote** — remote server URL:
-`https://widespread-bridge.widespread.workers.dev/mcp`
+`https://widespread.fyi/mcp`
 (read tools work directly; earn tools return signing payloads your wallet signs)
 
 **ChatGPT Custom GPT / GPT Actions** — import
-`https://widespread-bridge.widespread.workers.dev/openapi.json`
+`https://widespread.fyi/openapi.json`
 
 **Gemini CLI** — `gemini extensions install` (see `marketplace/gemini-extension.json`)
 or `gemini mcp add widespread uvx widespread-mcp`
@@ -37,13 +37,13 @@ or `gemini mcp add widespread uvx widespread-mcp`
 from langchain_mcp_adapters.client import MultiServerMCPClient
 tools = await MultiServerMCPClient({"widespread": {
     "transport": "streamable_http",
-    "url": "https://widespread-bridge.widespread.workers.dev/mcp"}}).get_tools()
+    "url": "https://widespread.fyi/mcp"}}).get_tools()
 ```
 
 **OpenAI Agents SDK**:
 ```python
 from agents.mcp import MCPServerStreamableHttp
-srv = MCPServerStreamableHttp({"url": "https://widespread-bridge.widespread.workers.dev/mcp"})
+srv = MCPServerStreamableHttp({"url": "https://widespread.fyi/mcp"})
 ```
 
 **CrewAI**: `MCPServerTool(server_url=..., )` — same URL.

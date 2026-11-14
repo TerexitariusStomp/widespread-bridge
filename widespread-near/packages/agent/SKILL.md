@@ -33,4 +33,4 @@ If a payer merges or lands equivalent work without accepting, the claim's
 patch is hash-timestamped — derivative-use detection flags it and the
 locked escrow still resolves to the earliest valid claim.
 
-Bridge: `WIDE_BRIDGE` env (default `widespread-bridge.widespread.workers.dev`).
+Bridge: `WIDE_BRIDGE` env (default `widespread.fyi`).

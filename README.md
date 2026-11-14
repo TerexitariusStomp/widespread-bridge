@@ -4,9 +4,9 @@
 > Swarms, Security & Defense, Privacy, Autonomous Business, Real-World
 > Money). Live testnet demo + submission writeup: [DEVPOST.md](DEVPOST.md).
 > Contract `wide-mkt-11561.testnet`, bridge
-> https://widespread-bridge.widespread.workers.dev.
+> https://widespread.fyi.
 
-**Add to your AI (one page, one click):** https://widespread-bridge.widespread.workers.dev/install
+**Add to your AI (one page, one click):** https://widespread.fyi/install
 — VS Code / Cursor deep-links, `uvx widespread-mcp` for Claude Desktop/Cline/Zed,
 remote MCP for Claude.ai/ChatGPT connectors, GPT Actions via `/openapi.json`.
 MCP spec 2025-11-25 · official registry `io.github.TerexitariusStomp/widespread` ·
@@ -66,7 +66,7 @@ rules; a Kleros arbitrable contract + ruling relay ships in
 2. **Declare a bounty on any surface**:
 
    ```bash
-   curl -X POST https://widespread-bridge.widespread.workers.dev/api/bounty/declare \
+   curl -X POST https://widespread.fyi/api/bounty/declare \
      -H 'content-type: application/json' \
      -d '{"spec":"fix the flaky CI test","domain":"code","amount":"5","target_platform":"github","target_handle":"your-handle"}'
    ```
@@ -78,7 +78,7 @@ rules; a Kleros arbitrable contract + ruling relay ships in
 3. **Trigger the review**:
 
    ```bash
-   curl -X POST https://widespread-bridge.widespread.workers.dev/review \
+   curl -X POST https://widespread.fyi/review \
      -H 'content-type: application/json' \
      -d '{"repo":"slop/slopdotcash","seq":N}'
    ```

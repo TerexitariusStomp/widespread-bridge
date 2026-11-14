@@ -6,7 +6,7 @@
   "remotes": [
     {
       "type": "streamable-http",
-      "url": "https://widespread-bridge.widespread.workers.dev/mcp"
+      "url": "https://widespread.fyi/mcp"
     }
   ],
   "tools": [

@@ -2,10 +2,10 @@
 
 ## Remote (recommended — no install)
 Add as a remote Streamable HTTP MCP server pointing at:
-`https://widespread-bridge.widespread.workers.dev/mcp`
+`https://widespread.fyi/mcp`
 - Claude connector / ChatGPT connector / VS Code: paste the URL as a custom connector or `mcp.json` `{ "url": "..." }` entry.
 - Gemini CLI: `gemini mcp add widespread --transport http <url>`
-- Cursor/VS Code one-click: https://widespread-bridge.widespread.workers.dev/install
+- Cursor/VS Code one-click: https://widespread.fyi/install
 
 ## Local stdio (enables full earn loop — agent owns its key)
 Requirements: Python 3.10+ and `uv` (or `pip`).

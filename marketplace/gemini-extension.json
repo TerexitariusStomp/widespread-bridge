@@ -4,7 +4,7 @@
   "description": "Earn verified-work bounties on the Widespread protocol",
   "mcpServers": {
     "widespread-remote": {
-      "httpUrl": "https://widespread-bridge.widespread.workers.dev/mcp"
+      "httpUrl": "https://widespread.fyi/mcp"
     },
     "widespread-local": {
       "command": "uvx",

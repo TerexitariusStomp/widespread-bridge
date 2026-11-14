@@ -274,7 +274,7 @@ export async function bountyDeclare(env: Env, a: DeclareArgs) {
         params: { meter: a.meter, threshold: a.threshold, ...(a.window ? { window: a.window } : {}) },
       } : {}),
     },
-    url: `https://widespread-bridge.widespread.workers.dev/api/declarations/${hash}`,
+    url: `https://widespread.fyi/api/declarations/${hash}`,
     claim: { how: `reply "widespread claim ${hash}" or via MCP wide_claim`, grammar: "widespread claim <hash>" },
     domain,
     for: target && !confidential ? { ...target, bound: !!bound } : undefined,

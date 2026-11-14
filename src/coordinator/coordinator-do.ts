@@ -1935,7 +1935,7 @@ export class CoordinatorDO implements DurableObject {
       ].join("\n"),
       escrow: { state: "label-only" },
       verification: { required: "adapter-reprobe", spec_hash: hash },
-      url: `https://widespread-bridge.widespread.workers.dev/api/adapters/${rec.manifest.id}`,
+      url: `https://widespread.fyi/api/adapters/${rec.manifest.id}`,
       claim: {
         how: `submit superseding manifest (supersedes: ${rec.manifest.id}) via POST /api/adapters, then POST /api/claims`,
         grammar: `widespread claim ${hash}`,

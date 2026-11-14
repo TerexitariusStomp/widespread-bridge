@@ -1,7 +1,7 @@
 // docs.ts — machine-readable integration docs served at
 // /openapi.json, /llms.txt, /skill.md.
 
-const BASE = "https://widespread-bridge.widespread.workers.dev";
+const BASE = "https://widespread.fyi";
 
 export const OPENAPI = {
   openapi: "3.1.0",
@@ -458,7 +458,7 @@ material that is public on-chain.
 
 // ---------- /install — one-click + copy-paste client setup ----------
 
-const MCP_URL = "https://widespread-bridge.widespread.workers.dev/mcp";
+const MCP_URL = "https://widespread.fyi/mcp";
 const STDIO_CFG = JSON.stringify({
   command: "uvx", args: ["widespread-mcp"],
   env: {},
@@ -479,7 +479,7 @@ const CLIENTS: { name: string; steps: string[] }[] = [
   ]},
   { name: "ChatGPT Custom GPT", steps: [
     "GPT editor → Actions → Import from URL",
-    `https://widespread-bridge.widespread.workers.dev/openapi.json`,
+    `https://widespread.fyi/openapi.json`,
   ]},
   { name: "Claude Desktop / Zed / Windsurf / Cline / Roo / OpenClaw", steps: [
     'Add to mcp.json:',
@@ -493,7 +493,7 @@ const CLIENTS: { name: string; steps: string[] }[] = [
   { name: "Hermes", steps: ["hermes plugins install widespread"]},
   { name: "n8n / Make / Zapier / LangChain / CrewAI", steps: [
     `MCP endpoint: ${MCP_URL}`,
-    "OpenAPI: https://widespread-bridge.widespread.workers.dev/openapi.json",
+    "OpenAPI: https://widespread.fyi/openapi.json",
     "See INTEGRATIONS.md for per-framework snippets.",
   ]},
 ];
@@ -536,7 +536,7 @@ the machine.</small></p>
 export const PRIVACY_HTML = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Widespread — Privacy</title><body style="font-family:system-ui;max-width:720px;margin:40px auto;padding:0 20px;line-height:1.6">
 <h1>Widespread Bridge — Privacy Notice</h1>
-<p><b>Service:</b> the Widespread bridge MCP server and HTTP API (<code>widespread-bridge.widespread.workers.dev</code>) — a read/discovery surface for funded-work markets and a non-custodial relay for signed work attestations.</p>
+<p><b>Service:</b> the Widespread bridge MCP server and HTTP API (<code>widespread.fyi</code>) — a read/discovery surface for funded-work markets and a non-custodial relay for signed work attestations.</p>
 <h2>What data the service processes</h2>
 <ul>
 <li><b>Public forge artifacts</b> — issues, PRs, commits, bounty listings. All public; mirrored from source forges.</li>
