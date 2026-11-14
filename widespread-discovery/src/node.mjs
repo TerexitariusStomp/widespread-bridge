@@ -59,7 +59,19 @@ export async function publish(template) {
   const oks = results.filter((r) => r.status === "fulfilled").map((r) => r.value);
   const errs = results.filter((r) => r.status === "rejected").map((r) => String(r.reason?.message ?? r.reason));
   if (!oks.length) throw new Error(`all relays failed: ${errs.join("; ")}`);
-  return { event: ev, oks, relay_errors: errs };
+  // Relays can ACK (OK:true) then silently drop — verify the event is
+  // actually retrievable before reporting success. 0 stored = failure so
+  // callers queue to the outbox instead of losing the sighting.
+  await new Promise((r) => setTimeout(r, 2000));
+  let stored = 0;
+  try {
+    const found = await Promise.race([
+      getPool().querySync(rs, { ids: [ev.id] }),
+      new Promise((_, rej) => setTimeout(() => rej(new Error("verify timeout")), 15000)),
+    ]);
+    stored = found.length;
+  } catch { /* verification inconclusive — relays flaky, don't fail the publish */ }
+  return { event: ev, oks, relay_errors: errs, stored };
 }
 
 export async function query(filter, limit = 200) {
