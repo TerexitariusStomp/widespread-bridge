@@ -2,6 +2,12 @@
 // wsd — Widespread Discovery CLI/daemon. Spec: docs/discovery-protocol.md
 import { parseArgs } from "node:util";
 import { readFileSync } from "node:fs";
+
+// Public relays are flaky — a stray pool-level rejection must not kill the
+// process; real errors still surface through their awaited call sites.
+process.on("unhandledRejection", (e) => {
+  console.error(`warning: unhandled rejection (relay/pool): ${String(e?.message ?? e).slice(0, 160)}`);
+});
 import {
   keygen, importIdentity, loadIdentity, publishSighting, query, ingestEvents,
   loadIndex, publishState, fetchState, relays, closePool,
@@ -16,6 +22,7 @@ const { values: a, positionals: pos } = parseArgs({
     nsec: { type: "string" }, file: { type: "string" },
     limit: { type: "string", default: "200" }, port: { type: "string", default: "8787" },
     kind: { type: "string", default: "json" }, akind: { type: "string" }, interval: { type: "string", default: "60" },
+    surface: { type: "string" }, grammar: { type: "string" }, once: { type: "boolean" }, timeout: { type: "string" },
     help: { type: "boolean", short: "h" },
   },
   allowPositionals: true,

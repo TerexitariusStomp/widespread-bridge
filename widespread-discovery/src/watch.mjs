@@ -5,11 +5,26 @@ import { publishSighting, loadIndex, saveIndex, ingestEvents, query, queueSighti
 import { textHash, dedupeKey } from "./core.mjs";
 const DECL_RE = /widespread\s+(declare|bounty|task)/i;
 
-function findArray(o, depth = 0) {
-  if (depth > 4 || !o || typeof o !== "object") return null;
-  if (Array.isArray(o)) return o.length && typeof o[0] === "object" ? o : null;
-  for (const k of Object.keys(o)) { const r = findArray(o[k], depth + 1); if (r) return r; }
-  return null;
+// Collect candidate arrays; score by how post-like their elements are
+// (id + text-ish field). Discourse /latest.json leads with a `users`
+// array — first-match loses to `topic_list.topics` on scoring.
+function findArrays(o, depth = 0, out = []) {
+  if (depth > 4 || !o || typeof o !== "object") return out;
+  if (Array.isArray(o)) {
+    if (o.length && typeof o[0] === "object") out.push(o);
+    return out;
+  }
+  for (const k of Object.keys(o)) findArrays(o[k], depth + 1, out);
+  return out;
+}
+
+function findArray(o) {
+  const cands = findArrays(o);
+  const score = (arr) => arr.slice(0, 5).reduce((n, e) =>
+    n + (e.id != null || e.topic_id != null ? 2 : 0)
+      + (e.title || e.excerpt || e.text || e.body ? 1 : 0), 0);
+  cands.sort((a, b) => score(b) - score(a));
+  return cands[0] ?? null;
 }
 
 function parseRSS(xml, grammar) {
