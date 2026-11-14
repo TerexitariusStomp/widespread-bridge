@@ -13,7 +13,7 @@
 //   scheduled(*/5m)           scan WATCH_REPOS claim streams, review new work claims
 
 import { OPS_HTML } from "./ops";
-import { homePage, bountiesPage, bountyPage, fundPage, receiptPage, docsPage, bountyMarkdown } from "./web/pages";
+import { homePage, bountiesPage, bountyPage, fundPage, receiptPage, docsPage, bountyMarkdown, marketPage } from "./web/pages";
 import { reviewOutstanding, runReview } from "./review";
 import { handleBotVerdict, type BotVerdictBody } from "./botverdict";
 import { attestClaim, ecosystem, openDispute } from "./ecosystem";
@@ -399,6 +399,8 @@ app.get("/bounties/:id{.+}", (c) => {
   if (!id) return bad("id required", 400);
   return cachedPage(new URL(c.req.url), c.req.raw, () => bountyPage(c.env, ctxOf(c), id));
 });
+app.get("/market/:id", (c) =>
+  cachedPage(new URL(c.req.url), c.req.raw, () => marketPage(c.env, c.req.param("id"))));
 app.on("GET", ["/bounty", "/bounty/"], (c) => {
   const id = c.req.query("id") ?? "";
   if (!id) return bad("id required", 400);

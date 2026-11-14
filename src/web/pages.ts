@@ -159,6 +159,75 @@ ${chainBlock}
   }));
 }
 
+// ------------------------------------------------- on-chain market (case file)
+
+interface ChainClaim { claimId: string; status: string; claimant?: string; claimHash?: string; ts?: string; attested?: boolean; }
+interface ChainVerdict { claimId: string; verdict: string; conf?: number | null; ts?: string; }
+
+export async function marketPage(env: Env, id: string): Promise<Response> {
+  const contract = (env as unknown as { NEAR_CONTRACT?: string }).NEAR_CONTRACT;
+  if (!contract) return html(pageShell({ title: "No contract", nav: "bounties",
+    body: `<div class="empty"><div class="big">Chain view unavailable</div><div class="mut">NEAR_CONTRACT not configured.</div></div>` }));
+  let m: Record<string, unknown> | null = null;
+  let claims: { claims: ChainClaim[]; total: number; pending?: number } = { claims: [], total: 0 };
+  let verdicts: { quorumM?: number; votes?: Record<string, ChainVerdict>; acceptTally?: Record<string, number> } = {};
+  let disputes: unknown[] = [];
+  try {
+    [m, claims, verdicts, disputes] = await Promise.all([
+      nearViewCall(env, contract, "getMarket", { marketId: id }) as Promise<Record<string, unknown>>,
+      nearViewCall(env, contract, "getClaims", { marketId: id, limit: 200 }) as Promise<typeof claims>,
+      nearViewCall(env, contract, "getVerdicts", { marketId: id }) as Promise<typeof verdicts>,
+      nearViewCall(env, contract, "getDisputes", { marketId: id }) as Promise<unknown[]>,
+    ]);
+  } catch { /* fallthrough to not-found */ }
+  if (!m) return html(pageShell({ title: `Market ${esc(id)}`, nav: "bounties",
+    body: `<div class="empty"><div class="big">No market ${esc(id)}</div><div class="mut"><a href="/bounties">← back to bounties</a></div></div>` }));
+
+  const locked = fmtNear(BigInt(String(m.locked ?? "0")));
+  const statusCls = m.status === "open" ? "ok" : m.status === "paid" ? "gold" : "";
+  const claimRows = (claims.claims ?? []).map((c) => `<tr>
+    <td class="mono small">${esc(c.claimId)}</td>
+    <td class="mono small">${esc((c.claimant ?? "").split(".")[0] || c.claimant || "—")}</td>
+    <td class="small"><span class="pill ${c.status === "won" ? "gold" : c.status === "pending" ? "ok" : ""}">${esc(c.status)}</span></td>
+    <td class="small">${c.attested ? "attested" : "—"}</td>
+    <td class="faint small mono">${esc((c.claimHash ?? "").slice(0, 14))}</td></tr>`).join("");
+  const voteRows = Object.entries(verdicts.votes ?? {}).map(([pk, v]) => `<tr>
+    <td class="mono small" title="${esc(pk)}">${esc(pk.slice(0, 12))}…</td>
+    <td class="small">claim ${esc(v.claimId)}</td>
+    <td class="small"><span class="pill ${v.verdict === "accept" ? "ok" : ""}">${esc(v.verdict)}</span></td>
+    <td class="small">${v.conf != null ? `${v.conf}%` : "—"}</td></tr>`).join("");
+  const disputeRows = (disputes as Record<string, unknown>[]).map((d) => `<tr>
+    <td class="small">claim ${esc(String(d.claimId ?? "*"))}</td>
+    <td class="small"><span class="pill">${esc(String(d.status))}</span></td>
+    <td class="small">${esc(String(d.ruling ?? "—"))}</td>
+    <td class="mono small">${esc(String(d.disputer ?? "").split(".")[0])}</td></tr>`).join("");
+  const spread = (k: string, v: string) => `<div class="spread"><span class="k">${k}</span><span class="v">${v}</span></div>`;
+  const body = `
+<div class="row between"><h1 style="margin:0">Market <span class="mono">${esc(id)}</span></h1>
+  <span class="pill ${statusCls}">${esc(String(m.status))}</span></div>
+<div class="grid cols-2" style="margin-top:14px">
+  <div class="card"><h3>Escrow</h3>
+    ${spread("Locked", `${locked} NEAR${m.token ? ` <span class="faint small">(${esc(String(m.token))}${m.tokenId ? ":" + esc(String(m.tokenId)) : ""})</span>` : ""}`)}
+    ${spread("Payer", `<span class="mono small">${esc(String(m.payer))}</span>`)}
+    ${spread("Spec", `<span class="small">${esc(String(m.spec ?? m.specHash ?? ""))}</span>`)}
+    ${m.winningClaimId ? spread("Winner", `claim ${esc(String(m.winningClaimId))} → <span class="mono small">${esc(String(m.paidTo ?? ""))}</span>`) : ""}
+    ${spread("Jury rule", `${esc(String(m.oracleQuorumM ?? 1))}-of-N accepts${m.commitReveal ? " · commit-reveal" : ""}`)}
+  </div>
+  <div class="card"><h3>Verdicts <span class="faint small">quorum ${esc(String(verdicts.quorumM ?? 1))}</span></h3>
+    ${voteRows ? `<table class="tbl">${voteRows}</table>` : '<p class="mut small">No verdicts yet.</p>'}
+    ${disputeRows ? `<h3 style="margin-top:14px">Disputes</h3><table class="tbl">${disputeRows}</table>` : ""}
+  </div>
+</div>
+<h2 style="margin:20px 0 10px">Claims <span class="faint small">${claims.total ?? 0} total · ${claims.pending ?? 0} pending</span></h2>
+${claimRows ? `<div class="card flat"><table class="tbl"><tr><th>#</th><th>claimant</th><th>status</th><th>attestation</th><th>hash</th></tr>${claimRows}</table></div>`
+  : `<div class="empty"><div class="big">No claims yet</div><div class="mut">First verified submission takes the escrow.</div></div>`}`;
+  return html(pageShell({
+    title: `Market ${id} — Widespread`,
+    description: `On-chain work market ${id}: ${locked} NEAR escrowed, ${claims.total ?? 0} claims, quorum ${verdicts.quorumM ?? 1}.`,
+    body, nav: "bounties", path: `/market/${id}`,
+  }));
+}
+
 // --------------------------------------------------------------- bounties
 
 export async function bountiesPage(env: Env, ctx?: ExecutionContext): Promise<Response> {

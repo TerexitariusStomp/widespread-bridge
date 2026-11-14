@@ -77,6 +77,13 @@ footer .inner { max-width: 1080px; margin: 0 auto; display: flex;
 .jury-seat { border: 1px solid var(--border-soft); border-radius: var(--radius-sm);
   padding: 10px 12px; display: flex; flex-direction: column; gap: 3px; }
 .jury-seat .pill { align-self: flex-start; margin-top: 4px; }
+.tbl { width: 100%; border-collapse: collapse; font-size: .88rem; }
+.tbl th { text-align: left; color: var(--fg-faint); font-size: .72rem;
+  text-transform: uppercase; letter-spacing: .04em; padding: 4px 10px 6px 0;
+  border-bottom: 1px solid var(--border); }
+.tbl td { padding: 7px 10px 7px 0; border-bottom: 1px solid var(--border-soft);
+  vertical-align: top; }
+.tbl tr:last-child td { border-bottom: none; }
 .pill { display: inline-block; font-size: .72rem; padding: 1px 8px; border-radius: 999px;
   border: 1px solid var(--border); color: var(--fg-dim); }
 .pill.ok { border-color: var(--green); color: var(--green-hi); }
