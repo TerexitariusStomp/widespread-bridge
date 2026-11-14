@@ -172,6 +172,27 @@ async function nearAiCall(env: Env, input: AdjudicatorInput, prompt?: string): P
   return { raw, model, signature_id: out.id, tee_signature };
 }
 
+/** Workers AI judge call — free-tier fallback for when NEAR AI is
+ * unconfigured, down, or out of credits. `model` must be an AiModels id
+ * (@cf/...), never a NEAR AI Cloud id. */
+async function workersAiCall(env: Env, model: string, system: string,
+  prompt: string, maxTokens: number): Promise<string> {
+  // Ai.run may return {response} or an OpenAI-style chat.completion
+  // envelope — unwrap whichever we get.
+  const out = (await env.AI.run(model as keyof AiModels, {
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: prompt },
+    ],
+    max_tokens: maxTokens,
+    temperature: 0,
+  })) as { response?: string; choices?: { message?: { content?: string } }[] };
+  return (typeof out?.response === "string" && out.response) ||
+    out?.choices?.[0]?.message?.content || JSON.stringify(out);
+}
+const WORKERS_AI_FALLBACK = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
+const workersAiModel = (env: Env): string => env.LLM_MODEL || WORKERS_AI_FALLBACK;
+
 /** One judge call. `model` lets a panel override the env default;
  * `blind` strips claimant identity from the prompt so the judge weighs
  * the work, not the worker. */
@@ -182,26 +203,14 @@ async function callJudge(env: Env, input: AdjudicatorInput, model: string, blind
   let sig: { signature_id?: string; tee_signature?: unknown } = {};
   try {
     if (useNearAi) {
-      const r = await nearAiCall(env, input, buildPrompt(eff));
-      raw = r.raw; sig = { signature_id: r.signature_id, tee_signature: r.tee_signature };
+      try {
+        const r = await nearAiCall(env, input, buildPrompt(eff));
+        raw = r.raw; sig = { signature_id: r.signature_id, tee_signature: r.tee_signature };
+      } catch {
+        raw = await workersAiCall(env, workersAiModel(env), SYSTEM, buildPrompt(eff), 1024);
+      }
     } else {
-      // Ai.run may return {response} or an OpenAI-style chat.completion
-      // envelope — unwrap whichever we get.
-      const out = (await env.AI.run(model as keyof AiModels, {
-        messages: [
-          { role: "system", content: SYSTEM },
-          { role: "user", content: buildPrompt(eff) },
-        ],
-        max_tokens: 1024,
-        temperature: 0,
-      })) as {
-        response?: string;
-        choices?: { message?: { content?: string } }[];
-      };
-      raw =
-        (typeof out?.response === "string" && out.response) ||
-        out?.choices?.[0]?.message?.content ||
-        JSON.stringify(out);
+      raw = await workersAiCall(env, model, SYSTEM, buildPrompt(eff), 1024);
     }
   } catch (e) {
     return {
@@ -360,18 +369,14 @@ export async function adjudicateContest(
     try {
       let raw = "";
       if (useNearAi) {
-        const r = await nearAiCall(env, inputs[0], prompt);
-        raw = r.raw;
+        try {
+          const r = await nearAiCall(env, inputs[0], prompt);
+          raw = r.raw;
+        } catch {
+          raw = await workersAiCall(env, workersAiModel(env), CONTEST_SYSTEM, prompt, 4096);
+        }
       } else {
-        const out = (await env.AI.run(model as keyof AiModels, {
-          messages: [
-            { role: "system", content: CONTEST_SYSTEM },
-            { role: "user", content: prompt },
-          ],
-          max_tokens: 4096, temperature: 0,
-        })) as { response?: string; choices?: { message?: { content?: string } }[] };
-        raw = (typeof out?.response === "string" && out.response) ||
-          out?.choices?.[0]?.message?.content || JSON.stringify(out);
+        raw = await workersAiCall(env, model, CONTEST_SYSTEM, prompt, 4096);
       }
       const parsed = extractJson(raw);
       const label = typeof parsed?.winner === "string" ? parsed.winner.trim() : "none";
