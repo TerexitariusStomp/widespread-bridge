@@ -31,7 +31,6 @@ oracle proof → contract `release()` → contributor paid.
 | Path | What | Runs where |
 |---|---|---|
 | `contracts/market-rs/` | The market/escrow contract (near-sdk-rs — canonical, deployed) + near-workspaces harness | deployed: `wide-mkt-11561.testnet` |
-| `contracts/market-legacy/` | Archived near-sdk-js version the Rust port was byte-compat proven against; spec-record tests run with `RUN_LEGACY=1` | superseded |
 | `packages/oracle/` | `oracle.ts` (ed25519 verdict signing) + `adjudicator.ts` (NEAR AI Cloud `provider_tee` path) — vendored from the bridge | `widespread-bridge` Worker |
 | `packages/agent/` | `_widespread.py` — the 10-tool `wide_*` toolset for the Hermes agent (discover → claim → ship → get paid) + `SKILL.md` | `near-hermes-browser` plugin |
 | `packages/bot/` | `index.js` — `@widespread $N for <spec>` GitHub App; **merge=accept** → payout | `widespread-bot` probot app |

@@ -18,7 +18,7 @@ const CREDS = path.join(os.homedir(), ".widespread-near.json");
 const NODE = "https://rpc.testnet.near.org";
 
 function loadAccount() {
-  if (!existsSync(CREDS)) throw new Error(`no creds at ${CREDS} — run contracts/market-legacy/deploy.js first`);
+  if (!existsSync(CREDS)) throw new Error(`no creds at ${CREDS} — run oracle-runner or a funded testnet account first`);
   const c = JSON.parse(readFileSync(CREDS, "utf8"));
   return { accountId: c.accountId,
     account: new Account(c.accountId, NODE, new KeyPairSigner(KeyPair.fromString(c.secretKey))) };
