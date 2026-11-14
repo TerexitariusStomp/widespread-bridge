@@ -15,7 +15,7 @@
     // unreviewed work claims (each resolves through FORGES → FORGE_BASE).
     "WATCH_REPOS": "slop/slopdotcash,slop/protocol",
     // NEAR market contract — the on-chain source of truth for /api/markets.
-    "NEAR_CONTRACT": "e2b3936775a4a1e300301f04cd7f7a4902b7a6002ee68c846ab71d4469fbbef2",
+    "NEAR_CONTRACT": "98ae0514a19c52d33f5e037f1705d0cc4f5be8a74adb2c86f9403c8ebbe774c7",
     // Ops account that auto-escrows fiat-funded mirrors (key in
     // NEAR_OPS_SECRET_KEY secret). Testnet demo account.
     "NEAR_OPS_ACCOUNT": "wide-ops-328424.testnet",
