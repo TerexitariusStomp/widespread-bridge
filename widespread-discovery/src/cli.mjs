@@ -9,9 +9,10 @@ process.on("unhandledRejection", (e) => {
   console.error(`warning: unhandled rejection (relay/pool): ${String(e?.message ?? e).slice(0, 160)}`);
 });
 import {
-  keygen, importIdentity, loadIdentity, publishSighting, query, ingestEvents,
+  keygen, importIdentity, loadIdentity, publish, publishSighting, query, ingestEvents,
   loadIndex, publishState, fetchState, relays, closePool,
 } from "./node.mjs";
+import { metaEventTemplate, adapterEventTemplate, parseMetaPayload, ratifyMeta, collectAdapters, T_PROTOCOL_META, T_ADAPTER } from "./proto.mjs";
 
 const [cmd, ...rest] = process.argv.slice(2);
 const { values: a, positionals: pos } = parseArgs({
@@ -23,7 +24,7 @@ const { values: a, positionals: pos } = parseArgs({
     limit: { type: "string", default: "200" }, port: { type: "string", default: "8787" },
     kind: { type: "string", default: "json" }, akind: { type: "string" }, interval: { type: "string", default: "60" },
     surface: { type: "string" }, grammar: { type: "string" }, once: { type: "boolean" }, timeout: { type: "string" },
-    help: { type: "boolean", short: "h" },
+    help: { type: "boolean", short: "h" }, apply: { type: "boolean" },
   },
   allowPositionals: true,
 });
@@ -43,6 +44,10 @@ const usage = `wsd — widespread-discovery CLI
   wsd mcp                         stdio MCP server (agent integration)
   wsd stats                       local index stats
   wsd snapshot                   publish capacity snapshot event (public C(t) index)
+  wsd meta publish <payload.json>  sign a protocol-governance payload (steward key)
+  wsd meta fetch                 show ratified protocol parameters + pending votes
+  wsd adapter publish <manifest.json>  publish adapter manifest to relays (registry without a host)
+  wsd adapter list               list adapter manifests found on relays
   wsd sync-out / wsd sync-in      publish/fetch encrypted watcher state
   env: WSD_RELAYS="wss://a,wss://b"`;
 
@@ -172,6 +177,77 @@ switch (cmd) {
     }));
     console.log(`snapshot published: ${n} sightings, ${r.oks.length} relays`);
     closePool(); setTimeout(()=>process.exit(0),300); break;
+  }
+  case "meta": {
+    // Collective governance: publish/fetch threshold-ratified protocol
+    // parameter payloads (see proto.mjs). `wsd meta publish payload.json`
+    // signs the payload with THIS key — ratification needs ≥threshold
+    // distinct keys from the payload's required steward set, so each
+    // steward runs it once.
+    const sub = pos[0];
+    if (sub === "publish") {
+      needId();
+      const file = pos[1] ?? a.file;
+      if (!file) { console.error("usage: wsd meta publish <payload.json>"); process.exit(1); }
+      const payload = parseMetaPayload(JSON.parse(readFileSync(file, "utf8")));
+      if (!payload) { console.error("invalid meta payload — see proto.mjs schema"); process.exit(1); }
+      const id = loadIdentity();
+      const r = await publish(metaEventTemplate(id.pk, payload));
+      console.log(`meta seq=${payload.seq} published by ${id.pk.slice(0, 12)}… → ${r.stored ?? "?"} relay copy(ies) stored`);
+      console.log(`ratification needs ≥${payload.threshold} of [${(payload.seq === 0 ? payload.stewards : (payload.prev_stewards ?? payload.stewards)).map((s) => s.slice(0, 8)).join(", ")}]`);
+    } else if (sub === "fetch" || !sub) {
+      const { verifyEvent } = await import("nostr-tools");
+      const evs = await query({ kinds: [30078], "#t": [T_PROTOCOL_META], limit: Number(a.limit) });
+      const best = ratifyMeta(evs, verifyEvent);
+      if (best) {
+        console.log(`ratified meta seq=${best.seq} signers=${best.signers.length}/${best.payload.threshold}`);
+        console.log(JSON.stringify(best.payload, null, 2));
+        if (a.apply) {
+          const { writeFileSync, mkdirSync } = await import("node:fs");
+          const { homedir } = await import("node:os");
+          const { join } = await import("node:path");
+          const dir = join(homedir(), ".widespread-discovery");
+          mkdirSync(dir, { recursive: true });
+          writeFileSync(join(dir, "protocol-meta.json"), JSON.stringify(best.payload, null, 2));
+          console.log("applied: relay_hints now override defaults (WSD_RELAYS still wins)");
+        }
+      } else {
+        // show per-payload ratification progress so stewards see what's missing
+        const groups = new Map();
+        for (const ev of evs) { const l = groups.get(ev.content) ?? []; l.push(ev); groups.set(ev.content, l); }
+        for (const [content, list] of groups) {
+          const p = parseMetaPayload(content);
+          if (!p) continue;
+          const req = new Set(p.seq === 0 ? p.stewards : (p.prev_stewards ?? p.stewards));
+          const signers = new Set(list.filter((e) => verifyEvent(e) && req.has(e.pubkey)).map((e) => e.pubkey));
+          console.log(`seq=${p.seq} signers=${signers.size}/${p.threshold} ${signers.size >= p.threshold ? "RATIFIED" : "pending"}`);
+        }
+        if (!groups.size) console.log("no protocol-meta events found on relays");
+      }
+    } else { console.error(`unknown meta subcommand: ${sub}`); process.exit(1); }
+    closePool(); setTimeout(() => process.exit(0), 300); break;
+  }
+  case "adapter": {
+    const sub = pos[0];
+    if (sub === "publish") {
+      needId();
+      const file = pos[1] ?? a.file;
+      if (!file) { console.error("usage: wsd adapter publish <manifest.json>"); process.exit(1); }
+      const manifest = JSON.parse(readFileSync(file, "utf8"));
+      if (!manifest?.id) { console.error("manifest missing id"); process.exit(1); }
+      const id = loadIdentity();
+      const r = await publish(adapterEventTemplate(id.pk, manifest));
+      console.log(`adapter ${manifest.id} published → ${r.stored ?? "?"} relay copy(ies) stored`);
+    } else if (sub === "list" || !sub) {
+      const evs = await query({ kinds: [30078], "#t": [T_ADAPTER], limit: Number(a.limit) });
+      const ads = collectAdapters(evs);
+      for (const [id, rec] of ads) {
+        const m = rec.manifest;
+        console.log(`${id}  ${m.platform ?? m.family ?? "?"}  ops=${m.ops?.length ?? 0}  by ${rec.pubkey.slice(0, 8)}…`);
+      }
+      console.log(`— ${ads.size} adapters from ${evs.length} events`);
+    } else { console.error(`unknown adapter subcommand: ${sub}`); process.exit(1); }
+    closePool(); setTimeout(() => process.exit(0), 300); break;
   }
   case "sync-out": needId(); console.log(JSON.stringify((await publishState(await collectState())).event.id)); closePool(); setTimeout(()=>process.exit(0),300); break;
   case "sync-in": needId(); console.log(JSON.stringify(await fetchState(), null, 2)); closePool(); setTimeout(()=>process.exit(0),300); break;

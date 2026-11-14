@@ -251,3 +251,44 @@ agent ──► broker ──► browser session (cookies attached by the browse
 **Broker homes** (one grant format, three runtimes): extension
 `background.js`, `wsd serve` localhost API, `widespread_surfaces`
 `_auth.py` profiles. Portable via the encrypted state blob.
+
+## 10. Collective governance (`widespread-protocol-meta`)
+
+Protocol *parameters* — spec version, steward set, advisory relay hints,
+schema versions — are themselves signed kind-30078 events
+(`t=widespread-protocol-meta`, `d=meta`). No website, registry, or server
+is a root of trust; the relays that already carry sightings carry
+governance.
+
+**Payload** (canonical JSON, `v:1`): `{spec, seq, prev_stewards,
+stewards, threshold, relay_hints?, registry_peers?, schema_versions?,
+note?}`. Signatures are ordinary nostr event signatures — each steward
+publishes an event whose content is the *identical* canonical payload.
+
+**Ratification**: a payload group is valid when ≥ `threshold` distinct
+verified pubkeys belonging to the required set (`prev_stewards`, or
+`stewards` for genesis `seq:0`) have published it. `ratifyMeta()` in
+`src/proto.mjs` implements this; `wsd meta publish <payload.json>` signs
+with the local key, `wsd meta fetch [--apply]` shows progress or applies
+ratified `relay_hints` (env `WSD_RELAYS` always wins over adopted hints,
+which win over built-in `DEFAULT_RELAYS`).
+
+**Bootstrap honesty**: genesis (`seq:0`, `prev_stewards:null`) is
+trust-on-first-use — clients MAY pin a genesis event id or steward pubkey
+set to harden. Once pinned, every amendment is self-verifying because the
+required signer set is carried inside the payload it gates.
+
+**Adapter registry devolution**: manifests (`widespread-adapter/1`,
+content-addressed `id`) publish as `t=widespread-adapter`,
+`d=adapter:<id>` events — `wsd adapter publish <manifest.json>` /
+`wsd adapter list`. The bridge worker's Durable Object registry is one
+mirror among many, never the root; any relay indexer can rebuild the
+catalog. Telemetry (`/report`) remains coordinator-side advisory data —
+useful, never authoritative.
+
+**What stays centralized (honest list)**: the NEAR contract admin keys
+(escrow/markets upgrade authority), the bridge worker's convenience APIs
+(feed, mirrors, MCP proxy — all derivable caches), and whoever operates
+the relays sightings land on. Everything above is replaceable; the money
+legs are the remaining trust surface and are contract-governed, not
+website-governed.

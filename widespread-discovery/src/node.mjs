@@ -12,8 +12,19 @@ const DIR = join(homedir(), ".widespread-discovery");
 const KEYFILE = join(DIR, "identity.json");
 const STATE_FILE = join(DIR, "state.json");
 
+const META_CACHE = join(DIR, "protocol-meta.json");
+/** Ratified protocol-meta relay hints, adopted via `wsd meta fetch
+ *  --apply`. WSD_RELAYS env always wins; built-in defaults are last. */
+function metaRelayHints() {
+  try {
+    const m = JSON.parse(readFileSync(META_CACHE, "utf8"));
+    return Array.isArray(m?.relay_hints) ? m.relay_hints.filter((s) => typeof s === "string") : [];
+  } catch { return []; }
+}
 export function relays() {
-  return (process.env.WSD_RELAYS || DEFAULT_RELAYS.join(",")).split(",").map((s) => s.trim()).filter(Boolean);
+  if (process.env.WSD_RELAYS) return process.env.WSD_RELAYS.split(",").map((s) => s.trim()).filter(Boolean);
+  const hints = metaRelayHints();
+  return (hints.length ? hints : DEFAULT_RELAYS).join(",").split(",").map((s) => s.trim()).filter(Boolean);
 }
 
 export function loadIdentity() {

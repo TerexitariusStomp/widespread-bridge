@@ -8,6 +8,7 @@ import {
   bytesToHex, hexToBytes, bytesToB64, DEFAULT_RELAYS,
   capacitySnapshotEventTemplate,
 } from "./core.mjs";
+import { ratifyMeta, T_PROTOCOL_META } from "./proto.mjs";
 
 const N = window.NostrTools;
 if (!N) { document.body.innerHTML = "<p>nostr.bundle.js failed to load</p>"; throw new Error("no nostr"); }
@@ -85,8 +86,27 @@ function connectRelays() {
   $("relay-pill").textContent = `relays: ${relayList().length}`; $("relay-pill").classList.add("on");
   log("relay-log", "pool ready — " + relayList().join(", "));
   flushOutbox();
+  fetchProtocolMeta();
 }
-$("btn-connect").onclick = () => { pool = new N.SimplePool(); log("relay-log", "reconnected"); flushOutbox(); };
+$("btn-connect").onclick = () => { pool = new N.SimplePool(); log("relay-log", "reconnected"); flushOutbox(); fetchProtocolMeta(); };
+
+// Collective governance: fetch the newest threshold-ratified protocol-meta
+// event and adopt its advisory relay hints — but only when the relay input
+// still holds the built-in default (explicit user config always wins).
+async function fetchProtocolMeta() {
+  try {
+    const evs = await pool.querySync(relayList(), { kinds: [30078], "#t": [T_PROTOCOL_META], limit: 100 });
+    const best = ratifyMeta(evs, N.verifyEvent);
+    if (!best) return;
+    const p = best.payload;
+    log("relay-log", `protocol meta seq=${p.seq} ratified (${best.signers.length}/${p.threshold} stewards)`);
+    if (Array.isArray(p.relay_hints) && p.relay_hints.length &&
+        $("relays").value === DEFAULT_RELAYS.join(",")) {
+      $("relays").value = p.relay_hints.join(",");
+      log("relay-log", `adopted collective relay hints: ${p.relay_hints.join(", ")}`);
+    }
+  } catch { /* meta fetch is advisory — never break connect */ }
+}
 
 // relay health: track accept/fail per relay URL for honest status
 const relayHealth = new Map();
