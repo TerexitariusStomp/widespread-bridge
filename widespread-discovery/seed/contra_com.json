@@ -1,0 +1,39 @@
+{
+  "schema": "widespread-adapter/1",
+  "surface": "contra.com",
+  "kind": "marketplace",
+  "author": "did:key:z6MkspwK2XXgXemXJdxV5gJgvBbZ9kSUZo4foQxLC3PkX1Sd",
+  "generated_by": "did:key:z6MkspwK2XXgXemXJdxV5gJgvBbZ9kSUZo4foQxLC3PkX1Sd",
+  "generated_with": {
+    "tools": [
+      "hermes_browser",
+      "rea-agents"
+    ],
+    "captured_at": 1794607587549,
+    "source": "seed-pack-v0"
+  },
+  "auth": {
+    "type": "session-cookie",
+    "storage": "client-profile",
+    "refresh": "auto",
+    "delegation": "widespread-bind"
+  },
+  "ops": [
+    {
+      "name": "browse",
+      "class": "read",
+      "endpoint": "/",
+      "method": "GET",
+      "verified": false,
+      "risk": "low"
+    }
+  ],
+  "status": "draft",
+  "issued_at": 1794607587549,
+  "grammar": {
+    "placement": "browser-actuation",
+    "note": "opportunities via browser tier; no public API"
+  },
+  "id": "4fb209a7e3765d7c9017c75055b746ec8c47b971d1c1b7d84727a105cbc2a930",
+  "sig": "919f435aa40c0e9c683d085bc8c900456062c2bf23d9257959f89869934ac6e2cdd40216694e04a47335419edfc25dfd40711fa7dac2464d78a9af449c2cb10c"
+}

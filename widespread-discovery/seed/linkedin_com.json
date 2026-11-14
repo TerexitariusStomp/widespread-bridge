@@ -1,0 +1,64 @@
+{
+  "schema": "widespread-adapter/1",
+  "surface": "linkedin.com",
+  "kind": "social",
+  "author": "did:key:z6MkspwK2XXgXemXJdxV5gJgvBbZ9kSUZo4foQxLC3PkX1Sd",
+  "generated_by": "did:key:z6MkspwK2XXgXemXJdxV5gJgvBbZ9kSUZo4foQxLC3PkX1Sd",
+  "generated_with": {
+    "tools": [
+      "log"
+    ],
+    "captured_at": 1794607587114,
+    "source": "seed-pack-v0"
+  },
+  "auth": {
+    "type": "session-cookie",
+    "storage": "client-profile",
+    "refresh": "auto",
+    "delegation": "widespread-bind"
+  },
+  "ops": [
+    {
+      "name": "notifications",
+      "class": "read",
+      "endpoint": "https://www.linkedin.com/voyager/api/notifications",
+      "method": "GET",
+      "verified": false,
+      "risk": "low"
+    },
+    {
+      "name": "search_posts",
+      "class": "read",
+      "endpoint": "https://www.linkedin.com/voyager/api/search/dash/clusters",
+      "method": "GET",
+      "verified": false,
+      "risk": "low"
+    },
+    {
+      "name": "post",
+      "class": "write",
+      "endpoint": "https://www.linkedin.com/voyager/api/contentcreation/normShares",
+      "method": "POST",
+      "verified": false,
+      "risk": "high"
+    },
+    {
+      "name": "dm_list",
+      "class": "read",
+      "endpoint": "https://www.linkedin.com/voyager/api/voyagerMessagingDashMessengerConversations",
+      "method": "GET",
+      "verified": false,
+      "risk": "low"
+    }
+  ],
+  "status": "draft",
+  "issued_at": 1794607587114,
+  "grammar": {
+    "declaration": "#widespread bounty <hash>\ndomain: <domain>\namount: <n> <ccy>\nspec: <text>",
+    "claim": "widespread claim <hash>",
+    "receipt": "widespread receipt <id>",
+    "placement": "reply"
+  },
+  "id": "70ad7c2137e4a30f714fdccead27ef2d545118bb887b7acc2c02c5fca7157e99",
+  "sig": "266c7904007e60c7ad2a253896de76746f83e6b3bf0d0dfff22c8af394a4f1ae9b856867bc6f5aa9de80ecf6c117af6a7b8c61cf4f2c67ef6ec2ebfdc6c1f20c"
+}

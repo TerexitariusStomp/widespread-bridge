@@ -1,4 +1,5 @@
-// Widespread ⇄ delta-git bridge worker.
+// Widespread verified-work protocol worker — forge-agnostic claim →
+// evidence → verdict → payout bridge. Forge specifics live in src/forges/.
 //
 //   GET  /                    market home (bounties, mirrors, receipts)
 //   GET  /ops                 ops dashboard (claim → evidence → verdict → payout)
@@ -9,7 +10,7 @@
 //   POST /api/bounties        open/overwrite a bounty (ADMIN_TOKEN if set)
 //   DELETE /api/bounties/:r   close one
 //   GET  /healthz
-//   scheduled(*/5m)           scan WATCH_REPOS op-logs, review new ship claims
+//   scheduled(*/5m)           scan WATCH_REPOS claim streams, review new work claims
 
 import { OPS_HTML } from "./ops";
 import { homePage, bountiesPage, bountyPage, fundPage, receiptPage, docsPage, bountyMarkdown } from "./web/pages";
@@ -194,7 +195,7 @@ function watchRepos(env: Env): string[] {
     .filter(Boolean);
 }
 
-/** Scan watched repos' op-logs; review ship claims we haven't seen. */
+/** Scan watched repos' claim streams; review work claims we haven't seen. */
 async function scan(env: Env): Promise<number> {
   let reviewed = 0;
   for (const repo of watchRepos(env)) {
@@ -989,8 +990,9 @@ export default {
     return res;
   },
 
-  // The "picks up the claim" lane: poll each watched repo's op-log and run
-  // the pipeline on ship entries we haven't seen before. Needs a cron slot —
+  // The "picks up the claim" lane: poll each watched repo's claim stream
+  // (forge adapter) and run the pipeline on claim entries we haven't seen
+  // before. Needs a cron slot —
   // when none is free the /api/state opportunistic scan covers pickup.
   async queue(batch: MessageBatch, _env: Env): Promise<void> {
     // The service has a queue consumer bound at the account level that no

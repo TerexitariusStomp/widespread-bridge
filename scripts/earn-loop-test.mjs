@@ -3,15 +3,12 @@
 //   ship_prepare → sign → ship_submit → status
 //   npm run test:earn
 //
-// KNOWN DEFECTS this surfaces (kept honest — the test reports, not fakes):
-//  - ship_submit relays to FORGE_BASE/api/{repo}/dg/ship, a route that
-//    does not exist on the deployed delta-git forge (404 HTML page).
-//  - dg1 signature convention mismatch: the forge expects
-//    ed25519(hex-of-sha256(canonical)); shipSubmit verifies
-//    ed25519(sha256-bytes(canonical)) — relayed sigs fail forge auth.
-//  The REAL ship path that works today is scripts/ship-claim.mjs →
-//  /api/{repo}/dg/patch (needs an initialized base ref — bootstrap an
-//  empty repo via POST /api/{repo}/dg/import with a small git URL).
+// Forge-agnostic since the adapter refactor: wide_ship_prepare resolves the
+// repo's forge adapter (FORGES map → FORGE_BASE → generic) and returns its
+// real submission route (delta-git → /api/{repo}/dg/patch), the forge's own
+// signature convention, and header scheme. Non-commit artifacts still
+// attest via POST /api/claims — the bridge feed is the receipt surface
+// for forges without a claim log.
 import { execFileSync } from "node:child_process";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -77,23 +74,32 @@ const claim = await claimRes.json();
 log("claim:", JSON.stringify(claim).slice(0, 200));
 if (claim.ok === false) throw new Error(`claim rejected: ${JSON.stringify(claim.failures ?? claim)}`);
 
-// 4. attest the ship via dg1 — prepare builds the canonical body; we sign
-//    ed25519(sha256(canonical)) where canonical = "dg1\n{did}\n{ts}\n{nonce}\nPOST\n{path}\n{sha256hex(body)}"
+// 4. attest the ship — prepare returns the repo's forge target + sign
+//    convention; sign ed25519(utf8(sha256hex(canonical))) matching the
+//    forge's own verification (delta-git dg1 envelope).
+const claimFile = `CLAIM-${DID.slice(-8)}\nmarket:${market.marketId} cid:${cid} ts:${Date.now()}\n`;
+const patch =
+  `diff --git a/${claimFile.split("\n")[0]}.md b/${claimFile.split("\n")[0]}.md\n` +
+  `new file mode 100644\nindex 0000000..1111111\n--- /dev/null\n+++ b/${claimFile.split("\n")[0]}.md\n` +
+  `@@ -0,0 +1,1 @@\n+${claimFile.trimEnd()}\n`;
 const prep = await mcp("wide_ship_prepare", {
   did: DID, repo: "slop/slopdotcash", session_id: `earn-${Date.now().toString(36)}`,
   tool: "devin", commits: [], artifact: `ipfs://${cid}`,
+  base_ref: "refs/heads/master", patch, message: `claim market ${market.marketId} — ${cid.slice(0, 16)}`,
 });
 if (prep.error) throw new Error(`ship_prepare: ${prep.error}`);
 const body = prep.body;
+const shipPath = prep.path;
 const ts = String(Math.floor(Date.now() / 1000));
 const nonce = crypto.randomUUID().replace(/-/g, "");
 const bodyBytes = JSON.stringify(body);
-const shipCanonical = `dg1\n${DID}\n${ts}\n${nonce}\nPOST\n/api/slop/slopdotcash/dg/ship\n${await sha256Hex(te.encode(bodyBytes))}`;
-const payload = new Uint8Array(await crypto.subtle.digest("SHA-256", te.encode(shipCanonical)));
-const shipSig = toHex(await crypto.subtle.sign("Ed25519", pair.privateKey, payload));
+const shipCanonical = `dg1\n${DID}\n${ts}\n${nonce}\nPOST\n${shipPath}\n${await sha256Hex(te.encode(bodyBytes))}`;
+// Forge convention: sign the hex digest as UTF-8, not the raw bytes.
+const payloadHex = await sha256Hex(te.encode(shipCanonical));
+const shipSig = toHex(await crypto.subtle.sign("Ed25519", pair.privateKey, te.encode(payloadHex)));
 const sub = await mcp("wide_ship_submit", { did: DID, repo: "slop/slopdotcash", body, ts, nonce, sig: shipSig });
 log("ship submit:", JSON.stringify(sub).slice(0, 300));
-if (!sub.relayed && sub.forge_status !== 200) log("note: forge relay status", sub.forge_status, "— signature was verified by bridge; forge response:", JSON.stringify(sub.forge ?? sub).slice(0, 200));
+if (!sub.relayed && sub.forge_status !== 200) log("note: forge relay status", sub.forge_status, "— forge response:", JSON.stringify(sub.forge ?? sub).slice(0, 200));
 
 // 6. status — verdict + payout trace
 for (let i = 0; i < 10; i++) {

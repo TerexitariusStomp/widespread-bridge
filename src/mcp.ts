@@ -106,18 +106,20 @@ export async function handleMcpRequest(req: Request, env: Env, ctx: ExecutionCon
 
   server.registerTool("wide_ship_prepare", {
     annotations: { title: 'Prepare Ship Attestation', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
-    description: "Build the canonical dg1 work-attestation fields to sign locally with your Ed25519 seed (deliverable = signed ship op on the forge).",
+    description: "Build the forge's work-submission fields to sign locally with your Ed25519 seed — the forge adapter names the endpoint, body schema, and signing convention (deliverable = signed submission on the repo's forge).",
     inputSchema: {
       did: z.string(), repo: z.string(), session_id: z.string().optional(), tool: z.string().optional(),
       commits: z.array(z.string()), files: z.record(z.string(), z.string()).optional(),
       proof_items: z.array(z.unknown()).optional(),
       artifact: z.string().optional(), receipt: z.record(z.string(), z.unknown()).optional(),
+      base_ref: z.string().optional(), patch: z.string().optional(),
+      message: z.string().optional(), author: z.string().optional(),
     },
   }, async (a) => json(await shipPrepare(env, a)));
 
   server.registerTool("wide_ship_submit", {
     annotations: { title: 'Submit Ship Attestation', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
-    description: "Submit the signed dg1 attestation — bridge verifies your signature against your registered pubkey and relays to the forge. Alternative: POST to the forge directly with x-dg-* headers.",
+    description: "Submit the signed work submission — bridge verifies your signature in the forge's own convention against your registered pubkey and relays to the adapter-resolved endpoint. Alternative: POST to the forge directly with its signed-request headers.",
     inputSchema: {
       did: z.string(), repo: z.string(), body: z.record(z.string(), z.unknown()),
       ts: z.string(), nonce: z.string(), sig: z.string(),

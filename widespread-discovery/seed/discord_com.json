@@ -1,0 +1,80 @@
+{
+  "schema": "widespread-adapter/1",
+  "surface": "discord.com",
+  "kind": "social",
+  "author": "did:key:z6MkspwK2XXgXemXJdxV5gJgvBbZ9kSUZo4foQxLC3PkX1Sd",
+  "generated_by": "did:key:z6MkspwK2XXgXemXJdxV5gJgvBbZ9kSUZo4foQxLC3PkX1Sd",
+  "generated_with": {
+    "tools": [
+      "log"
+    ],
+    "captured_at": 1794607587100,
+    "source": "seed-pack-v0"
+  },
+  "auth": {
+    "type": "session-cookie",
+    "storage": "client-profile",
+    "refresh": "auto",
+    "delegation": "widespread-bind"
+  },
+  "ops": [
+    {
+      "name": "list_dms",
+      "class": "read",
+      "endpoint": "/api/v9/users/@me/channels",
+      "method": "GET",
+      "verified": false,
+      "risk": "low"
+    },
+    {
+      "name": "read_dm",
+      "class": "read",
+      "endpoint": "/api/v9/channels/{channel_id}/messages",
+      "method": "GET",
+      "verified": false,
+      "risk": "low"
+    },
+    {
+      "name": "send_dm",
+      "class": "write",
+      "endpoint": "/api/v9/channels/{channel_id}/messages",
+      "method": "POST",
+      "verified": false,
+      "risk": "medium"
+    },
+    {
+      "name": "list_guilds",
+      "class": "read",
+      "endpoint": "/api/v9/users/@me/guilds",
+      "method": "GET",
+      "verified": false,
+      "risk": "low"
+    },
+    {
+      "name": "post_message",
+      "class": "write",
+      "endpoint": "/api/v9/channels/{channel_id}/messages",
+      "method": "POST",
+      "verified": false,
+      "risk": "medium"
+    },
+    {
+      "name": "search_messages",
+      "class": "read",
+      "endpoint": "/api/v9/guilds/{guild_id}/messages/search",
+      "method": "GET",
+      "verified": false,
+      "risk": "low"
+    }
+  ],
+  "status": "draft",
+  "issued_at": 1794607587100,
+  "grammar": {
+    "declaration": "#widespread bounty <hash>\ndomain: <domain>\namount: <n> <ccy>\nspec: <text>",
+    "claim": "widespread claim <hash>",
+    "receipt": "widespread receipt <id>",
+    "placement": "reply"
+  },
+  "id": "97c499b86ef073a1076996f83df888809cfb7f57e574d7665087b86cb1ee6b81",
+  "sig": "8248a77f9d5283b48ad4ac5663a656607165ce28dade186d07ec4d28df7d67a35b1739fe7e5933003972115fa32a7d960e589ebbc34f740de9a6a637f01d1108"
+}

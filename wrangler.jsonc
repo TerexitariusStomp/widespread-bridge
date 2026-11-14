@@ -7,9 +7,12 @@
   "compatibility_date": "2025-10-01",
   "compatibility_flags": ["nodejs_compat"],
   "vars": {
-    // delta-git forge base URL (public JSON API, no auth for reads).
+    // Default claim-log forge for unmapped repos (a delta-git deployment).
+    // Per-repo bindings override via the FORGES var: a JSON map of
+    // {"owner/repo"|"*": {"type": "deltagit"|..., "base": "https://…"}}.
     "FORGE_BASE": "https://code.widespread.fyi",
-    // Repos the cron scanner watches for unreviewed `ship` op-log entries.
+    // Repos whose forge claim streams the cron scanner watches for
+    // unreviewed work claims (each resolves through FORGES → FORGE_BASE).
     "WATCH_REPOS": "slop/slopdotcash,slop/protocol",
     // NEAR market contract — the on-chain source of truth for /api/markets.
     "NEAR_CONTRACT": "wide-mkt-11561.testnet",

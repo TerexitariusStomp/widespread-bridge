@@ -5,7 +5,8 @@ export interface Env {
   CLAIMS: KVNamespace;
   AI: Ai;
   ASSETS?: Fetcher;
-  FORGE_BASE: string;
+  FORGE_BASE?: string;             // legacy default forge — new deployments prefer FORGES
+  FORGES?: string;                 // JSON { "owner/repo"|"*": {type, base} } per-repo forge bindings
   WATCH_REPOS: string;
   LLM_MODEL: string;
   MIN_CONFIDENCE: string;
@@ -486,6 +487,9 @@ export interface ReviewRecord {
   attestation?: { uuid?: string; logIndex?: string; integratedTime?: number; skipped?: string } | null;
   payout: PayoutReceipt | null;
   writeback: Writeback | null;
+  /** Forge deployment base URL this claim was reviewed against — null when
+   *  the claim stream was bridge-local (generic forge, /api/claims lane). */
+  forge_base?: string | null;
   /** Domain-pack validation evidence for non-code markets. */
   domain_evidence?: Record<string, unknown> | null;
   /** ERC-8004-schema reputation record emitted from this settled review. */

@@ -1,0 +1,79 @@
+{
+  "schema": "widespread-adapter/1",
+  "surface": "slack.com",
+  "kind": "social",
+  "author": "did:key:z6MkspwK2XXgXemXJdxV5gJgvBbZ9kSUZo4foQxLC3PkX1Sd",
+  "generated_by": "did:key:z6MkspwK2XXgXemXJdxV5gJgvBbZ9kSUZo4foQxLC3PkX1Sd",
+  "generated_with": {
+    "tools": [
+      "log"
+    ],
+    "captured_at": 1794607587112,
+    "source": "seed-pack-v0"
+  },
+  "auth": {
+    "type": "api-key",
+    "storage": "env:SLACK_USER_TOKEN",
+    "refresh": "manual",
+    "delegation": "widespread-bind"
+  },
+  "ops": [
+    {
+      "name": "conversations_list",
+      "class": "read",
+      "endpoint": "https://slack.com/api/conversations.list",
+      "method": "GET",
+      "verified": false,
+      "risk": "low"
+    },
+    {
+      "name": "history",
+      "class": "read",
+      "endpoint": "https://slack.com/api/conversations.history",
+      "method": "GET",
+      "verified": false,
+      "risk": "low",
+      "params": {
+        "channel": "{channel}",
+        "limit": 50
+      }
+    },
+    {
+      "name": "post_message",
+      "class": "write",
+      "endpoint": "https://slack.com/api/chat.postMessage",
+      "method": "POST",
+      "verified": false,
+      "risk": "medium"
+    },
+    {
+      "name": "dm_open",
+      "class": "write",
+      "endpoint": "https://slack.com/api/conversations.open",
+      "method": "POST",
+      "verified": false,
+      "risk": "low"
+    },
+    {
+      "name": "search",
+      "class": "read",
+      "endpoint": "https://slack.com/api/search.messages",
+      "method": "GET",
+      "verified": false,
+      "risk": "low",
+      "params": {
+        "query": "{q}"
+      }
+    }
+  ],
+  "status": "draft",
+  "issued_at": 1794607587112,
+  "grammar": {
+    "declaration": "#widespread bounty <hash>\ndomain: <domain>\namount: <n> <ccy>\nspec: <text>",
+    "claim": "widespread claim <hash>",
+    "receipt": "widespread receipt <id>",
+    "placement": "reply"
+  },
+  "id": "8355251f4f63ec2f4c704f77fed68546c2bad691fed1cb853d21c0192bd0b8d9",
+  "sig": "6ba6673595de4218a18dad0f475f400760331f66cb2718a57cbdbce3ae5304c33c12264dc739064603f0f31f4278c0b17ccd5a0df01593023972945ea936a902"
+}

@@ -4,11 +4,10 @@ import { adjudicate, adjudicatePanel } from "./adjudicator";
 import { rep8004For } from "./rep8004";
 import { crosscheck, findDerivative, gatherCommitEvidence, laterUpstreamFingerprints, upstreamFor } from "./evidence";
 import { oracleEnv, signVerdict } from "./oracle";
-import { fetchOpLog, verifyChain } from "./oplog";
+import { forgeFor } from "./forges";
 import { attestClaim } from "./ecosystem";
 import { getBounty, getRecord, putRecord } from "./store";
 import { getDeclared } from "./declare";
-import { writebackReceipt } from "./writeback";
 import type {
   Bounty,
   Env,
@@ -37,11 +36,12 @@ export async function runReview(
   opts: { force?: boolean } = {}
 ): Promise<ReviewRecord> {
   const id = `${repo}:${seq}`;
-  const entries = await fetchOpLog(env.FORGE_BASE, repo);
+  const { adapter, binding } = forgeFor(env, repo);
+  const entries = binding ? await adapter.fetchClaims(binding, repo) : [];
   const entry = entries.find((e) => e.seq === seq);
-  if (!entry) throw new Error(`no op-log entry seq=${seq} in ${repo}`);
-  if (entry.kind !== "ship" || entry.payload?.ship !== true) {
-    throw new Error(`entry ${seq} is not an accepted ship claim (kind=${entry.kind})`);
+  if (!entry) throw new Error(`no claim entry seq=${seq} in ${repo}`);
+  if (!adapter.isClaim(entry)) {
+    throw new Error(`entry ${seq} is not an accepted work claim (kind=${entry.kind})`);
   }
 
   // delta-git op-logs are reset periodically — a wiped repo restarts at
@@ -55,8 +55,8 @@ export async function runReview(
   // record is keyed to the new entry hash.
   const prior = stored?.claim.hash === entry.hash ? stored : null;
 
-  const claim = entry.payload as unknown as ShipClaim;
-  const [chain, repoBounty] = await Promise.all([verifyChain(entries), getBounty(env, repo)]);
+  const claim = adapter.toClaim(entry);
+  const [chain, repoBounty] = await Promise.all([adapter.verifyChain(entries), getBounty(env, repo)]);
   // Declared markets: per-repo bounty may not exist — resolve by work_id.
   const bounty = repoBounty ?? (claim.work_id ? await getDeclared(env, claim.work_id) : null);
 
@@ -200,10 +200,11 @@ export async function runReview(
       : { attempted: false, skipped_reason: "no claimant — the winner needs a NEAR account (claim.claimant or a bound near: handle)" };
   }
 
-  // Receipt back to the forge as a signed commit status (bidirectional audit).
+  // Receipt back to the forge when it has a receipt surface (the bridge
+  // feed is the receipt otherwise).
   const firstSha = claim.commits?.[0];
-  const writeback = firstSha
-    ? await writebackReceipt(env, {
+  const writeback = firstSha && binding
+    ? await adapter.writeReceipt(env, binding, {
         repo,
         sha: firstSha,
         accepted,
@@ -212,7 +213,7 @@ export async function runReview(
           : `adjudicated ${adjudication.verdict} (confidence ${adjudication.confidence})`,
         claimId: id,
       })
-    : { attempted: false, skipped_reason: "no commits in claim" };
+    : { attempted: false, skipped_reason: firstSha ? "no forge binding" : "no commits in claim" };
 
   const record: ReviewRecord = {
     id,
@@ -235,6 +236,7 @@ export async function runReview(
     attestation,
     payout,
     writeback,
+    forge_base: binding?.base ?? null,
     reviewed_at: Date.now(),
   };
   // ERC-8004-shaped reputation record — settled verdicts become portable
@@ -257,8 +259,9 @@ export async function reviewOutstanding(
   repo: string,
   limit = 5
 ): Promise<ReviewRecord[]> {
-  const entries = await fetchOpLog(env.FORGE_BASE, repo);
-  const shipEntries = entries.filter((e) => e.kind === "ship" && e.payload?.ship === true);
+  const { adapter, binding } = forgeFor(env, repo);
+  const entries = binding ? await adapter.fetchClaims(binding, repo) : [];
+  const shipEntries = entries.filter((e) => adapter.isClaim(e));
   const out: ReviewRecord[] = [];
   for (const entry of shipEntries.slice(-limit)) {
     const stored = await getRecord(env, repo, entry.seq);

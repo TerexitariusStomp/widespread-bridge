@@ -1,0 +1,67 @@
+{
+ "schema": "widespread-adapter/1",
+ "surface": "wordpress",
+ "kind": "api",
+ "author": "did:key:z6MkspwK2XXgXemXJdxV5gJgvBbZ9kSUZo4foQxLC3PkX1Sd",
+ "generated_by": "did:key:z6MkspwK2XXgXemXJdxV5gJgvBbZ9kSUZo4foQxLC3PkX1Sd",
+ "generated_with": {
+  "tools": [
+   "family-template"
+  ],
+  "captured_at": 1794621411098,
+  "source": "seed-pack-v0-family"
+ },
+ "auth": {
+  "type": "none",
+  "refresh": "manual",
+  "delegation": "none"
+ },
+ "ops": [
+  {
+   "name": "list_posts",
+   "class": "read",
+   "endpoint": "https://{instance}/wp-json/wp/v2/posts",
+   "method": "GET",
+   "verified": false,
+   "risk": "low",
+   "params": {
+    "search": "{q}",
+    "per_page": "20"
+   }
+  },
+  {
+   "name": "post_detail",
+   "class": "read",
+   "endpoint": "https://{instance}/wp-json/wp/v2/posts/{id}",
+   "method": "GET",
+   "verified": false,
+   "risk": "low"
+  },
+  {
+   "name": "search",
+   "class": "read",
+   "endpoint": "https://{instance}/wp-json/wp/v2/search",
+   "method": "GET",
+   "verified": false,
+   "risk": "low",
+   "params": {
+    "search": "{q}"
+   }
+  },
+  {
+   "name": "comments",
+   "class": "read",
+   "endpoint": "https://{instance}/wp-json/wp/v2/comments",
+   "method": "GET",
+   "verified": false,
+   "risk": "low",
+   "params": {
+    "post": "{id}"
+   }
+  }
+ ],
+ "status": "draft",
+ "issued_at": 1794621411098,
+ "id": "e6e5f08d17ac87e9b7a36c04724fd4f9b89eeeec2e6d8c0a7fc8e9b06584fcf2",
+ "sig": "9cdef753b2c39cc79c4c34912cfa81e9bc50e05bb503ac16c3c474165a124ffbf38f1b96cbb6814ff70a0ddd20ec96004948f24b1aa63b2762633d9d1bff8e01"
+}

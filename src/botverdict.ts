@@ -4,7 +4,7 @@
 // settles if a recipient is bound, and stores the verdict for audit.
 
 import { oracleEnv, signVerdict } from "./oracle";
-import { writebackReceipt } from "./writeback";
+import { forgeFor } from "./forges";
 import type { Env, PayoutReceipt } from "./types";
 
 export interface BotVerdictBody {
@@ -81,8 +81,9 @@ export async function handleBotVerdict(env: Env, body: BotVerdictBody): Promise<
       : { attempted: false, skipped_reason: "no claimant NEAR account in verdict body" };
   }
 
-  const writeback = verdict === "accept"
-    ? await writebackReceipt(env, {
+  const { adapter, binding } = forgeFor(env, repo);
+  const writeback = verdict === "accept" && binding
+    ? await adapter.writeReceipt(env, binding, {
         repo,
         sha: headSha,
         accepted: true,
@@ -91,7 +92,7 @@ export async function handleBotVerdict(env: Env, body: BotVerdictBody): Promise<
           : `${body.bot} verdict ${score} (adjudicated accept)`,
         claimId: `botverdict:${repo}#${issue}`,
       })
-    : { attempted: false, skipped_reason: "verdict reject — no receipt" };
+    : { attempted: false, skipped_reason: verdict === "accept" ? "no forge binding" : "verdict reject — no receipt" };
 
   const record: BotVerdictRecord = {
     id: `botverdict:${repo}:${issue}`,

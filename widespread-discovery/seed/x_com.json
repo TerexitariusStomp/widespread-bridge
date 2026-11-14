@@ -1,0 +1,98 @@
+{
+  "schema": "widespread-adapter/1",
+  "surface": "x.com",
+  "kind": "social",
+  "author": "did:key:z6MkspwK2XXgXemXJdxV5gJgvBbZ9kSUZo4foQxLC3PkX1Sd",
+  "generated_by": "did:key:z6MkspwK2XXgXemXJdxV5gJgvBbZ9kSUZo4foQxLC3PkX1Sd",
+  "generated_with": {
+    "tools": [
+      "log",
+      "rea-agents"
+    ],
+    "captured_at": 1794607587111,
+    "source": "seed-pack-v0"
+  },
+  "auth": {
+    "type": "session-cookie",
+    "storage": "client-profile",
+    "refresh": "auto",
+    "delegation": "widespread-bind"
+  },
+  "ops": [
+    {
+      "name": "mentions",
+      "class": "read",
+      "endpoint": "https://api.x.com/1.1/statuses/mentions_timeline.json",
+      "method": "GET",
+      "verified": false,
+      "risk": "low"
+    },
+    {
+      "name": "notifications",
+      "class": "read",
+      "endpoint": "https://api.x.com/1.1/account/notifications.json",
+      "method": "GET",
+      "verified": false,
+      "risk": "low"
+    },
+    {
+      "name": "search_posts",
+      "class": "read",
+      "endpoint": "https://api.x.com/1.1/search/tweets.json",
+      "method": "GET",
+      "verified": false,
+      "risk": "low",
+      "params": {
+        "q": "{query}",
+        "count": 20
+      }
+    },
+    {
+      "name": "post_tweet",
+      "class": "write",
+      "endpoint": "https://api.x.com/2/tweets.json",
+      "method": "POST",
+      "verified": false,
+      "risk": "high"
+    },
+    {
+      "name": "reply",
+      "class": "write",
+      "endpoint": "https://api.x.com/2/tweets.json",
+      "method": "POST",
+      "verified": false,
+      "risk": "high",
+      "params": {
+        "reply": {
+          "in_reply_to_tweet_id": "{id}"
+        }
+      }
+    },
+    {
+      "name": "dm_list",
+      "class": "read",
+      "endpoint": "https://api.x.com/1.1/dm/inbox_initial_state.json",
+      "method": "GET",
+      "verified": false,
+      "risk": "low"
+    },
+    {
+      "name": "dm_send",
+      "class": "write",
+      "endpoint": "https://api.x.com/1.1/dm/new.json",
+      "method": "POST",
+      "verified": false,
+      "risk": "high"
+    }
+  ],
+  "status": "draft",
+  "issued_at": 1794607587111,
+  "grammar": {
+    "declaration": "#widespread bounty <hash>\ndomain: <domain>\namount: <n> <ccy>\nspec: <text>",
+    "claim": "widespread claim <hash>",
+    "receipt": "widespread receipt <id>",
+    "placement": "reply"
+  },
+  "id": "568e13ba6213762428077bb73016c513dc74567ec8923013fb0d3a12d506d922",
+  "sig": "48148df799464d806e6e2481d500bf5905994a57a6ee821b5bbc43bea82e8283b884c7defaa8f0f8c63c9a45ecafb1379f240a16f1fc2767c6636ff745508600"
+}

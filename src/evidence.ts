@@ -9,6 +9,7 @@
 
 import type { CommitEvidence, Crosscheck, Env, ShipClaim } from "./types";
 import { diffUrlFor, resolveLocator } from "./locator";
+import { forgeFor } from "./forges";
 
 const DIFF_EXCERPT_CHARS = 6000;
 const MAX_PATCH_BYTES = 2 * 1024 * 1024;
@@ -163,18 +164,6 @@ export function upstreamFor(repo: string, env: Env, explicit?: string): string |
   return null;
 }
 
-async function commitMessage(forgeBase: string, repo: string, sha: string): Promise<string | null> {
-  const res = await fetch(`${forgeBase}/api/v1/repos/${repo}/commits/${sha}`, {
-    headers: { accept: "application/json" },
-  }).catch(() => null);
-  if (!res || !res.ok) return null;
-  const body = (await res.json().catch(() => null)) as {
-    message?: string;
-    title?: string;
-  } | null;
-  return body?.message ?? body?.title ?? null;
-}
-
 /** Gather one commit's evidence; never throws — unavailable is a verdict input. */
 export async function gatherCommitEvidence(
   env: Env,
@@ -194,20 +183,21 @@ export async function gatherCommitEvidence(
     patch_fingerprint: null,
   };
 
-  // 1) forge-local objects
-  const diffUrl = `${env.FORGE_BASE}/api/v1/repos/${repo}/commits/${sha}/diff`;
-  const local = await fetchText(diffUrl, MAX_PATCH_BYTES);
+  // 1) forge-local objects — the repo's own forge serves a unified diff
+  //    per commit when it has an HTTP diff surface (adapter-resolved).
+  const { adapter, binding } = forgeFor(env, repo);
+  const local = binding ? await adapter.commitDiff(binding, repo, sha) : null;
   if (local && local.includes("diff --git")) {
     const parsed = parseUnifiedDiff(local);
     return {
       ...base,
       source: "forge-diff",
-      message: await commitMessage(env.FORGE_BASE, repo, sha),
+      message: binding ? await adapter.commitMessage(binding, repo, sha) : null,
       files: parsed.files,
       lines_added: parsed.linesAdded,
       lines_removed: parsed.linesRemoved,
       diff_excerpt: local.slice(0, DIFF_EXCERPT_CHARS),
-      evidence_url: diffUrl,
+      evidence_url: binding ? `${binding.base}/api/v1/repos/${repo}/commits/${sha}/diff` : null,
       patch_fingerprint: await patchFingerprint(local),
     };
   }

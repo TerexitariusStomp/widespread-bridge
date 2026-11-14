@@ -26,22 +26,24 @@ transient public-relay flake can fail a row; rerun once before digging in.
       — 1 sighting extracted from a JSON surface via CDP and published
 - [x] earn loop on testnet — `node scripts/earn-loop-test.mjs`:
       challenge→register→claim(attested)→ship_prepare→sign→submit.
-      Ship lands via `scripts/ship-claim.mjs` → `/dg/patch` (merged
-      commit → bridge cron adjudicates → verdict in `/api/state`).
-      See KNOWN DEFECTS note in that script — the `/dg/ship` relay path
-      the MCP tool targets is a stale forge route.
+      Ship lands via the forge adapter → `/dg/patch` (real patch op +
+      merge intent → claim-stream pickup → adjudicated → receipt
+      written back to the forge). Verified live end-to-end post-refactor.
 - [x] `wss://widespread-relay…` NIP-11 — covered by `npm run smoke`
 - [x] `wsd events export` → `import` round-trip on a second HOME — verified
 
-### Defects found by battle testing (2026-11-13)
+### Defects found by battle testing (2026-11-13) — status after the forge-adapter refactor
 
-1. `wide_ship_submit` relays to `/dg/ship` — route does not exist on the
-   forge (HTML 404). Working lane: `/dg/patch`.
-2. dg1 signature convention mismatch — forge verifies
-   `ed25519(utf8(sha256hex(canonical)))`; bridge `shipSubmit` verifies
-   `ed25519(sha256bytes(canonical))`. Bridge-relayed sigs fail forge auth.
+1. ~~`wide_ship_submit` relays to `/dg/ship`~~ — **FIXED**: ship now
+   resolves through the repo's forge adapter; delta-git targets its real
+   `/dg/patch` route (verified live: `push.patch` op + merge intent).
+2. ~~dg1 signature convention mismatch~~ — **FIXED**: the adapter owns its
+   forge's envelope convention; delta-git signs
+   `ed25519(utf8(sha256hex(canonical)))` matching forge auth (verified live:
+   200 with commit_oid + merge intent).
 3. Forge repos start un-initialized (no base ref) — `/dg/patch` 404s until
-   `/dg/import` bootstraps refs from a remote URL.
+   `/dg/import` bootstraps refs from a remote URL. (Forge-side behavior;
+   `slop/slopdotcash` is bootstrapped.)
 4. `POST /api/claims` with github forgeRef hits public GitHub rate limits —
    `ipfs://cid` + `evidence.artifact_inline` is the dependency-free path.
 5. `/dg/import` of a large repo exceeds Worker CPU limits — import small

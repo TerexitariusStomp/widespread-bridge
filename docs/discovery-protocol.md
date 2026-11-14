@@ -85,8 +85,9 @@ Sighting `text` is classified by the surface grammar (same regexes as
 | `widespread receipt <rcpt://…>` / `RECEIPT_RE` | receipt | Written back to the declaration thread |
 | `widespread-bind:v1` | binding | Surface↔declaration binding |
 
-Grammar templates live in `near-hermes-browser/adapters/seed/` manifests and
-are parity-tested against `socialfeed.ts` (`test/grammar-parity.test.ts`).
+Grammar templates live in `widespread-discovery/seed/` manifests (vendored
+from the adapter-generating client repo — see `seed/UPSTREAM.md`) and are
+parity-tested against `socialfeed.ts` (`test/grammar-parity.test.ts`).
 
 ## 2. Corroboration — deterministic local projection
 
@@ -184,9 +185,9 @@ Any conforming implementation MUST:
    unverified HTTP input (bridge strips it).
 
 Test vectors: `test/fixtures/` in this repo; the bridge test suite
-(`test/sightings.test.ts`) and plugin suite
-(`near-hermes-browser/tests/test_widespread_surfaces.py`) both verify the
-same sign message and tier rules.
+(`test/sightings.test.ts`) and the surfaces-plugin suite in the
+adapter-generating client repo both verify the same sign message and tier
+rules.
 
 ## 8. Trifecta containment (agent security — REQUIRED)
 

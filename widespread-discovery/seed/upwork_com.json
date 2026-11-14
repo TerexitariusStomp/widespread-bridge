@@ -1,0 +1,39 @@
+{
+  "schema": "widespread-adapter/1",
+  "surface": "upwork.com",
+  "kind": "marketplace",
+  "author": "did:key:z6MkspwK2XXgXemXJdxV5gJgvBbZ9kSUZo4foQxLC3PkX1Sd",
+  "generated_by": "did:key:z6MkspwK2XXgXemXJdxV5gJgvBbZ9kSUZo4foQxLC3PkX1Sd",
+  "generated_with": {
+    "tools": [
+      "hermes_browser",
+      "rea-agents"
+    ],
+    "captured_at": 1794607587548,
+    "source": "seed-pack-v0"
+  },
+  "auth": {
+    "type": "session-cookie",
+    "storage": "client-profile",
+    "refresh": "auto",
+    "delegation": "widespread-bind"
+  },
+  "ops": [
+    {
+      "name": "browse",
+      "class": "read",
+      "endpoint": "/",
+      "method": "GET",
+      "verified": false,
+      "risk": "low"
+    }
+  ],
+  "status": "draft",
+  "issued_at": 1794607587548,
+  "grammar": {
+    "placement": "browser-actuation",
+    "note": "browse/proposals via browser tier; no public API"
+  },
+  "id": "649f45184cc50ed0a7552e0fe512abf86b2da1dbfd0dc25d5b014e9607cf7ba0",
+  "sig": "4e115fed6c9b81f9da482233dbefc0b5ce2daf3928d044576705bf20d2440cefb73c594900c32ebb36608c50b80ae0b302422fd1a623cc42b4f1c9121e98a20e"
+}

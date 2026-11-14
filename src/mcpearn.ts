@@ -5,9 +5,9 @@
 // material by design (the forge op-log records it anyway).
 
 import { ed25519 } from "@noble/curves/ed25519";
-import { sha256 } from "@noble/hashes/sha256";
 import type { Env } from "./types";
 import { handleClaimPost } from "./claims";
+import { forgeFor } from "./forges";
 import { getDeclared } from "./declare";
 import { listBounties, listRecords } from "./store";
 import { listOnchainMarkets } from "./near";
@@ -57,7 +57,7 @@ export async function agentChallenge(env: Env, label?: string) {
 export async function agentRegister(
   env: Env,
   req: Request,
-  a: { challenge_id?: string; pubkey_hex?: string; signature_hex?: string; label?: string },
+  a: { challenge_id?: string; pubkey_hex?: string; signature_hex?: string; label?: string; repo?: string },
 ) {
   const rl = await checkLimit(env, "register", callerKey(req), 10);
   if (!rl.ok) return { error: rateLimited(rl.retryAfter) };
@@ -82,11 +82,11 @@ export async function agentRegister(
   // Single-use: burn the challenge before relaying.
   await env.CLAIMS.delete(chKey).catch(() => {});
 
-  const reg = await fetch(`${env.FORGE_BASE}/api/agents`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ pubkey: a.pubkey_hex, label }),
-  }).then((r) => r.json().catch(() => ({}))).catch((e) => ({ error: `forge_unreachable: ${String(e)}` })) as { did?: string; error?: string };
+  // The repo's forge owns agent registration when it has a registry
+  // (delta-git POST /api/agents); otherwise the did derives locally.
+  const repo = typeof a.repo === "string" ? a.repo : "";
+  const { adapter, binding } = forgeFor(env, repo);
+  const reg = await adapter.registerAgent(binding, a.pubkey_hex, label);
   if (reg.error || !reg.did) return { error: reg.error ?? "forge registration failed" };
 
   const rec: AgentReg = { pubkey: a.pubkey_hex, did: reg.did, label, registered_at: Date.now() };
@@ -116,41 +116,51 @@ export async function marketClaim(
   return r.json();
 }
 
-/** wide_ship_prepare — canonical dg1 fields the agent must sign locally. */
+/** wide_ship_prepare — the repo's forge adapter describes where the signed
+ * submission lands and which envelope convention the forge verifies. */
 export async function shipPrepare(
   env: Env,
-  a: { did?: string; repo?: string; session_id?: string; tool?: string; commits?: string[]; files?: Record<string, string>; proof_items?: unknown[]; artifact?: string; receipt?: Record<string, unknown> },
+  a: { did?: string; repo?: string; session_id?: string; tool?: string; commits?: string[]; files?: Record<string, string>; proof_items?: unknown[]; artifact?: string; receipt?: Record<string, unknown>; base_ref?: string; patch?: string; message?: string; author?: string },
 ) {
   if (!a.did || !a.repo) return { error: "did and repo required" };
   const pub = await env.CLAIMS.get(AGENT_BY_DID(a.did)).catch(() => null);
   if (!pub) return { error: "did not registered via this bridge — call wide_agent_register first" };
+  const { adapter, binding } = forgeFor(env, a.repo);
+  if (!binding) return { error: `no forge binding for ${a.repo} — submit via POST /api/claims instead` };
+  const target = adapter.shipTarget(binding, a.repo);
+  if (!target) return { error: `${binding.type} forge takes no signed submissions — submit via POST /api/claims` };
   const body = {
+    // delta-git /dg/patch fields — pass through when supplied
+    ...(a.base_ref ? { base_ref: a.base_ref } : {}),
+    ...(a.patch ? { patch: a.patch } : {}),
+    ...(a.message ? { message: a.message } : {}),
+    ...(a.author ? { author: a.author } : {}),
     session_id: a.session_id ?? `mcp-${Date.now()}`,
     tool: a.tool ?? "mcp-agent",
     commits: (a.commits ?? []).map((c) => c.toLowerCase()),
     ...(a.files ? { files: a.files } : {}),
     ...(a.proof_items ? { proof_items: a.proof_items } : {}),
-    // Content-addressed deliverable (btfs://cid | ipfs://cid) or a signed
-    // metered receipt — non-commit artifacts ride the same dg1 envelope.
     ...(a.artifact ? { artifact: a.artifact } : {}),
     ...(a.receipt ? { receipt: a.receipt } : {}),
   };
   const bodyBytes = JSON.stringify(body);
   return {
     method: "POST",
-    path: `/api/${a.repo}/dg/ship`,
-    forge: `${env.FORGE_BASE}/api/${a.repo}/dg/ship`,
+    path: target.path,
+    forge: target.url,
     body,
-    sign_format: 'ed25519( sha256( "dg1\\n{did}\\n{ts}\\n{nonce}\\nPOST\\n{path}\\n{sha256hex(body)}" ) )',
+    body_schema: target.body_schema,
+    sign_format: target.sign_format,
     fields: { did: a.did, ts: "<unix seconds>", nonce: "<16 random bytes as hex>", body_sha256: await sha256Hex(bodyBytes) },
     then:
-      "Sign with your Ed25519 seed. Either call wide_ship_submit(did, repo, body, ts, nonce, sig) " +
-      "to have the bridge verify+relay, or POST to the forge url yourself with headers " +
-      "x-dg-did, x-dg-ts, x-dg-nonce, x-dg-sig.",
+      "Sign with your Ed25519 seed using the forge's convention (sign_format above). Either call " +
+      "wide_ship_submit(did, repo, body, ts, nonce, sig) to have the bridge verify+relay, or POST to " +
+      `the forge url yourself with headers ${target.headers}.`,
   };
 }
 
-/** wide_ship_submit — verify the agent's dg1 signature, relay to forge. */
+/** wide_ship_submit — verify the agent's signature in the forge's own
+ * convention, then relay to the adapter-resolved endpoint. */
 export async function shipSubmit(
   env: Env,
   req: Request,
@@ -167,13 +177,18 @@ export async function shipSubmit(
   const sig = hexToBytes(a.sig);
   if (!sig || sig.length !== 64) return { error: "sig must be 128 hex chars" };
 
-  const path = `/api/${a.repo}/dg/ship`;
-  const bodyBytes = JSON.stringify(a.body);
-  const canonical = `dg1\n${a.did}\n${a.ts}\n${a.nonce}\nPOST\n${path}\n${await sha256Hex(bodyBytes)}`;
-  const payload = sha256(new TextEncoder().encode(canonical));
-  if (!ed25519.verify(sig, payload, pub)) return { error: "signature invalid — check the dg1 canonical format" };
+  const { adapter, binding } = forgeFor(env, a.repo);
+  if (!binding) return { error: `no forge binding for ${a.repo}` };
+  const target = adapter.shipTarget(binding, a.repo);
+  if (!target) return { error: `${binding.type} forge takes no signed submissions` };
 
-  const res = await fetch(`${env.FORGE_BASE}${path}`, {
+  const bodyBytes = JSON.stringify(a.body);
+  const payload = await adapter.sigPayload(a.did, a.ts, a.nonce, "POST", target.path, await sha256Hex(bodyBytes));
+  if (!ed25519.verify(sig, payload, pub)) {
+    return { error: `signature invalid — check the ${binding.type} sign_format from wide_ship_prepare` };
+  }
+
+  const res = await fetch(target.url, {
     method: "POST",
     headers: {
       "content-type": "application/json",

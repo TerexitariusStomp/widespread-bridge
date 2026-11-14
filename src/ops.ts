@@ -70,7 +70,7 @@ export const OPS_HTML = `<!doctype html>
 </head>
 <body>
 <header>
-  <div id="oplog-warn" style="display:none;padding:8px 12px;margin-bottom:12px;border:1px solid #d29922;border-radius:8px;color:#d29922;font-size:13px">⚠ forge op-log is empty — entries wipe periodically; run <code>node scripts/reseed-demo.mjs</code></div>
+  <div id="oplog-warn" style="display:none;padding:8px 12px;margin-bottom:12px;border:1px solid #d29922;border-radius:8px;color:#d29922;font-size:13px">⚠ no claims reviewed yet — claims land via each repo's forge claim stream or <code>POST /api/claims</code></div>
   <h1>Widespread <span class="mut">verified-work payouts</span></h1>
   <span class="near">NEAR escrow</span>
   <span class="ai">AI adjudicator</span>
@@ -133,7 +133,7 @@ function claimCard(r) {
       <span class="mut" style="margin-left:auto">\${fmt(r.reviewed_at)}</span>
     </div>
     <div class="flow">
-      <div class="step"><h3>1 · claim (dg-ship-1)</h3><pre>session \${esc(p.session_id||"—")}  tool \${esc(p.tool||"—")}
+      <div class="step"><h3>1 · claim (\${esc(r.claim?.kind||"ship")})</h3><pre>session \${esc(p.session_id||"—")}  tool \${esc(p.tool||"—")}
 commits  \${esc(((p.commits||[]).map(c=>c.slice(0,10)).join(", "))||"—")}
 files \${p.files ?? "—"} · lines +\${p.lines_added ?? "?"}/-\${p.lines_removed ?? "?"}
 hash  \${esc((r.claim.hash||"").slice(0,16))}…</pre></div>
@@ -151,8 +151,8 @@ crosscheck files \${r.crosscheck.recomputed_files} vs claimed \${r.crosscheck.cl
         <pre>\${esc(payLine)}</pre></div>
     </div>
     <div class="links" style="margin-top:8px;font-size:12px">
-      \${'<a href="https://code.widespread.fyi/api/'+r.repo+'/dg/oplog" target="_blank" rel="noopener">op-log ↗</a>'}
-      \${firstSha ? '<a href="https://code.widespread.fyi/api/'+r.repo+'/dg/status/'+firstSha+'" target="_blank" rel="noopener">forge receipt ↗</a>' : ""}
+      \${r.forge_base ? '<a href="'+r.forge_base+'/api/'+r.repo+'/dg/oplog" target="_blank" rel="noopener">claim log ↗</a>' : ""}
+      \${firstSha && r.forge_base ? '<a href="'+r.forge_base+'/api/'+r.repo+'/dg/status/'+firstSha+'" target="_blank" rel="noopener">forge receipt ↗</a>' : ""}
       \${pay.tx_hash ? '<a href="https://testnet.nearblocks.io/txns/'+pay.tx_hash+'" target="_blank" rel="noopener">near tx ↗</a>' : ""}
     </div>
   </div>\`;
@@ -241,13 +241,7 @@ async function refresh() {
       ? claims.map(claimCard).join("") : "no claims reviewed yet";
     renderClaimsGrid(claims);
     const warn = document.getElementById("oplog-warn");
-    if (records.length === 0 && warn && !warn.dataset.shown) {
-      warn.dataset.shown = "1";
-      fetch("https://code.widespread.fyi/api/slop/slopdotcash/dg/oplog")
-        .then((r) => r.json())
-        .then((d) => { if (!d.entries?.length) warn.style.display = "block"; })
-        .catch(() => {});
-    }
+    if (records.length === 0 && warn) warn.style.display = "block";
     renderBounties(s.bounties);
     if (location.hash.startsWith("#/claim/")) {
       const el = document.getElementById("claim-" + location.hash.slice(8));

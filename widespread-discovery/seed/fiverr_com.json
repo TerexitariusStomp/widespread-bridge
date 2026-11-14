@@ -1,0 +1,39 @@
+{
+  "schema": "widespread-adapter/1",
+  "surface": "fiverr.com",
+  "kind": "marketplace",
+  "author": "did:key:z6MkspwK2XXgXemXJdxV5gJgvBbZ9kSUZo4foQxLC3PkX1Sd",
+  "generated_by": "did:key:z6MkspwK2XXgXemXJdxV5gJgvBbZ9kSUZo4foQxLC3PkX1Sd",
+  "generated_with": {
+    "tools": [
+      "hermes_browser",
+      "rea-agents"
+    ],
+    "captured_at": 1794607587549,
+    "source": "seed-pack-v0"
+  },
+  "auth": {
+    "type": "session-cookie",
+    "storage": "client-profile",
+    "refresh": "auto",
+    "delegation": "widespread-bind"
+  },
+  "ops": [
+    {
+      "name": "browse",
+      "class": "read",
+      "endpoint": "/",
+      "method": "GET",
+      "verified": false,
+      "risk": "low"
+    }
+  ],
+  "status": "draft",
+  "issued_at": 1794607587549,
+  "grammar": {
+    "placement": "browser-actuation",
+    "note": "gigs/orders via browser tier; no public API"
+  },
+  "id": "29333eb2c5c9ec81d5d6899272ad8f447d678e7b7a82591b153b6000efc6479e",
+  "sig": "d9aaac5fd6826a07e5cf6500900aa1137503d001e8f2f7b89303bcb38907298f4ee8356189d58db33cae43f4eb8a57561925b66598ad6504197afb30565fa40d"
+}

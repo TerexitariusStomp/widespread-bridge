@@ -1,0 +1,76 @@
+{
+  "schema": "widespread-adapter/1",
+  "surface": "reddit.com",
+  "kind": "social",
+  "author": "did:key:z6MkspwK2XXgXemXJdxV5gJgvBbZ9kSUZo4foQxLC3PkX1Sd",
+  "generated_by": "did:key:z6MkspwK2XXgXemXJdxV5gJgvBbZ9kSUZo4foQxLC3PkX1Sd",
+  "generated_with": {
+    "tools": [
+      "log"
+    ],
+    "captured_at": 1794607587113,
+    "source": "seed-pack-v0"
+  },
+  "auth": {
+    "type": "oauth",
+    "storage": "client-profile",
+    "refresh": "manual",
+    "delegation": "widespread-bind"
+  },
+  "ops": [
+    {
+      "name": "inbox",
+      "class": "read",
+      "endpoint": "https://oauth.reddit.com/message/inbox",
+      "method": "GET",
+      "verified": false,
+      "risk": "low"
+    },
+    {
+      "name": "search",
+      "class": "read",
+      "endpoint": "https://oauth.reddit.com/search",
+      "method": "GET",
+      "verified": false,
+      "risk": "low",
+      "params": {
+        "q": "{q}",
+        "limit": 25
+      }
+    },
+    {
+      "name": "submit",
+      "class": "write",
+      "endpoint": "https://oauth.reddit.com/api/submit",
+      "method": "POST",
+      "verified": false,
+      "risk": "high"
+    },
+    {
+      "name": "comment",
+      "class": "write",
+      "endpoint": "https://oauth.reddit.com/api/comment",
+      "method": "POST",
+      "verified": false,
+      "risk": "high"
+    },
+    {
+      "name": "read_subreddit",
+      "class": "read",
+      "endpoint": "https://oauth.reddit.com/r/{sub}/new",
+      "method": "GET",
+      "verified": false,
+      "risk": "low"
+    }
+  ],
+  "status": "draft",
+  "issued_at": 1794607587113,
+  "grammar": {
+    "declaration": "#widespread bounty <hash>\ndomain: <domain>\namount: <n> <ccy>\nspec: <text>",
+    "claim": "widespread claim <hash>",
+    "receipt": "widespread receipt <id>",
+    "placement": "reply"
+  },
+  "id": "d8f08befbcaf9712d62ede5637d5b595f34136cd615375f72cb50cf59bc9f517",
+  "sig": "a872e6a3e756431c091e355921278bc40f21fe437bf477ad5d264b23cfbd0b1b2fd14659182e71242e9927cd3279273b89a28cd33136603c1974d9847782ec07"
+}

@@ -1,0 +1,48 @@
+{
+ "schema": "widespread-adapter/1",
+ "surface": "ghost",
+ "kind": "api",
+ "author": "did:key:z6MkspwK2XXgXemXJdxV5gJgvBbZ9kSUZo4foQxLC3PkX1Sd",
+ "generated_by": "did:key:z6MkspwK2XXgXemXJdxV5gJgvBbZ9kSUZo4foQxLC3PkX1Sd",
+ "generated_with": {
+  "tools": [
+   "family-template"
+  ],
+  "captured_at": 1794621411098,
+  "source": "seed-pack-v0-family"
+ },
+ "auth": {
+  "type": "none",
+  "refresh": "manual",
+  "delegation": "none"
+ },
+ "ops": [
+  {
+   "name": "list_posts",
+   "class": "read",
+   "endpoint": "https://{instance}/ghost/api/content/posts/",
+   "method": "GET",
+   "verified": false,
+   "risk": "low",
+   "params": {
+    "key": "{key}",
+    "limit": "15"
+   }
+  },
+  {
+   "name": "post_detail",
+   "class": "read",
+   "endpoint": "https://{instance}/ghost/api/content/posts/slug/{slug}/",
+   "method": "GET",
+   "verified": false,
+   "risk": "low",
+   "params": {
+    "key": "{key}"
+   }
+  }
+ ],
+ "status": "draft",
+ "issued_at": 1794621411098,
+ "id": "d2ce0f7590052b1f0a7af01e955f6cf91288f9d26208e7bc2de26519c60ddb57",
+ "sig": "c80d3c667cf0315b916832609a5f0175626df71370d66c98f031ff3860b37c2177686dabbc0841e8d85e22e03595ca30ee87e8e6a609efabc3637a78326b6601"
+}

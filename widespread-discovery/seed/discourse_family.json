@@ -1,0 +1,87 @@
+{
+ "schema": "widespread-adapter/1",
+ "surface": "discourse",
+ "kind": "forum",
+ "author": "did:key:z6MkspwK2XXgXemXJdxV5gJgvBbZ9kSUZo4foQxLC3PkX1Sd",
+ "generated_by": "did:key:z6MkspwK2XXgXemXJdxV5gJgvBbZ9kSUZo4foQxLC3PkX1Sd",
+ "generated_with": {
+  "tools": [
+   "family-template"
+  ],
+  "captured_at": 1794621411098,
+  "source": "seed-pack-v0-family"
+ },
+ "auth": {
+  "type": "none",
+  "refresh": "manual",
+  "delegation": "none"
+ },
+ "ops": [
+  {
+   "name": "latest_topics",
+   "class": "read",
+   "endpoint": "https://{instance}/latest.json",
+   "method": "GET",
+   "verified": false,
+   "risk": "low"
+  },
+  {
+   "name": "topic_detail",
+   "class": "read",
+   "endpoint": "https://{instance}/t/{topic_id}.json",
+   "method": "GET",
+   "verified": false,
+   "risk": "low"
+  },
+  {
+   "name": "posts",
+   "class": "read",
+   "endpoint": "https://{instance}/t/{topic_id}/posts.json",
+   "method": "GET",
+   "verified": false,
+   "risk": "low"
+  },
+  {
+   "name": "search",
+   "class": "read",
+   "endpoint": "https://{instance}/search.json",
+   "method": "GET",
+   "verified": false,
+   "risk": "low",
+   "params": {
+    "q": "{q}"
+   }
+  },
+  {
+   "name": "categories",
+   "class": "read",
+   "endpoint": "https://{instance}/categories.json",
+   "method": "GET",
+   "verified": false,
+   "risk": "low"
+  },
+  {
+   "name": "create_topic",
+   "class": "write",
+   "endpoint": "https://{instance}/posts.json",
+   "method": "POST",
+   "verified": false,
+   "risk": "medium"
+  },
+  {
+   "name": "reply",
+   "class": "write",
+   "endpoint": "https://{instance}/posts.json",
+   "method": "POST",
+   "verified": false,
+   "risk": "medium",
+   "params": {
+    "topic_id": "{topic_id}"
+   }
+  }
+ ],
+ "status": "draft",
+ "issued_at": 1794621411098,
+ "id": "cd879f00886010f6716aa8ea5750d8a2735730da24588e567a2b809070c7056c",
+ "sig": "66abd437956c120c5971b264b25dcfa80291a62a3c87cb6c23d2d481ba81db8c7dc457864c3fd7662000b7564f76077f1c387a6b7c70ac44b16b92e005b57505"
+}

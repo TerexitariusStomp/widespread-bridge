@@ -36,18 +36,21 @@ receipt written back to the forge as a signed commit status
 
 ## Run it (do X → see Y)
 
-1. **See a real ship claim** — land one on the live forge as an ephemeral
-   agent (no credentials; it registers its own `did:key` and signs the
-   request; for remote-backed repos the forge verifies commits against the
-   GitHub upstream's `.patch` endpoint):
+1. **See a real work claim** — land one on a claim-log forge as an
+   ephemeral agent (no credentials; it registers its own `did:key` and
+   signs the request). The demo scripts live with the forge:
 
    ```bash
+   # in the delta-git repo — one claim-log forge deployment
    node scripts/ship-claim.mjs --repo slop/slopdotcash \
      --commits 99cc25d469c2ededff0b67d99f08dd4375cf4208
    ```
 
-   → see `{"verified":true,"ship":true,"op_seq":N}` and the entry in
+   → see the entry in the forge's hash-chained claim log, e.g.
    https://code.widespread.fyi/api/slop/slopdotcash/dg/oplog
+
+   Any forge can serve a claim stream — `src/forges/` resolves per-repo
+   bindings (`FORGES` var → `FORGE_BASE` default → generic bridge-local).
 
 2. **Declare a bounty on any surface**:
 
@@ -94,12 +97,11 @@ binding. No framework, no build step.
 
 | File                 | Role                                                                 |
 | -------------------- | -------------------------------------------------------------------- |
-| `src/oplog.ts`       | fetch op-log; replay the SHA-256 hash chain independently            |
+| `src/forges/`        | forge adapters — claim stream, evidence fetch, receipt write-back (delta-git + generic) |
 | `src/evidence.ts`    | recompute each commit's diff (forge diff endpoint or upstream `.patch`) |
 | `src/adjudicator.ts` | **AI seat** — Workers AI LLM returns the accept/reject verdict       |
 | `src/oracle.ts`      | Ed25519 `wide-verdict` signatures the market contract binds          |
 | `src/escrow.ts`      | ops-account `createMarket` for mirror bounties (idempotent, reconciled) |
-| `src/writeback.ts`   | sign a `did:key` envelope, POST receipt to `/dg/status`              |
 | `src/review.ts`      | the pipeline: claim → evidence → verdict → release → receipt         |
 | `src/domains/`       | platform packs: resolve → bind-identity → prove-work → bind-spec     |
 | `src/identity.ts`    | cross-surface `widespread-bind:v1` identity layer                    |
@@ -236,9 +238,10 @@ POST /api/adapters/:id/deprecate {author|admin} → regen bounty to feed
 - **Self-custody**: `auth.storage` names a client-side profile or
   `env:<VAR>`; credentials never enter manifests or the registry.
   Client-side runtime lives in the `widespread_surfaces` Hermes plugin.
-- **Seed pack**: `near-hermes-browser/adapters/seed/` — 11 signed
+- **Seed pack**: `widespread-discovery/seed/` — 11 signed
   manifests (6 social via `log`, Discourse forum verified by live probe,
-  GitHub REST, labor marketplaces as browser-tier drafts). Ops stay
+  GitHub REST, labor marketplaces as browser-tier drafts; vendored from the
+  adapter-generating client, see `seed/UPSTREAM.md`). Ops stay
   `verified:false` until a side-effect probe confirms them; grammar
   parity with `socialfeed.ts` is enforced by `test/adapter-grammar.test.ts`.
 
@@ -364,14 +367,16 @@ opportunistically.
   the accept/reject call with structured `{verdict, reasoning, confidence}`
   output. The model sees the claim, the recomputed evidence, and the bounty
   spec — the decision is the model's, not a rules engine's.
-- **delta-git** (code.widespread.fyi) — the forge: signed `dg-ship-1`
-  attestations in a hash-chained op-log, public commit-diff endpoints, and
-  signed `did:key` agent envelopes for the receipt write-back.
+- **Forge adapters** (`src/forges/`) — per-repo claim stream, evidence
+  fetch, and receipt write-back behind one interface. delta-git
+  (code.widespread.fyi) is the claim-log deployment: signed ops in a
+  hash-chained op-log, public commit-diff endpoints, signed `did:key`
+  agent envelopes. Any forge serving an append-only claim log plugs in
+  the same way; forges without one take claims via `POST /api/claims`
+  and the bridge feed is the receipt.
 - **Cloudflare Workers + KV** — the whole service.
 - **AG Grid Community** — the dashboard's sortable/filterable claims and
   bounties tables.
-- **Postman** — `postman/widespread-bridge.postman_collection.json` replays the
-  full demo (op-log read → bounty → review → receipt write-back).
 
 ## Stretch lanes
 
@@ -383,7 +388,8 @@ opportunistically.
 
 ## Demo video outline (2–4 min)
 
-1. `GET .../dg/oplog` — an agent's signed `dg-ship-1` claim just landed.
+1. `GET .../dg/oplog` on the delta-git deployment — an agent's signed
+   work claim just landed.
 2. Open the dashboard → the card appears: claim details, hash chain VALID,
    recomputed diff stats matching the claim.
 3. The AI adjudicator's verdict renders: `ACCEPT`, confidence, reasoning

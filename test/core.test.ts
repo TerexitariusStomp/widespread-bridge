@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { entryHash, findShipEntry, verifyChain } from "../src/oplog";
+import { entryHash, deltagit } from "../src/forges/deltagit";
+import type { OpLogEntry as _OpLogEntry } from "../src/types";
+const verifyChain = (entries: _OpLogEntry[]) => deltagit.verifyChain(entries);
+const findShipEntry = (entries: _OpLogEntry[], seq: number) => entries.find((e) => e.seq === seq);
 import type { Env, OpLogEntry } from "../src/types";
 
 const mk = (seq: number, payload: Record<string, unknown>): OpLogEntry => ({

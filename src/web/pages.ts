@@ -409,7 +409,7 @@ export async function receiptPage(env: Env, mirrorId: string | null, claimHash: 
     return html(pageShell({ title: `Receipt — ${shortHash(claimHash, 8)}`, body }));
   }
 
-  // Forge review-record receipt (delta-git op-log claims).
+  // Forge review-record receipt (claim-stream claims).
   if (repo && seq != null) {
     const { listRecords } = await import("../store");
     const records = await listRecords(env).catch(() => []);

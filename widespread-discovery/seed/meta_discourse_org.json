@@ -1,0 +1,114 @@
+{
+  "schema": "widespread-adapter/1",
+  "surface": "meta.discourse.org",
+  "kind": "forum",
+  "author": "did:key:z6MkspwK2XXgXemXJdxV5gJgvBbZ9kSUZo4foQxLC3PkX1Sd",
+  "generated_by": "did:key:z6MkspwK2XXgXemXJdxV5gJgvBbZ9kSUZo4foQxLC3PkX1Sd",
+  "generated_with": {
+    "tools": [
+      "rea-agents",
+      "direct-probe"
+    ],
+    "captured_at": 1794607587547,
+    "source": "seed-pack-v0"
+  },
+  "auth": {
+    "type": "none",
+    "refresh": "manual",
+    "delegation": "none"
+  },
+  "ops": [
+    {
+      "name": "latest_topics",
+      "class": "read",
+      "endpoint": "/latest.json",
+      "method": "GET",
+      "verified": true,
+      "risk": "low",
+      "verify": {
+        "assert": "list-contains",
+        "evidence": "GET https://meta.discourse.org/latest.json \u2192 200, topic_list.threads=30 (probed 2026-11-13)"
+      }
+    },
+    {
+      "name": "topic_detail",
+      "class": "read",
+      "endpoint": "/t/{topic_id}.json",
+      "method": "GET",
+      "verified": true,
+      "risk": "low",
+      "verify": {
+        "assert": "list-contains",
+        "evidence": "GET https://meta.discourse.org/latest.json \u2192 200, topic_list.threads=30 (probed 2026-11-13)"
+      }
+    },
+    {
+      "name": "posts",
+      "class": "read",
+      "endpoint": "/t/{topic_id}/posts.json",
+      "method": "GET",
+      "verified": true,
+      "risk": "low",
+      "verify": {
+        "assert": "list-contains",
+        "evidence": "GET https://meta.discourse.org/latest.json \u2192 200, topic_list.threads=30 (probed 2026-11-13)"
+      }
+    },
+    {
+      "name": "search",
+      "class": "read",
+      "endpoint": "/search.json",
+      "method": "GET",
+      "verified": true,
+      "risk": "low",
+      "params": {
+        "q": "{q}"
+      },
+      "verify": {
+        "assert": "list-contains",
+        "evidence": "GET https://meta.discourse.org/latest.json \u2192 200, topic_list.threads=30 (probed 2026-11-13)"
+      }
+    },
+    {
+      "name": "categories",
+      "class": "read",
+      "endpoint": "/categories.json",
+      "method": "GET",
+      "verified": true,
+      "risk": "low",
+      "verify": {
+        "assert": "list-contains",
+        "evidence": "GET https://meta.discourse.org/latest.json \u2192 200, topic_list.threads=30 (probed 2026-11-13)"
+      }
+    },
+    {
+      "name": "create_topic",
+      "class": "write",
+      "endpoint": "/posts.json",
+      "method": "POST",
+      "verified": false,
+      "risk": "medium"
+    },
+    {
+      "name": "reply",
+      "class": "write",
+      "endpoint": "/posts.json",
+      "method": "POST",
+      "verified": false,
+      "risk": "medium",
+      "params": {
+        "topic_id": "{topic_id}"
+      }
+    }
+  ],
+  "status": "verified",
+  "issued_at": 1794607617261,
+  "grammar": {
+    "declaration": "#widespread bounty <hash>\ndomain: <domain>\namount: <n> <ccy>\nspec: <text>",
+    "claim": "widespread claim <hash>",
+    "receipt": "widespread receipt <id>",
+    "placement": "topic-body"
+  },
+  "id": "6837e68205a8ee69c7269cd32d810e8633abb450db12670e24ec17d1da5a88cb",
+  "sig": "08972497e312a75dbd0cf159e2608bf3b4133e555ad1447835750aa5b805bf97dceb916375fbe28cc9a4857132e6fd7901df12b0d27a08900241add2cdba2105"
+}

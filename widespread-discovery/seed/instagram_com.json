@@ -1,0 +1,64 @@
+{
+  "schema": "widespread-adapter/1",
+  "surface": "instagram.com",
+  "kind": "social",
+  "author": "did:key:z6MkspwK2XXgXemXJdxV5gJgvBbZ9kSUZo4foQxLC3PkX1Sd",
+  "generated_by": "did:key:z6MkspwK2XXgXemXJdxV5gJgvBbZ9kSUZo4foQxLC3PkX1Sd",
+  "generated_with": {
+    "tools": [
+      "log"
+    ],
+    "captured_at": 1794607587113,
+    "source": "seed-pack-v0"
+  },
+  "auth": {
+    "type": "session-cookie",
+    "storage": "client-profile",
+    "refresh": "auto",
+    "delegation": "widespread-bind"
+  },
+  "ops": [
+    {
+      "name": "dm_list",
+      "class": "read",
+      "endpoint": "https://i.instagram.com/api/v1/direct_v2/inbox/",
+      "method": "GET",
+      "verified": false,
+      "risk": "low"
+    },
+    {
+      "name": "dm_send",
+      "class": "write",
+      "endpoint": "https://i.instagram.com/api/v1/direct_v2/threads/broadcast/text/",
+      "method": "POST",
+      "verified": false,
+      "risk": "high"
+    },
+    {
+      "name": "notifications",
+      "class": "read",
+      "endpoint": "https://i.instagram.com/api/v1/news/inbox/",
+      "method": "GET",
+      "verified": false,
+      "risk": "low"
+    },
+    {
+      "name": "user_feed",
+      "class": "read",
+      "endpoint": "https://i.instagram.com/api/v1/feed/user/{user_id}/",
+      "method": "GET",
+      "verified": false,
+      "risk": "low"
+    }
+  ],
+  "status": "draft",
+  "issued_at": 1794607587113,
+  "grammar": {
+    "declaration": "#widespread bounty <hash>\ndomain: <domain>\namount: <n> <ccy>\nspec: <text>",
+    "claim": "widespread claim <hash>",
+    "receipt": "widespread receipt <id>",
+    "placement": "reply"
+  },
+  "id": "c076661fd550e02f8a52f813d5cdd47831654e85f1eb0ab91c15564504efbae5",
+  "sig": "784b5f280a978ad352a2ec3d9a93509905c7cfdbaccab43dee3c40258300329a8c6cbfcf63eaaa9ed0c65fd609283489d7c653b0339141acd0ffc2b894424a09"
+}

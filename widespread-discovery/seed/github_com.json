@@ -1,0 +1,79 @@
+{
+  "schema": "widespread-adapter/1",
+  "surface": "github.com",
+  "kind": "api",
+  "author": "did:key:z6MkspwK2XXgXemXJdxV5gJgvBbZ9kSUZo4foQxLC3PkX1Sd",
+  "generated_by": "did:key:z6MkspwK2XXgXemXJdxV5gJgvBbZ9kSUZo4foQxLC3PkX1Sd",
+  "generated_with": {
+    "tools": [
+      "hermes_browser",
+      "rea-agents"
+    ],
+    "captured_at": 1794607587550,
+    "source": "seed-pack-v0"
+  },
+  "auth": {
+    "type": "api-key",
+    "storage": "env:GITHUB_TOKEN",
+    "refresh": "manual",
+    "delegation": "widespread-bind"
+  },
+  "ops": [
+    {
+      "name": "search_issues",
+      "class": "read",
+      "endpoint": "https://api.github.com/search/issues",
+      "method": "GET",
+      "verified": false,
+      "risk": "low",
+      "params": {
+        "q": "{q}",
+        "per_page": 30
+      }
+    },
+    {
+      "name": "issue",
+      "class": "read",
+      "endpoint": "https://api.github.com/repos/{owner}/{repo}/issues/{n}",
+      "method": "GET",
+      "verified": false,
+      "risk": "low"
+    },
+    {
+      "name": "create_issue",
+      "class": "write",
+      "endpoint": "https://api.github.com/repos/{owner}/{repo}/issues",
+      "method": "POST",
+      "verified": false,
+      "risk": "medium"
+    },
+    {
+      "name": "comment",
+      "class": "write",
+      "endpoint": "https://api.github.com/repos/{owner}/{repo}/issues/{n}/comments",
+      "method": "POST",
+      "verified": false,
+      "risk": "medium"
+    },
+    {
+      "name": "list_bounties",
+      "class": "read",
+      "endpoint": "https://api.github.com/search/issues",
+      "method": "GET",
+      "verified": false,
+      "risk": "low",
+      "params": {
+        "q": "{q} label:bounty",
+        "per_page": 30
+      }
+    }
+  ],
+  "status": "draft",
+  "issued_at": 1794607587550,
+  "grammar": {
+    "placement": "browser-actuation",
+    "note": "REST + GraphQL public API; forge-native surface"
+  },
+  "id": "0a3ae78b69b21d6a690ab484369b46ce2cbce43f0ee727b60e1e5b287d927510",
+  "sig": "2ed8960190255687721539cd103a9063d37d5eb070cba76aea939ef532a8d72b5987427d766429df609d602a3ed0705f41c5425640c4220c58566559611a0f08"
+}
