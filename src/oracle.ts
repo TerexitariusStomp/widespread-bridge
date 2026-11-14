@@ -148,7 +148,7 @@ export async function oracleVote(
       },
       gas: GAS, deposit: 0n,
     }).catch((e) => ({ txHash: "", status: String(e) }));
-    if (txFailed(v.status)) {
+    if (!v.txHash || txFailed(v.status)) {
       return { voted: false, claimId, error: `submitVerdict failed: ${JSON.stringify(v.status).slice(0, 300)}` };
     }
   }
@@ -168,7 +168,7 @@ export async function oracleVote(
     },
     gas: GAS, deposit: 0n,
   }).catch((e) => ({ txHash: "", status: String(e) }));
-  if (txFailed(rel.status)) {
+  if (!rel.txHash || txFailed(rel.status)) {
     const tally = await nearViewCall(env, cfg.contract, "getVerdicts",
       { marketId: opts.marketId }).catch(() => null) as VerdictsView | null;
     return { voted: true, claimId, verdict: "accept", already_voted: already,

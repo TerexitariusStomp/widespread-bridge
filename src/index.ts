@@ -27,6 +27,7 @@ import { hatsOrg, hatsHat, hatsStanceCheck, hatsOpportunities,
 import { nearView, listOnchainMarkets } from "./near";
 import { nearViewCall } from "./nearops";
 import { oracleEnv, oracleVote, signVerdict } from "./oracle";
+import { scanOnchain, scanMirrorPayouts } from "./onchainscan";
 import { handleMcpRequest } from "./mcp";
 import { OPENAPI, LLMS_TXT, SKILL_MD, INSTALL_HTML, PRIVACY_HTML, TERMS_HTML } from "./docs";
 import { checkLimit, callerKey, rateLimited } from "./ratelimit";
@@ -197,12 +198,23 @@ function watchRepos(env: Env): string[] {
     .filter(Boolean);
 }
 
-/** Scan watched repos' claim streams; review work claims we haven't seen. */
+/** Scan watched repos' claim streams; review work claims we haven't seen.
+ * Also adjudicates on-chain attested claims + executes mirror payouts —
+ * the money path needs no human step. */
 async function scan(env: Env): Promise<number> {
   let reviewed = 0;
   for (const repo of watchRepos(env)) {
     reviewed += (await reviewOutstanding(env, repo)).length;
   }
+  const oc = await scanOnchain(env).catch((e) => {
+    console.error(`onchain scan: ${String(e)}`);
+    return { reviewed: 0, voted: 0 };
+  });
+  reviewed += oc.reviewed;
+  await scanMirrorPayouts(env).catch((e) => {
+    console.error(`mirror payout scan: ${String(e)}`);
+    return 0;
+  });
   return reviewed;
 }
 

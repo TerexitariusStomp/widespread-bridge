@@ -293,8 +293,9 @@ export async function adjudicatePanel(env: Env, input: AdjudicatorInput): Promis
   );
   const dissent = judges.filter((j) => j.verdict === "reject");
   const accepts = judges.length - dissent.length;
-  // Minority-veto: one dissent blocks an accept — escalates to the next
-  // tier (human or TEE-verified re-judge) rather than majority-approve.
+  // Minority-veto: one dissent blocks an accept — the claim stays
+  // disputable to the on-chain oracle quorum (and ultimately Kleros),
+  // NOT a human review tier. Machines judge; disputes are economic.
   const verdict = dissent.length === 0 ? "accept" : "reject";
   const confidence = accepts / judges.length;
   return {

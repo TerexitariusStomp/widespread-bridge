@@ -22,7 +22,7 @@
     "FUTARCHY_CONTRACT": "foreguild-ft-69240.testnet",
     "HATS_CONTRACT": "intentional-hats-632291.testnet",
     "HATS_ORG": "2",
-    "NEAR_RPC_URL": "https://rpc.testnet.near.org",
+    "NEAR_RPC_URL": "https://test.rpc.fastnear.com",
     "ORACLE_PUBKEY_HEX": "1ad812e3b4a566d8a33358529adc431e3c752b6a0c2ca3fa70d92ee1423e0ef1",
     "ORACLE_ACCOUNT": "wide-mkt-11561.testnet",
     "NEAR_AI_MODEL": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
