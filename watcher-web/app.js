@@ -119,7 +119,10 @@ async function publishRaw(template) {
   // publish per-relay so one dead relay can't sink the batch; health-tracked
   const results = await Promise.allSettled(rs.map(async (r) => {
     const p = new N.SimplePool();
-    try { const o = await p.publish([r], ev); noteRelay(r, true); return o; }
+    // SimplePool.publish returns an ARRAY of per-relay promises — awaiting
+    // the array resolves with pending promises, so the OK verdict is never
+    // observed. Promise.all waits for the real verdict (OK:false rejects).
+    try { const o = await Promise.all(p.publish([r], ev)); noteRelay(r, true); return o; }
     catch (e) { noteRelay(r, false); throw e; }
     finally { try { p.close([r]); } catch {} }
   }));

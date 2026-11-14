@@ -111,7 +111,8 @@ the consensus primitive.
 ## 3. Relay usage
 
 - **Publish**: `EVENT` to a relay set (default: `wss://relay.snort.social`,
-  `wss://relay.primal.net`, `wss://nostr.bitcoiner.social` — the relays
+  `wss://relay.primal.net`, `wss://nostr.bitcoiner.social`,
+  `wss://widespread-relay.widespread.workers.dev` — the relays
   verified to retain kind-30078; most public relays ACK-then-drop
   non-standard kinds, so conforming implementations MUST verify
   retrievability after publish rather than trusting the OK response).

@@ -65,7 +65,13 @@ export async function publish(template) {
   // individual failures; success = ≥1 relay accepted.
   const results = await Promise.allSettled(rs.map(async (r) => {
     const p = new N.SimplePool();
-    try { return await p.publish([r], ev); } finally { try { p.close([r]); } catch {} }
+    try {
+      // SimplePool.publish returns an ARRAY of per-relay promises — awaiting
+      // the array itself resolves immediately with pending promises, so the
+      // OK:true/false verdict was never actually observed. Promise.all waits
+      // for the real verdict; OK:false rejects and lands in `errs`.
+      return await Promise.all(p.publish([r], ev));
+    } finally { try { p.close([r]); } catch {} }
   }));
   const oks = results.filter((r) => r.status === "fulfilled").map((r) => r.value);
   const errs = results.filter((r) => r.status === "rejected").map((r) => String(r.reason?.message ?? r.reason));
@@ -73,15 +79,20 @@ export async function publish(template) {
   // Relays can ACK (OK:true) then silently drop — verify the event is
   // actually retrievable before reporting success. 0 stored = failure so
   // callers queue to the outbox instead of losing the sighting.
-  await new Promise((r) => setTimeout(r, 2000));
   let stored = 0;
-  try {
-    const found = await Promise.race([
-      getPool().querySync(rs, { ids: [ev.id] }),
-      new Promise((_, rej) => setTimeout(() => rej(new Error("verify timeout")), 15000)),
-    ]);
-    stored = found.length;
-  } catch { /* verification inconclusive — relays flaky, don't fail the publish */ }
+  // D1 read replicas lag writes by a few seconds — retry the verify query
+  // instead of declaring a false "not retained" on the first miss.
+  for (let attempt = 0; attempt < 4 && stored === 0; attempt++) {
+    if (attempt) await new Promise((r) => setTimeout(r, 3000));
+    else await new Promise((r) => setTimeout(r, 2000));
+    try {
+      const found = await Promise.race([
+        getPool().querySync(rs, { ids: [ev.id] }),
+        new Promise((_, rej) => setTimeout(() => rej(new Error("verify timeout")), 15000)),
+      ]);
+      stored = found.length;
+    } catch { /* verification inconclusive — relays flaky, don't fail the publish */ }
+  }
   // Log every ACK'd event regardless of stored count: relays dropping an
   // event is exactly when the git/peer transports matter — the envelope
   // is still a valid signed artifact peers can carry.
@@ -116,7 +127,13 @@ export async function publishRawEvent(ev) {
   const rs = relays();
   const results = await Promise.allSettled(rs.map(async (r) => {
     const p = new N.SimplePool();
-    try { return await p.publish([r], ev); } finally { try { p.close([r]); } catch {} }
+    try {
+      // SimplePool.publish returns an ARRAY of per-relay promises — awaiting
+      // the array itself resolves immediately with pending promises, so the
+      // OK:true/false verdict was never actually observed. Promise.all waits
+      // for the real verdict; OK:false rejects and lands in `errs`.
+      return await Promise.all(p.publish([r], ev));
+    } finally { try { p.close([r]); } catch {} }
   }));
   const oks = results.filter((r) => r.status === "fulfilled");
   if (!oks.length) throw new Error("all relays failed");

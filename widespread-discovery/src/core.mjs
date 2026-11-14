@@ -19,6 +19,7 @@ export const DEFAULT_RELAYS = [
   "wss://relay.snort.social",
   "wss://relay.primal.net",
   "wss://nostr.bitcoiner.social",
+  "wss://widespread-relay.widespread.workers.dev",
 ];
 export const STATE_SALT = "widespread-watcher-state";
 export const STATE_INFO = "v1";

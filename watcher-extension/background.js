@@ -2,7 +2,7 @@
 // never see key material; they request signatures/events via messages.
 importScripts("nostr.bundle.js");
 const N = self.NostrTools;
-const FALLBACK_RELAYS = ["wss://relay.snort.social", "wss://relay.primal.net", "wss://nostr.bitcoiner.social"];
+const FALLBACK_RELAYS = ["wss://relay.snort.social", "wss://relay.primal.net", "wss://nostr.bitcoiner.social", "wss://widespread-relay.widespread.workers.dev"];
 const DEFAULT_GRAMMAR = /widespread\s+(declare|bounty|task|claim|receipt|bind)/i;
 let cfg = { relays: FALLBACK_RELAYS, grammar: "widespread\\s+(declare|bounty|task|claim|receipt|bind)" };
 
@@ -59,7 +59,11 @@ async function publishSighting(s) {
     tags: [["d", `${content.platform}:${content.native_id}`], ["platform", content.platform], ["native_id", content.native_id], ["w", pub], ["t", "widespread-sighting"]],
     content: canonicalJson(content),
   }, key);
-  const oks = await getPool().publish(relays(), ev);
+  // SimplePool.publish returns an ARRAY of per-relay promises — awaiting the
+  // array resolves with pending promises and the OK verdicts are never
+  // observed. Promise.all waits for the real verdicts (OK:false rejects).
+  const oks = (await Promise.allSettled(getPool().publish(relays(), ev)))
+    .filter((r) => r.status === "fulfilled").map((r) => r.value);
   return { event_id: ev.id, oks, pubkey: pub };
 }
 
