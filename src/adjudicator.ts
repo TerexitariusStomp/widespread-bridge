@@ -409,6 +409,7 @@ export async function adjudicateContest(
   for (const [idx, n] of tally) {
     if (n > winnerVotes) { winnerIndex = idx; winnerVotes = n; }
   }
+  console.log(`contest judges: ${JSON.stringify(judges.map((j) => ({ m: j.model.split("/").pop(), w: j.winnerIndex, c: j.confidence, r: j.reasoning.slice(0, 160) })))}`);
   const hasWinner = winnerVotes > noneVotes;
   const win = hasWinner ? winnerIndex : -1;
   const top = hasWinner ? judges.find((j) => j.winnerIndex === win) : undefined;
@@ -426,6 +427,7 @@ export async function adjudicateContest(
       verdict: j.winnerIndex === win && win >= 0 ? "accept" : "reject",
       confidence: j.confidence,
       pick: j.winnerIndex,
+      reasoning: j.reasoning.slice(0, 1200),
     })),
     panel_escalated: hasWinner && winnerVotes <= judges.length / 2,
   };

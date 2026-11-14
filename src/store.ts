@@ -34,6 +34,16 @@ export async function listRecords(env: Env): Promise<ReviewRecord[]> {
   return records.filter((r): r is ReviewRecord => r !== null);
 }
 
+/** Last `limit` reviewed claims only — for surfaces (home page) that need
+ * recent receipts without paying for a full index scan. */
+export async function listRecentRecords(env: Env, limit = 12): Promise<ReviewRecord[]> {
+  const ids = (await env.CLAIMS.get<string[]>(INDEX_KEY, "json")) ?? [];
+  const records = await Promise.all(
+    ids.slice(-limit).map((id) => env.CLAIMS.get<ReviewRecord>(`claim:${id}`, "json").catch(() => null))
+  );
+  return records.filter((r): r is ReviewRecord => r !== null);
+}
+
 export async function getBounty(env: Env, repo: string): Promise<Bounty | null> {
   return env.CLAIMS.get<Bounty>(bountyKey(repo), "json");
 }

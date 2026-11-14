@@ -17,10 +17,11 @@
 //      payout tx → ops ships the winning claim on-chain and releases
 //      as payer — replaces the old "a human runs release.js" queue.
 
-import type { Env, Bounty, OpLogEntry, ChainVerification, CommitEvidence, Crosscheck } from "./types";
+import type { Env, Bounty, OpLogEntry, ChainVerification, CommitEvidence, Crosscheck, ShipClaim } from "./types";
 import { nearFunctionCall, nearViewCall } from "./nearops";
 import { oracleEnv, oracleVote, signVerdict, type OracleVoteResult } from "./oracle";
 import { adjudicateContest } from "./adjudicator";
+import { crosscheck, gatherCommitEvidence } from "./evidence";
 
 const SCAN_MARKETS = 20;
 const CLAIMS_PER_MARKET = 5;
@@ -56,9 +57,15 @@ async function putJudged(env: Env, marketId: string, claimId: string, rec: Recor
 
 /** Build the judge input for one on-chain claim. On-chain claims have no
  * forge chain to replay — the contract record is consensus-verified — so
- * the hash-chain field is an honest stub and the judge weighs spec-fit +
- * claim payload directly. */
-function onchainInput(market: OnchainMarket, claim: OnchainClaim) {
+ * the hash-chain field is an honest stub. Commit evidence IS replayed:
+ * evidence.repo locates the upstream (github by convention) and each
+ * claimed sha is diff-fetched so judges weigh real work, not bare hashes.
+ * Without this the panel sees `unavailable` for every commit and fails
+ * closed on all on-chain claims regardless of quality. */
+async function onchainInput(env: Env, market: OnchainMarket, claim: OnchainClaim): Promise<{
+  repo: string; entry: OpLogEntry; chain: ChainVerification;
+  bounty: Bounty; commits: CommitEvidence[]; check: Crosscheck;
+}> {
   const entry: OpLogEntry = {
     seq: Number(claim.claimId), hash: claim.claimHash, prev_hash: "",
     kind: "ship", actor: claim.actor ?? claim.shippedBy ?? "unknown",
@@ -70,16 +77,28 @@ function onchainInput(market: OnchainMarket, claim: OnchainClaim) {
     valid: true, checked: 0, tip_hash: claim.claimHash,
     tip_seq: entry.seq, broken_at_seq: null,
   };
-  const commits: CommitEvidence[] = (claim.commits ?? []).map((sha) => ({
-    sha, source: "unavailable" as const, message: null, files: [],
-    lines_added: 0, lines_removed: 0, diff_excerpt: null,
-    evidence_url: null, patch_fingerprint: null,
-  }));
-  const check: Crosscheck = {
-    claimed_files: null, recomputed_files: 0, files_consistent: null,
-    claimed_lines: null, recomputed_lines: 0, lines_consistent: null,
-    commits_verified: 0, commits_total: commits.length, partial: true,
-  };
+  // Repo locator: "owner/name" → github convention; a full URL passes through.
+  const evRepo = typeof claim.evidence?.repo === "string" ? claim.evidence.repo : null;
+  const upstream = evRepo
+    ? /^https?:\/\//.test(evRepo) ? evRepo : `https://github.com/${evRepo}`
+    : null;
+  const repo = evRepo ?? `onchain:${market.marketId}`;
+  const commits: CommitEvidence[] = upstream
+    ? await Promise.all((claim.commits ?? []).map((sha) =>
+        gatherCommitEvidence(env, repo, sha, upstream)
+          .catch((): CommitEvidence => ({
+            sha, source: "unavailable" as const, message: null, files: [],
+            lines_added: 0, lines_removed: 0, diff_excerpt: null,
+            evidence_url: null, patch_fingerprint: null,
+          }))))
+    : (claim.commits ?? []).map((sha) => ({
+        sha, source: "unavailable" as const, message: null, files: [],
+        lines_added: 0, lines_removed: 0, diff_excerpt: null,
+        evidence_url: null, patch_fingerprint: null,
+      }));
+  // On-chain claims carry no self-reported files/lines — claimed_* stay null.
+  const check = crosscheck({} as ShipClaim, commits);
+  console.log(`onchainInput m${market.marketId}/c${claim.claimId}: repo=${repo} upstream=${upstream} commits=${JSON.stringify(commits.map((c) => ({ sha: c.sha.slice(0, 8), src: c.source, files: c.files.length, diff: c.diff_excerpt?.length ?? 0 })))}`);
   const bounty: Bounty = {
     repo: `onchain:${market.marketId}`,
     spec: market.spec ?? "",
@@ -127,7 +146,7 @@ export async function scanOnchain(env: Env): Promise<{ reviewed: number; voted: 
       // One panel call per market: judges pick the single best claim,
       // matching the contract's winner-selection semantics — and one
       // verdict slot per seat per market on-chain.
-      const inputs = candidates.map((c) => onchainInput(market, c));
+      const inputs = await Promise.all(candidates.map((c) => onchainInput(env, market, c)));
       const adj = await adjudicateContest(env, inputs);
       const winner = adj.winnerIndex >= 0 ? candidates[adj.winnerIndex] : null;
       let res: OracleVoteResult | null = null;
@@ -147,7 +166,8 @@ export async function scanOnchain(env: Env): Promise<{ reviewed: number; voted: 
             : winner ? "not-picked" : "none-acceptable",
           picked: winner?.claimId ?? null,
           confidence: adj.confidence, model: adj.model,
-          reasoning: adj.reasoning?.slice(0, 300),
+          reasoning: adj.reasoning?.slice(0, 1200),
+          panel: (adj as { panel?: unknown }).panel ?? null,
           voted: isWinner ? res?.voted ?? false : false,
           released_tx: isWinner ? res?.released?.txHash ?? null : null,
           quorum_pending: isWinner ? res?.quorum_pending ?? false : false,

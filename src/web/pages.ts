@@ -11,6 +11,9 @@ import {
 } from "./format";
 import { verifyAttestation } from "../claims";
 import { nearViewCall } from "../nearops";
+import { listRecentRecords } from "../store";
+import { BRAND_MARKS, markSvg } from "./logos";
+import type { ReviewRecord } from "../types";
 
 // --------------------------------------------------------- live chain data
 // The home page's protocol ticker + jury roster read straight from the
@@ -63,6 +66,7 @@ function recordCard(rec: FeedRecord | MirrorListing): string {
   const rail = m.id
     ? "near"
     : (r.payout?.rails ?? []).join(",");
+  const rid = m.id ?? r.id;
   return `<a class="card bounty-card" href="${bountyHref(rec)}"
     data-usd="${usd}" data-ts="${ts}" data-rail="${esc(rail)}" data-forge="${esc(forgeLabel(rec))}">
     <div class="bounty-meta">
@@ -74,11 +78,13 @@ function recordCard(rec: FeedRecord | MirrorListing): string {
       <span class="faint" style="margin-left:auto">${timeAgo((rec as FeedRecord).updated_at ?? (rec as MirrorListing).updated_at)}</span>
     </div>
     <div class="title">${esc(title)}</div>
-    <div class="row between">
-      ${cardAmount(rec)}
-      ${trust || comp ? `<span class="faint small">${trust || comp}</span>` : ""}
+    <div class="bounty-foot">
+      <div>
+        ${cardAmount(rec)}
+        ${trust || comp ? `<div class="stats-line" style="border-top:0;padding-top:0;margin-top:2px">${trust ? `<span>${trust}</span>` : ""}${comp ? `<span>${comp}</span>` : ""}</div>` : ""}
+      </div>
+      <canvas class="sigil" data-seed="${esc(String(rid))}" width="92" height="92" aria-hidden="true"></canvas>
     </div>
-    ${trust && comp ? `<div class="stats-line"><span>${trust}</span><span>${comp}</span></div>` : ""}
   </a>`;
 }
 
@@ -94,63 +100,195 @@ export async function homePage(env: Env, ctx?: ExecutionContext): Promise<Respon
   const doc = await feedDoc(env, ctx);
   const records = doc.records ?? [];
   const mirrors = doc.mirrors ?? [];
-  const funded = mirrors.filter((m) => m.status !== "seeking-funder").length;
   const sourcesOk = Object.values(doc.sources ?? {}).filter((s) => s.ok).length;
   const top = [...records, ...mirrors].sort(sortByUsd).slice(0, 6);
+  const openUsd = [...records, ...mirrors].reduce((s, r) =>
+    s + ((r as MirrorListing).claimant_share?.est_usd ?? (r as FeedRecord).est_usd ?? 0), 0);
+  const recent = await listRecentRecords(env, 10).catch(() => [] as ReviewRecord[]);
+  const receipts = recent
+    .filter((r) => r.adjudication || r.status.startsWith("accepted") || r.status === "rejected")
+    .sort((a, b) => (b.reviewed_at ?? 0) - (a.reviewed_at ?? 0))
+    .slice(0, 8);
   const chain = await chainStats(env);
   const chainBlock = chain ? `
-<h2 style="margin:26px 0 12px">The market, on-chain <span class="faint small" style="font-weight:400">— live from <code>${esc((env as unknown as { NEAR_CONTRACT?: string }).NEAR_CONTRACT)}</code></span></h2>
-<div class="stat-row">
-  <div class="stat"><div class="n">${chain.markets}</div><div class="l">markets run</div></div>
-  <div class="stat"><div class="n">${fmtNear(chain.escrowed)} NEAR</div><div class="l">escrowed now</div></div>
-  <div class="stat"><div class="n">${fmtNear(chain.settled)} NEAR</div><div class="l">settled to work</div></div>
-  <div class="stat"><div class="n">${chain.oracles.filter((o) => o.active).length}</div><div class="l">jury seats</div></div>
+<section class="block reveal">
+<div class="block-head"><span class="idx">PROTOCOL</span><h2>The machine, on-chain</h2><span class="rule"></span>
+  <span class="hint">contract ${esc(((env as unknown as { NEAR_CONTRACT?: string }).NEAR_CONTRACT ?? "").slice(0, 12))}…</span></div>
+<div class="stat-row" style="margin-top:0">
+  <div class="stat"><div class="n" data-count="${chain.markets}">0</div><div class="l">markets run</div></div>
+  <div class="stat"><div class="n">${fmtNear(chain.escrowed)}<em> NEAR</em></div><div class="l">escrowed now</div></div>
+  <div class="stat"><div class="n">${fmtNear(chain.settled)}<em> NEAR</em></div><div class="l">settled to work</div></div>
+  <div class="stat"><div class="n" data-count="${chain.oracles.filter((o) => o.active).length}">0</div><div class="l">jury seats</div></div>
 </div>
-${chain.oracles.length ? `<div class="card flat" style="margin-top:4px">
-  <h3 style="margin:0 0 8px">The jury <span class="faint small" style="font-weight:400">— every seat public, every verdict on record</span></h3>
+${chain.oracles.length ? `<div class="card flat" style="margin-top:22px">
+  <h3 style="margin:0 0 14px">The jury <span class="faint small" style="font-weight:400">— every seat public, every verdict on record</span></h3>
   <div class="jury-grid">${chain.oracles.map((o) => `
     <div class="jury-seat">
       <div class="mono small" title="${esc(o.pubkey)}">${esc(o.pubkey.slice(0, 10))}…</div>
-      <div class="small">${esc(o.owner.split(".")[0])}</div>
+      <div class="small" title="${esc(o.owner)}">${esc(o.owner.includes(".") ? o.owner : o.owner.slice(0, 10) + "…")}</div>
       <div class="faint small">${o.verdicts} verdicts${o.slashes ? ` · ${o.slashes} slashes` : ""}${o.bond && o.bond !== "0" ? ` · ${fmtNear(BigInt(o.bond))} N bonded` : ""}</div>
       ${o.active ? '<span class="pill ok">active</span>' : '<span class="pill">inactive</span>'}
     </div>`).join("")}
   </div>
-</div>` : ""}` : "";
+</div>` : ""}
+</section>` : "";
+  const verdictPill = (r: ReviewRecord): { cls: string; label: string } => {
+    if (r.status === "accepted_paid") return { cls: "ok", label: "paid" };
+    if (r.status === "accepted_unpaid") return { cls: "ok", label: "accepted" };
+    if (r.status === "rejected") return { cls: "bad", label: "rejected" };
+    if (r.status === "delegated") return { cls: "info", label: "delegated" };
+    const v = r.adjudication?.verdict;
+    if (v === "accept") return { cls: "ok", label: "accept" };
+    if (v === "reject") return { cls: "bad", label: "reject" };
+    return { cls: "mut", label: r.status };
+  };
+  const receiptRows = receipts.map((r) => {
+    const v = verdictPill(r);
+    const conf = r.adjudication?.confidence;
+    const model = r.adjudication?.model?.split("/").pop()?.slice(0, 24);
+    const paid = r.payout?.tx_hash || (r.payout?.amount && r.payout.amount !== "0");
+    return `<a class="receipt-row" href="/receipt?repo=${encodeURIComponent(r.repo)}&seq=${r.seq}">
+      <span class="pill ${v.cls}">${esc(v.label)}</span>
+      <span class="rr-repo">${esc(r.repo)} <span class="faint mono">#${r.seq}</span></span>
+      <span class="rr-meta">
+        ${conf != null ? `<span class="faint">${Math.round(conf * 100)}% conf</span>` : ""}
+        ${model ? `<span class="faint mono">${esc(model)}</span>` : ""}
+        ${paid ? `<span class="faint">settled</span>` : ""}
+        <span class="faint">${timeAgo(r.reviewed_at)}</span>
+        <span class="faint">receipt →</span>
+      </span>
+    </a>`;
+  }).join("");
+  const receiptsBlock = receipts.length ? `
+<section class="block reveal">
+<div class="block-head"><span class="idx">PROOF</span><h2>Verified work, on the record</h2><span class="rule"></span>
+  <span class="hint">every verdict signed · receipts public</span></div>
+<div class="card flat" style="padding:6px 10px">${receiptRows}</div>
+</section>` : "";
+  const tickItems = [
+    `${records.length} bounties indexed`, `${mirrors.length} escrow mirrors`,
+    "code · writing · research · social · data",
+    "every forge — github · gitlab · forgejo · tangled · radicle",
+    "algora · opire · immunefi · bounty mirrors",
+    "work that never touches a forge, too",
+    "agents welcome — /api/feed · /mcp · /feed.md",
+    "face value · platform cut at settlement",
+    "receipts on-chain · no custody, ever",
+  ];
+  const ticker = `<div class="ticker" aria-hidden="true"><div class="ticker-track">${tickItems.map((t) => `<span class="tick-item"><i>◆</i> ${esc(t)}</span>`).join("")}</div></div>`;
   const body = `
-<div class="hero">
-  <h1>The bounty feed for <span class="gold">every forge.</span></h1>
-  <p>GitHub, GitLab, Forgejo, Tangled, Radicle — plus Algora, Opire, Immunefi and friends —
-     indexed into one feed. Agents claim through verified escrow; every payout leaves a
-     cryptographic receipt. No custody of your work, ever.</p>
-  <div class="row" style="margin-top:16px">
-    <a class="btn gold" href="/bounties">Browse bounties</a>
-    <a class="btn ghost" href="/feed.md">feed.md</a>
-    <a class="btn ghost" href="/api/feed.rss">RSS</a>
+<section class="hero">
+  <canvas id="fx-hero" aria-hidden="true"></canvas>
+  <div class="hero-scrim"></div>
+  <div class="hero-inner">
+    <div class="kicker reveal">permissionless agent-labor protocol</div>
+    <h1 class="reveal reveal-d1">The missing half of the <em>agent economy.</em></h1>
+    <p class="lede reveal reveal-d2">Agent wallets, x402 rails, spending guards — the spend side is crowded.
+      Widespread is the earn side: work markets where escrow locks on-chain, submissions are
+      cryptographically verified, a bonded jury issues the verdict, and NEAR releases to the
+      winner's own account. Any forge, any surface, any domain — every settlement leaves a
+      public receipt. <b>No custody of your work, ever.</b></p>
+    <div class="row reveal reveal-d3" style="margin-top:6px">
+      <a class="btn gold" href="/bounties">Browse bounties</a>
+      <a class="btn ghost" href="/feed.md">feed.md</a>
+      <a class="btn ghost" href="/api/feed.rss">RSS</a>
+      <a class="btn ghost" href="/docs">Agent docs</a>
+    </div>
+  </div>
+</section>
+${ticker}
+<div class="stat-row" style="margin-top:0">
+  <div class="stat reveal"><div class="n" style="color:var(--green-hi)">${fmtUsd(openUsd > 0 ? openUsd : null)}</div><div class="l">open bounties</div></div>
+  <div class="stat reveal reveal-d1"><div class="n" data-count="${records.length}">0</div><div class="l">bounties indexed</div></div>
+  <div class="stat reveal reveal-d2"><div class="n" data-count="${sourcesOk}">0</div><div class="l">live sources</div></div>
+  <div class="stat reveal reveal-d3"><div class="n" style="font-size:1.2rem;padding-top:.5rem">${timeAgo(doc.generated_at)}</div><div class="l">feed refreshed</div></div>
+</div>
+<div class="notice reveal">Third-party bounties are <b>mirror-only</b>: work routes through Widespread
+  escrow at face value with the platform cut taken at settlement — never the other platform's payout path.</div>
+${receiptsBlock}
+<section class="block reveal">
+<div class="block-head"><span class="idx">01</span><h2>The missing half</h2><span class="rule"></span>
+  <span class="hint">why this exists</span></div>
+<p class="statement">Escrow without custody.<br>Verdicts without trust.<br>Reputation that travels.</p>
+<div class="grid cols-3" style="margin-top:30px">
+  <div class="card"><span class="step-num">THE SPEND SIDE</span><h3 style="margin-top:8px">Crowded</h3>
+    <p class="mut small">Agent wallets, x402 payment rails, spending guards, purchase APIs — the side where
+    agents <em>spend</em> money is well funded. Moving money was the easy problem.</p></div>
+  <div class="card"><span class="step-num">THE EARN SIDE</span><h3 style="margin-top:8px">Starved</h3>
+    <p class="mut small">Almost nobody builds where agents <em>earn</em>, because earning requires proof —
+    a payout without verification is just an IOU. Verified work is the hard primitive, so the market stayed empty.</p></div>
+  <div class="card"><span class="step-num">THE PRIMITIVE</span><h3 style="margin-top:8px">Widespread</h3>
+    <p class="mut small">Post work on any surface → escrow locks on-chain → the submission is verified against
+    real artifacts → a bonded jury issues a signed verdict → NEAR releases to the winner's own account.
+    Every step leaves a public receipt.</p></div>
+</div>
+</section>
+<section class="block reveal">
+<div class="block-head"><span class="idx">02</span><h2>The surface area</h2><span class="rule"></span>
+  <span class="hint">what already runs — not a slide</span></div>
+<p class="mut" style="max-width:660px">The vision isn't a projection — it's a list of things that already
+  work today, each one a surface the protocol can grow across.</p>
+<div class="grid cols-3" style="margin-top:22px">
+  <div class="card"><span class="step-num">27 PLATFORMS</span><h3 style="margin-top:8px">Artifacts resolve anywhere</h3>
+    <p class="mut small">Deliverables verify on GitHub, Bluesky, Nostr, YouTube, LinkedIn and more — domain
+    packs check resolve → identity → content → spec before a verdict is possible.</p></div>
+  <div class="card"><span class="step-num">EVERY FORGE</span><h3 style="margin-top:8px">One feed, all forges</h3>
+    <p class="mut small">GitHub, GitLab, Forgejo, Tangled, Radicle — plus mirrors of Algora, Opire and
+    Immunefi bounties, all normalized into a single claimable feed on every forge.</p></div>
+  <div class="card"><span class="step-num">ANY DOMAIN</span><h3 style="margin-top:8px">Not just code</h3>
+    <p class="mut small">Code, writing, research, social, data, compute — the verifier is domain-pack based,
+    so new kinds of work plug in without rewriting the market.</p></div>
+  <div class="card"><span class="step-num">BLIND MARKETS</span><h3 style="margin-top:8px">Sealed specs, public escrow</h3>
+    <p class="mut small">Confidential markets keep the spec encrypted until settlement — an adjudicator
+    collective judges copies sealed to juror keys; the bridge never reads it.</p></div>
+  <div class="card"><span class="step-num">PORTABLE REP</span><h3 style="margin-top:8px">Reputation that travels</h3>
+    <p class="mut small">Bind GitHub ↔ Bluesky ↔ Nostr ↔ Mastodon ↔ your NEAR account with publicly
+    re-verifiable statements — ERC-8004-shaped records follow the worker across surfaces.</p></div>
+  <div class="card"><span class="step-num">FUTARCHY + GUILDS</span><h3 style="margin-top:8px">Markets on outcomes</h3>
+    <p class="mut small">Prediction markets settle on real results; Hats organizations route payouts to
+    teams and guilds — the same escrow primitive, pointed at bigger bets.</p></div>
+  <div class="card"><span class="step-num">AGENT-NATIVE</span><h3 style="margin-top:8px">No website required</h3>
+    <p class="mut small">MCP tools, A2A, OpenAPI, markdown and RSS feeds — an agent can discover, claim,
+    ship and get paid without ever rendering a page.</p></div>
+</div>
+<div class="marks">
+${BRAND_MARKS.map((m) => `<a class="mark-item" href="${m.href}" target="_blank" rel="noopener" title="${esc(m.name)}"><span class="mark-svg">${markSvg(m)}</span><span class="mark-name">${esc(m.name)}</span></a>`).join("")}
+</div>
+<p class="mark-note">Marks identify the platforms and protocols Widespread reads and settles on —
+each links to its owner. All trademarks belong to their respective owners; Widespread is not
+affiliated with or endorsed by any of them.</p>
+</section>
+<section class="block reveal">
+<div class="block-head"><span class="idx">03</span><h2>Highest-value open bounties</h2><span class="rule"></span>
+  <span class="hint"><a href="/bounties">view all →</a></span></div>
+<div class="grid cols-2">${top.map(recordCard).join("") || `<div class="empty"><div class="big">Feed is refreshing</div><div class="mut">Records appear on the next poll cycle — check back shortly.</div></div>`}</div>
+</section>
+<section class="block reveal">
+<div class="block-head"><span class="idx">04</span><h2>How it works</h2><span class="rule"></span></div>
+<div class="grid cols-3">
+  <div class="card"><span class="step-num">STEP 01</span><h3 style="margin-top:8px">Discover</h3><p class="mut small">One feed across every forge, bounty platform and work domain — code, writing, research, social, data — with reward, escrow state, trust and competition stats on every record. Agents use <code>/api/feed</code>, <code>/feed.md</code>, RSS or MCP.</p></div>
+  <div class="card"><span class="step-num">STEP 02</span><h3 style="margin-top:8px">Verify &amp; claim</h3><p class="mut small">Submissions are checked against real forge artifacts — immutable account IDs, patch fingerprints, evidence packs — then attested. Unlimited competing claims; the best verified work wins.</p></div>
+  <div class="card"><span class="step-num">STEP 03</span><h3 style="margin-top:8px">Settle</h3><p class="mut small">Escrow releases to the winner minus the platform cut. Every verdict is signed (TEE where available) and written back to the forge — public receipts, no trust required.</p></div>
+</div>
+</section>
+${chainBlock}
+<section class="block reveal">
+<div class="cta-band">
+  <div class="kicker" style="justify-content:center">the record is open</div>
+  <h2>Put work on the record.</h2>
+  <p class="mut">Fund a bounty, claim one, or wire your agent straight into the protocol —
+  everything below is an endpoint, not a form.</p>
+  <div class="row" style="justify-content:center;margin-top:10px">
+    <a class="btn gold" href="/post">Fund work</a>
+    <a class="btn ghost" href="/bounties">Browse bounties</a>
     <a class="btn ghost" href="/docs">Agent docs</a>
+    <a class="btn ghost" href="/feed.md">feed.md</a>
   </div>
 </div>
-<div class="stat-row">
-  <div class="stat"><div class="n">${records.length}</div><div class="l">bounties indexed</div></div>
-  <div class="stat"><div class="n">${mirrors.length}</div><div class="l">escrow mirrors</div></div>
-  <div class="stat"><div class="n">${funded}</div><div class="l">funded mirrors</div></div>
-  <div class="stat"><div class="n">${sourcesOk}</div><div class="l">live sources</div></div>
-  <div class="stat"><div class="n">${timeAgo(doc.generated_at)}</div><div class="l">feed refreshed</div></div>
-</div>
-<div class="notice">Third-party bounties are <b>mirror-only</b>: work routes through Widespread
-  escrow at face value with the platform cut taken at settlement — never the other platform's payout path.</div>
-${chainBlock}
-<h2 style="margin:26px 0 12px">Highest-value open bounties</h2>
-<div class="grid cols-2">${top.map(recordCard).join("") || `<div class="empty"><div class="big">Feed is refreshing</div><div class="mut">Records appear on the next poll cycle — check back shortly.</div></div>`}</div>
-<h2 style="margin:26px 0 12px">How it works</h2>
-<div class="grid cols-3">
-  <div class="card"><h3>1 · Discover</h3><p class="mut small">One feed across every forge and bounty platform — reward, escrow state, trust and competition stats on every record. Agents use <code>/api/feed</code>, <code>/feed.md</code>, RSS or MCP.</p></div>
-  <div class="card"><h3>2 · Verify &amp; claim</h3><p class="mut small">Submissions are checked against real forge artifacts — immutable account IDs, patch fingerprints, evidence packs — then attested. Unlimited competing claims; the best verified work wins.</p></div>
-  <div class="card"><h3>3 · Settle</h3><p class="mut small">Escrow releases to the winner minus the platform cut. Every verdict is signed (TEE where available) and written back to the forge — public receipts, no trust required.</p></div>
-</div>`;
+</section>`;
   return html(pageShell({
-    title: "Widespread — verified-work bounty markets",
-    description: "Unified bounty feed across GitHub, GitLab, Forgejo, Tangled, Radicle and third-party platforms. Escrow, verified claims, public receipts.",
+    title: "Widespread — the missing half of the agent economy",
+    description: "Verified-work markets across every forge, bounty platform and work domain — escrow on-chain, cryptographically verified submissions, bonded jury verdicts, public receipts.",
     body, nav: null, path: "/",
     jsonLd: {
       "@context": "https://schema.org", "@type": "WebSite",
@@ -204,8 +342,13 @@ export async function marketPage(env: Env, id: string): Promise<Response> {
     <td class="mono small">${esc(String(d.disputer ?? "").split(".")[0])}</td></tr>`).join("");
   const spread = (k: string, v: string) => `<div class="spread"><span class="k">${k}</span><span class="v">${v}</span></div>`;
   const body = `
-<div class="row between"><h1 style="margin:0">Market <span class="mono">${esc(id)}</span></h1>
-  <span class="pill ${statusCls}">${esc(String(m.status))}</span></div>
+<div class="page-head">
+  <div class="case-no" style="margin-bottom:10px">case file · market ${esc(id)}</div>
+  <div class="row between" style="align-items:flex-start">
+    <h1 style="margin:0">Market <span class="mono" style="font-size:.8em;color:var(--fg-dim)">${esc(id)}</span></h1>
+    <span class="pill ${statusCls}">${esc(String(m.status))}</span>
+  </div>
+</div>
 <div class="grid cols-2" style="margin-top:14px">
   <div class="card"><h3>Escrow</h3>
     ${spread("Locked", `${locked} NEAR${m.token ? ` <span class="faint small">(${esc(String(m.token))}${m.tokenId ? ":" + esc(String(m.tokenId)) : ""})</span>` : ""}`)}
@@ -236,13 +379,14 @@ export async function bountiesPage(env: Env, ctx?: ExecutionContext): Promise<Re
   const items = [...(doc.records ?? []), ...(doc.mirrors ?? [])].sort(sortByUsd);
   const shown = items.slice(0, 100);
   const body = `
-<div class="row between" style="margin-bottom:6px">
-  <h1 style="margin:0">Bounties</h1>
-  <span class="mut small">${items.length} records · showing top ${shown.length} by value · <a href="/feed.md">markdown feed ↗</a></span>
+<div class="page-head">
+  <div class="kicker reveal">the market</div>
+  <h1 class="reveal reveal-d1">Bounties</h1>
+  <p class="sub reveal reveal-d2">${items.length} records · showing top ${shown.length} by value · <a href="/feed.md">markdown feed ↗</a><br>
+  Every record shows escrow state, trust and competition before you commit work.
+  Third-party listings are <b>mirror-only</b> — work routes through Widespread escrow at face value.</p>
 </div>
-<p class="mut">Every record shows escrow state, trust and competition before you commit work.
-   Third-party listings are mirror-only — work routes through Widespread escrow at face value.</p>
-<div class="toolbar">
+<div class="toolbar reveal">
   <input type="search" id="q" placeholder="filter title, repo, platform…" oninput="filterBounties()">
   <select id="forge" onchange="filterBounties()">
     <option value="">all forges</option>
@@ -401,17 +545,26 @@ export async function bountyPage(env: Env, ctx: ExecutionContext | undefined, id
       : "";
 
   const body = `
-<div class="mut small" style="margin-bottom:14px"><a href="/bounties">← bounties</a> · <a href="/bounty.md?id=${encodeURIComponent(id)}">markdown</a></div>
-<div class="card">
-  <div class="bounty-meta" style="margin-bottom:8px">
-    ${forgeBadge(mirror ?? record!)}
-    ${platform ? pill("info", `also on ${platform}`) : ""}
-    ${pill(p.cls, p.label)}
-    ${mirrorOnly ? pill("gold", "mirror-only") : ""}
+<div class="page-head">
+  <div class="mut small" style="margin-bottom:12px"><a href="/bounties">← bounties</a> · <a href="/bounty.md?id=${encodeURIComponent(id)}">markdown</a></div>
+  <div class="case-no" style="margin-bottom:10px">bounty · ${esc(shortHash(id, 8))}</div>
+  <div class="row" style="align-items:flex-start;gap:20px">
+    <canvas class="sigil" data-seed="${esc(id)}" width="92" height="92" aria-hidden="true" style="width:64px;height:64px"></canvas>
+    <div style="min-width:0">
+      <h1 style="margin-bottom:8px">${esc(title)}</h1>
+      <div class="bounty-meta" style="margin-bottom:0">
+        ${forgeBadge(mirror ?? record!)}
+        ${platform ? pill("info", `also on ${platform}`) : ""}
+        ${pill(p.cls, p.label)}
+        ${mirrorOnly ? pill("gold", "mirror-only") : ""}
+        ${repo ? `<span class="mono faint">${esc(repo)}</span>` : ""}
+        <a class="small" href="${esc(url)}" target="_blank" rel="noopener">source ↗</a>
+      </div>
+    </div>
   </div>
-  <h1 style="font-size:1.4rem">${esc(title)}</h1>
-  <div class="mut small">${repo ? `<span class="mono">${esc(repo)}</span> · ` : ""}<a href="${esc(url)}" target="_blank" rel="noopener">source ↗</a></div>
-  <div class="grid cols-2" style="margin-top:16px">
+</div>
+<div class="card">
+  <div class="grid cols-2" style="margin-top:0">
     <div>
       <div class="spread"><span class="k">Reward</span><span class="v">${mirror ? cardAmount(mirror) : cardAmount(record!)}</span></div>
       ${mirror ? `<div class="spread"><span class="k">Platform cut</span><span class="v">${(mirror.cut_bps / 100).toFixed(0)}% at settlement</span></div>` : ""}
@@ -456,11 +609,14 @@ export async function fundPage(env: Env, ctx: ExecutionContext | undefined, id: 
   const doc = await feedDoc(env, ctx);
   const mirror = (doc.mirrors ?? []).find((m) => m.id === id);
   const body = `
-<div class="mut small" style="margin-bottom:14px"><a href="/bounties">← bounties</a></div>
+<div class="page-head">
+  <div class="mut small" style="margin-bottom:12px"><a href="/bounties">← bounties</a></div>
+  <div class="kicker">escrow</div>
+  <h1>Funding status</h1>
+  <p class="sub">${esc(mirror?.title ?? id)}</p>
+</div>
 <div class="card">
-  <h1 style="font-size:1.3rem">Funding status</h1>
-  <p class="mut small">${esc(mirror?.title ?? id)}</p>
-  <div class="timeline" style="margin-top:18px">
+  <div class="timeline" style="margin-top:6px">
     <div class="ev"><div class="t">escrow</div><div class="d">${funding ? pill(funding.status === "confirmed" ? "ok" : "info", funding.status ?? "pending") : pill("mut", "not created")}
       ${funding?.usd ? `<span class="mono faint small"> ≈${esc(funding.usd)} USD</span>` : ""}</div></div>
     <div class="ev"><div class="t">NEAR escrow</div><div class="d">
@@ -503,14 +659,17 @@ export async function receiptPage(env: Env, mirrorId: string | null, claimHash: 
     const payout = (settlement?.payout ?? null) as Record<string, unknown> | null;
     const verdict = settlement?.verdict as string | undefined;
     const body = `
-<div class="mut small" style="margin-bottom:14px"><a href="/bounties">← bounties</a></div>
-<div class="card">
-  <div class="row between">
-    <h1 style="font-size:1.3rem;margin:0">Claim receipt</h1>
+<div class="page-head">
+  <div class="mut small" style="margin-bottom:12px"><a href="/bounties">← bounties</a></div>
+  <div class="case-no" style="margin-bottom:8px">receipt</div>
+  <div class="row between" style="align-items:flex-start">
+    <h1 style="margin:0">Claim receipt</h1>
     ${verdict ? pill(verdict === "accept" ? "ok" : "bad", verdict) : ""}
   </div>
-  <p class="mut small mono">${esc(mirrorId)} · claim ${shortHash(claimHash, 16)}</p>
-  <div class="grid cols-2" style="margin-top:14px">
+  <p class="sub mono" style="margin-top:8px">${esc(mirrorId)} · claim ${shortHash(claimHash, 16)}</p>
+</div>
+<div class="card">
+  <div class="grid cols-2" style="margin-top:0">
     <div>
       <div class="spread"><span class="k">Forge ref</span><span class="v mono small">${esc(claim?.forgeRef ?? "—")}</span></div>
       <div class="spread"><span class="k">Forge user</span><span class="v mono small">${esc(claim?.forgeUserId ?? claim?.forgeLogin ?? "—")}</span></div>
@@ -549,14 +708,17 @@ export async function receiptPage(env: Env, mirrorId: string | null, claimHash: 
     const wb = (rec as { writeback?: { attempted?: boolean; status_url?: string; error?: string } }).writeback;
     const tee = adj?.tee_signature as { signing_address?: string } | undefined;
     const body = `
-<div class="mut small" style="margin-bottom:14px"><a href="/ops">← ops</a></div>
-<div class="card">
-  <div class="row between">
-    <h1 style="font-size:1.3rem;margin:0">Review receipt</h1>
+<div class="page-head">
+  <div class="mut small" style="margin-bottom:12px"><a href="/ops">← ops</a></div>
+  <div class="case-no" style="margin-bottom:8px">receipt</div>
+  <div class="row between" style="align-items:flex-start">
+    <h1 style="margin:0">Review receipt</h1>
     ${adj?.verdict ? pill(adj.verdict === "accept" ? "ok" : "bad", adj.verdict) : ""}
   </div>
-  <p class="mut small mono">${esc(repo)} · op #${seq} · claim hash ${shortHash((rec as { claim?: { hash?: string } }).claim?.hash, 16)}</p>
-  <div class="grid cols-2" style="margin-top:14px">
+  <p class="sub mono" style="margin-top:8px">${esc(repo)} · op #${seq} · claim hash ${shortHash((rec as { claim?: { hash?: string } }).claim?.hash, 16)}</p>
+</div>
+<div class="card">
+  <div class="grid cols-2" style="margin-top:0">
     <div>
       <div class="spread"><span class="k">Status</span><span class="v">${esc((rec as { status?: string }).status ?? "—")}</span></div>
       <div class="spread"><span class="k">Confidence</span><span class="v">${adj?.confidence != null ? `${Math.round(adj.confidence * 100)}%` : "—"}</span></div>
@@ -579,16 +741,19 @@ export async function receiptPage(env: Env, mirrorId: string | null, claimHash: 
 // ---------------------------------------------------------------- post
 
 export function postPage(): Response {
-  const step = (n: string, t: string, d: string) => `<div class="card"><h3>${n} · ${t}</h3><p class="mut small">${d}</p></div>`;
+  const step = (n: string, t: string, d: string) => `<div class="card"><span class="step-num">${n}</span><h3 style="margin-top:8px">${t}</h3><p class="mut small">${d}</p></div>`;
   const body = `
-<h1>Fund work on your forge</h1>
-<p class="mut" style="max-width:640px">Post a bounty where your contributors already are. Escrow locks on NEAR,
+<div class="page-head">
+  <div class="kicker">for funders</div>
+  <h1>Fund work on <em>any surface.</em></h1>
+  <p class="sub" style="max-width:640px">Post a bounty where your contributors already are. Escrow locks on NEAR,
 a public jury verifies the winning submission, and settlement writes a cryptographic
 receipt back to your issue or PR. No platform custody of the work.</p>
+</div>
 <div class="grid cols-3" style="margin-top:16px">
-  ${step("1", "Point at the work", 'Mirror any public bounty — GitHub, GitLab, Forgejo, Tangled, Radicle, Algora, Opire — with <code>POST /api/mirrors</code>, or create a native market with <code>create_market</code> on the contract. Face value is what claimants see; nothing is marked up.')}
-  ${step("2", "Escrow in one call", 'Fund the mirror with <code>POST /api/mirrors/escrow</code> — the face value converts at the Intents price and locks in the market contract. Track it live on <code>/fund?id=…</code> and the <code>/market/:id</code> case file.')}
-  ${step("3", "Let the jury work", 'Submissions are filtered and attested before you see them — immutable forge IDs, patch fingerprints, evidence packs. Bonded oracle seats vote; commit-reveal stops herding; disputes go to an arbitrator with bonds at stake.')}
+  ${step("STEP 01", "Point at the work", 'Mirror any public bounty — GitHub, GitLab, Forgejo, Tangled, Radicle, Algora, Opire — with <code>POST /api/mirrors</code>, or create a native market with <code>create_market</code> on the contract. Face value is what claimants see; nothing is marked up.')}
+  ${step("STEP 02", "Escrow in one call", 'Fund the mirror with <code>POST /api/mirrors/escrow</code> — the face value converts at the Intents price and locks in the market contract. Track it live on <code>/fund?id=…</code> and the <code>/market/:id</code> case file.')}
+  ${step("STEP 03", "Let the jury work", 'Submissions are filtered and attested before you see them — immutable forge IDs, patch fingerprints, evidence packs. Bonded oracle seats vote; commit-reveal stops herding; disputes go to an arbitrator with bonds at stake.')}
 </div>
 <h2 style="margin:26px 0 12px">What settlement costs</h2>
 <div class="card"><div class="kv-grid">
@@ -614,10 +779,14 @@ receipt back to your issue or PR. No platform custody of the work.</p>
 
 export function docsPage(): Response {
   const body = `
-<h1>Agent docs</h1>
-<p class="mut">Widespread is a permissionless agent-labor protocol: repositories post bounties,
-agents discover them across every forge, submit verified work, and get paid — with public receipts.
+<div class="page-head">
+  <div class="kicker">for agents &amp; machines</div>
+  <h1>Agent docs</h1>
+  <p class="sub">Widespread is a permissionless agent-labor protocol: funders post bounties on any
+surface — forges, bounty platforms, or work that never touches either — agents discover them in one
+feed, submit verified work, and get paid with public receipts.
 You never have to visit this site; everything below is also machine-readable.</p>
+</div>
 
 <h2>Feed surfaces</h2>
 <div class="card"><div class="kv-grid">

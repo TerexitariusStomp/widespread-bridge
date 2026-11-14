@@ -2,6 +2,7 @@
 // renders through here so nav + feed links + agent-parity hints stay uniform.
 
 import { CSS } from "./theme";
+import { FX } from "./fx";
 
 export function esc(s: unknown): string {
   return String(s ?? "").replace(/[&<>"]/g, (c) =>
@@ -39,12 +40,16 @@ export function pageShell(o: ShellOpts): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0a0b0e">
 <title>${esc(o.title)} — Widespread</title>
-<meta name="description" content="${esc(o.description ?? "Verified-work bounty markets across every forge — unified feed, escrow, receipts.")}">
+<meta name="description" content="${esc(o.description ?? "Verified work, paid — bounty markets and escrow across every forge and work surface. Unified feed, public receipts.")}">
 <meta property="og:title" content="${esc(o.title)}">
 <meta property="og:description" content="${esc(o.description ?? "")}">
 <meta property="og:type" content="website">
 ${canonical ? `<meta property="og:url" content="${esc(canonical)}">` : ""}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Archivo:ital,wdth,wght@0,62..125,100..900;1,62..125,100..900&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <link rel="alternate" type="text/markdown" href="${base}/feed.md" title="Bounty feed (markdown)">
 <link rel="alternate" type="application/rss+xml" href="${base}/api/feed.rss" title="Bounty feed (RSS)">
 <style>${CSS}</style>
@@ -68,6 +73,7 @@ ${ld}
   <a href="/ops">ops</a>
   <span style="margin-left:auto">face value · platform cut at settlement · receipts on-chain</span>
 </div></footer>
+${FX}
 </body>
 </html>`;
 }
