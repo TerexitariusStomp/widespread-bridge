@@ -3,11 +3,14 @@
 // grammar MUST produce strings the bridge actually ingests — otherwise
 // receipts/claims posted through an adapter silently never land.
 import { describe, expect, it } from "vitest";
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { DECL_RE, CLAIM_RE, RECEIPT_RE } from "../src/socialfeed";
 
+// Cross-repo parity test: reads the sibling near-hermes-browser checkout.
+// Skips when the sibling isn't present (CI, tarball installs).
 const SEED_DIR = join(__dirname, "../../near-hermes-browser/adapters/seed");
+const SEED_PRESENT = existsSync(SEED_DIR);
 
 interface Grammar { declaration?: string; claim?: string; receipt?: string }
 
@@ -15,7 +18,7 @@ function instantiate(tpl: string, hash: string): string {
   return tpl.replace(/<hash>|<id>/g, hash);
 }
 
-describe("adapter grammar ↔ socialfeed parity", () => {
+describe.skipIf(!SEED_PRESENT)("adapter grammar ↔ socialfeed parity", () => {
   const files = readdirSync(SEED_DIR).filter((f) => f.endsWith(".json"));
   expect(files.length).toBeGreaterThan(0);
 
