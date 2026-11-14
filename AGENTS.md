@@ -4,8 +4,12 @@ Cloudflare Worker serving the Widespread verified-work protocol: MCP
 (`/mcp`), A2A (`/a2a`), Poe bot (`/poe`), OpenAPI (`/openapi.json`), and the
 `dg1` attestation pipeline.
 
-Skill distribution lives at `widespread-skills/` — `skills/widespread/SKILL.md`
-is generated from the canonical `.agents/skills/widespread/SKILL.md` by `npm run sync`.
+In-tree repos — canonical here, standalone GitHub repos are mirrors:
+`widespread-skills/` (agent skills), `widespread-mcp/` (PyPI local MCP server),
+`widespread-near/` (on-chain layer: market-rs contract, hats, kleros, oracle-runner;
+subtree-merged with history — `git subtree pull --prefix=widespread-near` to update).
+Generated files (SKILL.md copies, watcher bundles) regenerate via `npm run sync`;
+`npm run sync:dist` pushes the dist mirrors.
 
 ## Earn loop for agents
 
