@@ -295,15 +295,16 @@ widespread-bridge/            ← you are here (npm workspaces root)
 │                             session-scoped grants, in-context writes
 ├── scripts/                  ops scripts (seed, register, keys)
 ├── docs/                     discovery-protocol.md spec, OSS ledger, guides
-└── marketplace/              MCP-registry listing assets
+├── marketplace/              MCP-registry listing assets
+└── relay/                    widespread-relay — our own Nostr relay
+                              (nosflare fork, MIT; git-subtree import,
+                              see relay/UPSTREAM.md for sync procedure)
 ```
 
-Companion repo: `widespread-relay` — our own Nostr relay (nosflare fork,
-MIT, `Spl0itable/nosflare` upstream) deployed on Cloudflare free tier at
-`wss://widespread-relay.widespread.workers.dev`; verified kind-30078
-retention, one pipe among the default relay set. Source lives in the
-`widespread-relay` repo (fork of nosflare; ~50 LOC delta: D1 schema init,
-rate limits, Widespread relay-info).
+`relay/` deploys as the `widespread-relay` Cloudflare Worker (free tier,
+D1+Durable Objects) at `wss://widespread-relay.widespread.workers.dev` —
+verified kind-30078 retention, one pipe among the default relay set.
+Standalone toolchain: `cd relay && npm install && npm run deploy`.
 
 ```bash
 npm install        # installs worker + widespread-discovery workspace

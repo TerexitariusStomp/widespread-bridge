@@ -72,10 +72,12 @@ can replay.
   browser). Collective governance via threshold-signed protocol-meta
   events; transport devolution — signed envelopes also ride git forges
   and peer HTTP, so no relay operator is load-bearing.
-- **`widespread-relay`** (companion repo, live): our own Nostr relay —
-  nosflare fork (MIT) on Cloudflare Workers+D1+Durable Objects, free
-  tier. Verified kind-30078 retention by construction; publishes signed
-  relay-report events as public quality evidence.
+- **`relay/` — `widespread-relay`** (in this monorepo): our own Nostr
+  relay — nosflare fork (MIT, `Spl0itable/nosflare` upstream) on
+  Cloudflare Workers+D1+Durable Objects, free tier. Verified
+  kind-30078 retention by construction; publishes signed relay-report
+  events as public quality evidence. Live at
+  `wss://widespread-relay.widespread.workers.dev`.
 - **NEAR Intents**: payout path for workers who want cross-chain
   settlement — the contract pays NEAR, Intents routes it anywhere.
 
