@@ -65,7 +65,7 @@ describe.skipIf(!LIVE)("live E2E — deployed bridge", () => {
       expect(res.status, p).toBe(200);
     }
     const mcp = await fetch(`${BASE}/mcp`, {
-      method: "POST", headers: { "content-type": "application/json" },
+      method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
       signal: AbortSignal.timeout(15000),
     });
