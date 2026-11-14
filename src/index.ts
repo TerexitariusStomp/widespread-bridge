@@ -53,6 +53,7 @@ import { scanMirrorSubmissions } from "./ingest";
 import { agentCard, createDispatch, handleA2a, listDispatches, markDispatch, settleCalldata } from "./dispatch";
 import { listDispatchSubmissions, scanDispatchChannels } from "./collect";
 import { handleCoordinatorRequest } from "./coordinator/index";
+import { Hono } from "hono";
 import type { FeedRecord, Bounty, Env } from "./types";
 
 // Durable Object class must be exported from the worker entry for the
@@ -217,6 +218,145 @@ async function scan(env: Env): Promise<number> {
   });
   return reviewed;
 }
+
+// Hono routing layer — migrated routes register here; anything
+// unmatched falls through to the legacy `route()` chain via notFound.
+// Migrate incrementally: move a block out of route(), register it on
+// `app`, keep semantics identical. The regex if-chain is retired when
+// empty.
+const app = new Hono<{ Bindings: Env }>();
+
+// Public sealing keys — funders seal specs/deliverables to the bridge's
+// x25519 key; workers do the same for adjudication copies.
+app.get("/api/keys", async (c) => {
+  const { bridgeX25519PublicKey } = await import("./sealed");
+  return json({ bridge_x25519_pubkey: bridgeX25519PublicKey(c.env) });
+});
+
+// D5 event log — the signed hash-chained audit trail. Replay it to
+// rebuild state; a fork, rewrite, or bad sig is a fraud proof.
+app.get("/api/events", async (c) => {
+  const { listEvents } = await import("./events");
+  return json(await listEvents(c.env,
+    Number(c.req.query("from") ?? 0),
+    Math.min(Number(c.req.query("limit") ?? 200), 1000)));
+});
+app.get("/api/events/head", async (c) => {
+  const { listEvents } = await import("./events");
+  const { head } = await listEvents(c.env, 0, 0);
+  return json({ head });
+});
+app.get("/api/events/verify", async (c) => {
+  const { verifyChain } = await import("./events");
+  return json(await verifyChain(c.env));
+});
+
+// D4 dispute layer: public docket + evidence bundles + dispute plan.
+app.post("/api/disputes", async (c) => {
+  const b = (await c.req.json().catch(() => ({}))) as
+    { market_id?: string; claim_id?: string; evidence_cid?: string };
+  if (!b.market_id) return bad("market_id required", 400);
+  const { disputePlan } = await import("./disputes");
+  return json(await disputePlan(c.env, b.market_id, b.claim_id, b.evidence_cid));
+});
+app.get("/api/disputes/bundle", async (c) => {
+  const marketId = c.req.query("market_id");
+  if (!marketId) return bad("market_id required", 400);
+  const { evidenceBundle } = await import("./disputes");
+  const bundle = await evidenceBundle(c.env, marketId, c.req.query("claim_id") ?? undefined);
+  // ?pin=1 → pin the bundle and return evidence_cid — the URI a
+  // Kleros dispute / on-chain dispute() names. Fails soft when no
+  // pinning is configured.
+  if (c.req.query("pin") === "1" && !(bundle as { error?: string }).error) {
+    const { pinBytes } = await import("./ipfs");
+    const pin = await pinBytes(c.env, new TextEncoder().encode(JSON.stringify(bundle)),
+      `widespread-dispute-${marketId}.json`);
+    (bundle as Record<string, unknown>).evidence_cid = pin.cid ?? null;
+    (bundle as Record<string, unknown>).pin_error = pin.error ?? null;
+  }
+  return json(bundle);
+});
+// Interim arbitrator rulings — the contract account rules until the
+// DAO rotates a Kleros-proxy arbitrator. Ops-gated.
+app.post("/api/disputes/resolve", async (c) => {
+  if (!isAuthorized(c.req.raw, c.env)) return bad("unauthorized", 401);
+  const b = (await c.req.json().catch(() => ({}))) as
+    { market_id?: string; claim_id?: string | null; ruling?: string };
+  if (!b.market_id || !b.ruling) return bad("market_id + ruling required", 400);
+  const { submitRuling } = await import("./disputes");
+  return json(await submitRuling(c.env, b.market_id, b.claim_id ?? null, b.ruling));
+});
+app.get("/api/disputes/:id{\\d+}", async (c) => {
+  const { getDisputes } = await import("./disputes");
+  const id = c.req.param("id");
+  return json({ market_id: id, disputes: await getDisputes(c.env, id) });
+});
+
+// Content-addressed ciphertext: clients pin sealed spec bundles and
+// deliverables; the bridge stores bytes it cannot read (or, for
+// evidence bundles, JSON it need not trust). Kubo or any Pinning
+// Service — env-gated, degraded cleanly when unset.
+app.post("/api/pin", (c) => import("./ipfs").then((m) => m.handlePin(c.req.raw, c.env)));
+
+// Trustless escrow plan: everything a funder needs to escrow from a
+// FRESH implicit account funded via Intents — we never see the key,
+// never custody funds. GET returns args; POST adds a live 1Click quote.
+app.on(["GET", "POST"], "/api/declarations/:hash{[0-9a-f]{8,16}}/escrow-plan", async (c) => {
+  const p = c.req.method === "POST"
+    ? (await c.req.json().catch(() => ({}))) as Parameters<typeof declEscrowPlan>[2]
+    : {
+        recipient: c.req.query("recipient") ?? undefined,
+        origin_asset: c.req.query("origin_asset") ?? undefined,
+        refund_to: c.req.query("refund_to") ?? undefined,
+        near_amount: c.req.query("near_amount") ?? undefined,
+        quorum_m: c.req.query("quorum_m") ? Number(c.req.query("quorum_m")) : undefined,
+      };
+  try {
+    return json(await declEscrowPlan(c.env, c.req.param("hash"), p ?? {}));
+  } catch (e) {
+    return bad(`escrow-plan failed: ${e instanceof Error ? e.message : e}`, 500);
+  }
+});
+
+// M-of-N oracle jury: the public tally surface — registered oracles,
+// and per-market verdict votes. Anyone watches a quorum form.
+app.get("/api/oracles", async (c) => {
+  const contract = c.env.NEAR_CONTRACT;
+  if (!contract) return bad("NEAR_CONTRACT not configured", 404);
+  const marketId = c.req.query("market");
+  const [oracles, verdicts] = await Promise.all([
+    nearViewCall(c.env, contract, "listOracles", {}).catch(() => null),
+    marketId
+      ? nearViewCall(c.env, contract, "getVerdicts", { marketId }).catch(() => null)
+      : Promise.resolve(null),
+  ]);
+  return json({ oracles, verdicts });
+});
+// Cast THIS oracle seat's on-chain vote (admin-gated — an operator's
+// own judgment, never caller-supplied verdicts). submitVerdict from
+// the registered owner account + release when quorumM accepts align.
+app.post("/api/oracle/vote", async (c) => {
+  if (!isAuthorized(c.req.raw, c.env)) return bad("unauthorized", 401);
+  const v = (await c.req.json().catch(() => ({}))) as {
+    market_id?: string; claim_id?: string; claim_hash?: string;
+    verdict?: "accept" | "reject";
+  };
+  if (!v.market_id || !v.verdict || (!v.claim_id && !v.claim_hash)) {
+    return bad("need market_id, verdict, and claim_id or claim_hash", 400);
+  }
+  const oc = oracleEnv(c.env as Parameters<typeof oracleEnv>[0]);
+  if (!oc?.accountId || !oc.secretKey) return bad("oracle not configured", 503);
+  const { sig } = await signVerdict(oc, v.market_id,
+    v.claim_hash ?? v.claim_id ?? "", v.verdict,
+    String(Date.now())).catch(() => ({ sig: "", pubkey: "" }));
+  const result = await oracleVote(c.env, oc, {
+    marketId: v.market_id, claimId: v.claim_id, claimHash: v.claim_hash,
+    verdict: v.verdict, verdictSig: sig || undefined,
+  });
+  return json(result, result.voted ? 200 : 409);
+});
+
+app.notFound((c) => route(c.req.raw, c.env, c.executionCtx as unknown as ExecutionContext));
 
 async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
@@ -645,32 +785,6 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
       const body = (await req.json().catch(() => ({}))) as Parameters<typeof specReveal>[1];
       return json(await specReveal(env, body));
     }
-    // Public sealing keys — funders seal specs/deliverables to the
-    // bridge's x25519 key; workers do the same for adjudication copies.
-    if (pathname === "/api/keys" && req.method === "GET") {
-      const { bridgeX25519PublicKey } = await import("./sealed");
-      return json({ bridge_x25519_pubkey: bridgeX25519PublicKey(env) });
-    }
-    // Trustless escrow plan: everything a funder needs to escrow from a
-    // FRESH implicit account funded via Intents — we never see the key,
-    // never custody funds. GET returns args; POST adds a live 1Click quote.
-    const declPlan = pathname.match(/^\/api\/declarations\/([0-9a-f]{8,16})\/escrow-plan$/i);
-    if (declPlan && (req.method === "GET" || req.method === "POST")) {
-      const p = req.method === "POST"
-        ? (await req.json().catch(() => ({}))) as Parameters<typeof declEscrowPlan>[2]
-        : {
-            recipient: url.searchParams.get("recipient") ?? undefined,
-            origin_asset: url.searchParams.get("origin_asset") ?? undefined,
-            refund_to: url.searchParams.get("refund_to") ?? undefined,
-            near_amount: url.searchParams.get("near_amount") ?? undefined,
-            quorum_m: url.searchParams.get("quorum_m") ? Number(url.searchParams.get("quorum_m")) : undefined,
-          };
-      try {
-        return json(await declEscrowPlan(env, declPlan[1], p ?? {}));
-      } catch (e) {
-        return bad(`escrow-plan failed: ${e instanceof Error ? e.message : e}`, 500);
-      }
-    }
     if (pathname.startsWith("/api/declarations/") && req.method === "GET") {
       const hash = pathname.split("/").pop() ?? "";
       const [bounty, claims, sights] = await Promise.all([
@@ -1007,108 +1121,6 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
         return bad(`escrow failed: ${e instanceof Error ? e.message : e}`, 500);
       }
     }
-    // D5 event log — the signed hash-chained audit trail. Replay it to
-    // rebuild state; a fork, rewrite, or bad sig is a fraud proof.
-    if (pathname === "/api/events" && req.method === "GET") {
-      const { listEvents } = await import("./events");
-      return json(await listEvents(env,
-        Number(url.searchParams.get("from") ?? 0),
-        Math.min(Number(url.searchParams.get("limit") ?? 200), 1000)));
-    }
-    if (pathname === "/api/events/head" && req.method === "GET") {
-      const { listEvents } = await import("./events");
-      const { head } = await listEvents(env, 0, 0);
-      return json({ head });
-    }
-    if (pathname === "/api/events/verify" && req.method === "GET") {
-      const { verifyChain } = await import("./events");
-      return json(await verifyChain(env));
-    }
-    // D4 dispute layer: public docket + evidence bundles + dispute plan.
-    if (pathname === "/api/disputes" && req.method === "POST") {
-      const b = (await req.json().catch(() => ({}))) as
-        { market_id?: string; claim_id?: string; evidence_cid?: string };
-      if (!b.market_id) return bad("market_id required", 400);
-      const { disputePlan } = await import("./disputes");
-      return json(await disputePlan(env, b.market_id, b.claim_id, b.evidence_cid));
-    }
-    const dispGet = pathname.match(/^\/api\/disputes\/(\d+)$/);
-    if (dispGet && req.method === "GET") {
-      const { getDisputes } = await import("./disputes");
-      return json({ market_id: dispGet[1], disputes: await getDisputes(env, dispGet[1]) });
-    }
-    if (pathname === "/api/disputes/bundle" && req.method === "GET") {
-      const marketId = url.searchParams.get("market_id");
-      if (!marketId) return bad("market_id required", 400);
-      const { evidenceBundle } = await import("./disputes");
-      const bundle = await evidenceBundle(env, marketId, url.searchParams.get("claim_id") ?? undefined);
-      // ?pin=1 → pin the bundle and return evidence_cid — the URI a
-      // Kleros dispute / on-chain dispute() names. Fails soft when no
-      // pinning is configured.
-      if (url.searchParams.get("pin") === "1" && !(bundle as { error?: string }).error) {
-        const { pinBytes } = await import("./ipfs");
-        const pin = await pinBytes(env, new TextEncoder().encode(JSON.stringify(bundle)),
-          `widespread-dispute-${marketId}.json`);
-        (bundle as Record<string, unknown>).evidence_cid = pin.cid ?? null;
-        (bundle as Record<string, unknown>).pin_error = pin.error ?? null;
-      }
-      return json(bundle);
-    }
-    // Content-addressed ciphertext: clients pin sealed spec bundles and
-    // deliverables; the bridge stores bytes it cannot read (or, for
-    // evidence bundles, JSON it need not trust). Kubo or any Pinning
-    // Service — env-gated, degraded cleanly when unset.
-    if (pathname === "/api/pin" && req.method === "POST") {
-      const { handlePin } = await import("./ipfs");
-      return handlePin(req, env);
-    }
-    // Interim arbitrator rulings — the contract account rules until the
-    // DAO rotates a Kleros-proxy arbitrator. Ops-gated.
-    if (pathname === "/api/disputes/resolve" && req.method === "POST") {
-      if (!isAuthorized(req, env)) return bad("unauthorized", 401);
-      const b = (await req.json().catch(() => ({}))) as
-        { market_id?: string; claim_id?: string | null; ruling?: string };
-      if (!b.market_id || !b.ruling) return bad("market_id + ruling required", 400);
-      const { submitRuling } = await import("./disputes");
-      return json(await submitRuling(env, b.market_id, b.claim_id ?? null, b.ruling));
-    }
-    // M-of-N oracle jury: the public tally surface — registered oracles,
-    // and per-market verdict votes. Anyone watches a quorum form.
-    if (pathname === "/api/oracles" && req.method === "GET") {
-      const contract = env.NEAR_CONTRACT;
-      if (!contract) return bad("NEAR_CONTRACT not configured", 404);
-      const marketId = url.searchParams.get("market");
-      const [oracles, verdicts] = await Promise.all([
-        nearViewCall(env, contract, "listOracles", {}).catch(() => null),
-        marketId
-          ? nearViewCall(env, contract, "getVerdicts", { marketId }).catch(() => null)
-          : Promise.resolve(null),
-      ]);
-      return json({ oracles, verdicts });
-    }
-    // Cast THIS oracle seat's on-chain vote (admin-gated — an operator's
-    // own judgment, never caller-supplied verdicts). submitVerdict from
-    // the registered owner account + release when quorumM accepts align.
-    if (pathname === "/api/oracle/vote" && req.method === "POST") {
-      if (!isAuthorized(req, env)) return bad("unauthorized", 401);
-      const v = (await req.json().catch(() => ({}))) as {
-        market_id?: string; claim_id?: string; claim_hash?: string;
-        verdict?: "accept" | "reject";
-      };
-      if (!v.market_id || !v.verdict || (!v.claim_id && !v.claim_hash)) {
-        return bad("need market_id, verdict, and claim_id or claim_hash", 400);
-      }
-      const oc = oracleEnv(env as Parameters<typeof oracleEnv>[0]);
-      if (!oc?.accountId || !oc.secretKey) return bad("oracle not configured", 503);
-      const { sig } = await signVerdict(oc, v.market_id,
-        v.claim_hash ?? v.claim_id ?? "", v.verdict,
-        String(Date.now())).catch(() => ({ sig: "", pubkey: "" }));
-      const result = await oracleVote(env, oc, {
-        marketId: v.market_id, claimId: v.claim_id, claimHash: v.claim_hash,
-        verdict: v.verdict, verdictSig: sig || undefined,
-      });
-      return json(result, result.voted ? 200 : 409);
-    }
     // Mirror an external/third-party bounty into a Widespread market at
     // face value — platformBps is our percent cut at release.
     if (pathname === "/api/bounties/mirror" && req.method === "POST") {
@@ -1154,7 +1166,7 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
 export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const t0 = Date.now();
-    const res = await route(req, env, ctx);
+    const res = await app.fetch(req, env, ctx);
     const m = (env as { widespread?: { writeDataPoint: (d: unknown) => void } }).widespread;
     if (m) {
       const u = new URL(req.url);

@@ -44,6 +44,7 @@
     "@x402/near": "^2.31.0",
     "chainsig.js": "^1.1.16",
     "elo-rank": "^1.0.4",
+    "hono": "^4.13.18",
     "masto": "^8.0.0",
     "metascraper": "^5.58.6",
     "ml-logistic-regression": "^2.0.0",
