@@ -25,6 +25,8 @@ import { hatsOrg, hatsHat, hatsStanceCheck, hatsOpportunities,
          earnedStance, delegatedStance, parseIdentityRef, stanceScore,
          ERC8004_REGISTRIES } from "./hats";
 import { nearView, listOnchainMarkets } from "./near";
+import { nearViewCall } from "./nearops";
+import { oracleEnv, oracleVote, signVerdict } from "./oracle";
 import { handleMcpRequest } from "./mcp";
 import { OPENAPI, LLMS_TXT, SKILL_MD, INSTALL_HTML, PRIVACY_HTML, TERMS_HTML } from "./docs";
 import { checkLimit, callerKey, rateLimited } from "./ratelimit";
@@ -956,6 +958,43 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
       } catch (e) {
         return bad(`escrow failed: ${e instanceof Error ? e.message : e}`, 500);
       }
+    }
+    // M-of-N oracle jury: the public tally surface — registered oracles,
+    // and per-market verdict votes. Anyone watches a quorum form.
+    if (pathname === "/api/oracles" && req.method === "GET") {
+      const contract = env.NEAR_CONTRACT;
+      if (!contract) return bad("NEAR_CONTRACT not configured", 404);
+      const marketId = url.searchParams.get("market");
+      const [oracles, verdicts] = await Promise.all([
+        nearViewCall(env, contract, "listOracles", {}).catch(() => null),
+        marketId
+          ? nearViewCall(env, contract, "getVerdicts", { marketId }).catch(() => null)
+          : Promise.resolve(null),
+      ]);
+      return json({ oracles, verdicts });
+    }
+    // Cast THIS oracle seat's on-chain vote (admin-gated — an operator's
+    // own judgment, never caller-supplied verdicts). submitVerdict from
+    // the registered owner account + release when quorumM accepts align.
+    if (pathname === "/api/oracle/vote" && req.method === "POST") {
+      if (!isAuthorized(req, env)) return bad("unauthorized", 401);
+      const v = (await req.json().catch(() => ({}))) as {
+        market_id?: string; claim_id?: string; claim_hash?: string;
+        verdict?: "accept" | "reject";
+      };
+      if (!v.market_id || !v.verdict || (!v.claim_id && !v.claim_hash)) {
+        return bad("need market_id, verdict, and claim_id or claim_hash", 400);
+      }
+      const oc = oracleEnv(env as Parameters<typeof oracleEnv>[0]);
+      if (!oc?.accountId || !oc.secretKey) return bad("oracle not configured", 503);
+      const { sig } = await signVerdict(oc, v.market_id,
+        v.claim_hash ?? v.claim_id ?? "", v.verdict,
+        String(Date.now())).catch(() => ({ sig: "", pubkey: "" }));
+      const result = await oracleVote(env, oc, {
+        marketId: v.market_id, claimId: v.claim_id, claimHash: v.claim_hash,
+        verdict: v.verdict, verdictSig: sig || undefined,
+      });
+      return json(result, result.voted ? 200 : 409);
     }
     // Mirror an external/third-party bounty into a Widespread market at
     // face value — platformBps is our percent cut at release.

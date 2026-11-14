@@ -52,6 +52,7 @@ export function oracleEnv(env: {
   NEAR_CONTRACT?: string; NEAR_RPC_URL?: string;
   ORACLE_ACCOUNT?: string; ORACLE_SECRET_KEY?: string;
   ORACLE_SEED_HEX?: string; ORACLE_PUBKEY_HEX?: string;
+  NEAR_OPS_ACCOUNT?: string; NEAR_OPS_SECRET_KEY?: string;
 }): OracleConfig | null {
   if (!env.NEAR_CONTRACT || !env.ORACLE_SEED_HEX || !env.ORACLE_PUBKEY_HEX) {
     return null;
@@ -64,4 +65,116 @@ export function oracleEnv(env: {
     oracleKeyHex: env.ORACLE_SEED_HEX,
     oraclePubkeyHex: env.ORACLE_PUBKEY_HEX,
   };
+}
+
+/* ---------- on-chain M-of-N oracle votes ------------------------------- */
+
+import { nearFunctionCall, nearViewCall } from "./nearops";
+
+// 100 Tgas: submitVerdict deserializes all contract state; ~31T burnt
+// observed at 22 markets — headroom for growth, unspent gas is refunded.
+const GAS = BigInt("100000000000000");
+
+export interface OracleVoteResult {
+  voted: boolean;
+  claimId?: string;
+  verdict?: "accept" | "reject";
+  already_voted?: boolean;
+  released?: { txHash: string; status: unknown } | null;
+  quorum_pending?: boolean;
+  acceptVotes?: number;
+  quorumM?: number;
+  error?: string;
+}
+
+interface VerdictsView {
+  quorumM?: number;
+  allowlist?: string[] | null;
+  votes?: Record<string, { claimId: string; verdict: string }>;
+  acceptTally?: Record<string, number>;
+}
+
+function txFailed(status: unknown): boolean {
+  return /EXECUTED_FAILURE|"Failure"|FunctionCallError|ActionError/.test(
+    JSON.stringify(status ?? ""));
+}
+
+/** Cast this oracle's M-of-N vote on-chain. The tx signs from
+ * cfg.accountId — it MUST be the registered oracle's owner account (the
+ * contract rejects verdicts from any other caller; naming our pubkey is
+ * not authority).
+ *
+ * accept → submitVerdict persists our vote, then release() settles if
+ * the market's quorumM is now met (reverts harmlessly if still short —
+ * a later vote or the claimant can trigger the same release; funds are
+ * never hostage to us being online).
+ * reject → submitVerdict only; votes are public and correction-capable. */
+export async function oracleVote(
+  env: { NEAR_RPC_URL?: string },
+  cfg: OracleConfig,
+  opts: {
+    marketId: string;
+    claimId?: string;
+    claimHash?: string;
+    verdict: "accept" | "reject";
+    verdictSig?: string;
+  },
+): Promise<OracleVoteResult> {
+  const ops = { accountId: cfg.accountId, secretKey: cfg.secretKey };
+  let claimId = opts.claimId ? String(opts.claimId) : "";
+  if (!claimId && opts.claimHash) {
+    const page = await nearViewCall(env, cfg.contract, "getClaims",
+      { marketId: opts.marketId, from: 0, limit: 200 }) as {
+        claims?: { claimId: string; claimHash: string; status: string }[];
+      } | null;
+    const hit = page?.claims?.find((c) => c.claimHash === opts.claimHash && c.status === "pending");
+    if (!hit) return { voted: false, error: "no pending claim matches claimHash" };
+    claimId = hit.claimId;
+  }
+  if (!claimId) return { voted: false, error: "claimId or claimHash required" };
+
+  const prior = await nearViewCall(env, cfg.contract, "getVerdicts",
+    { marketId: opts.marketId }).catch(() => null) as VerdictsView | null;
+  const mine = prior?.votes?.[cfg.oraclePubkeyHex];
+  const already = mine?.verdict === opts.verdict && mine?.claimId === claimId;
+
+  if (!already) {
+    const v = await nearFunctionCall(env, ops, cfg.contract, {
+      methodName: "submitVerdict",
+      args: {
+        marketId: opts.marketId, claimId,
+        verdict: opts.verdict, oraclePubkey: cfg.oraclePubkeyHex,
+        verdictSig: opts.verdictSig ?? null,
+      },
+      gas: GAS, deposit: 0n,
+    }).catch((e) => ({ txHash: "", status: String(e) }));
+    if (txFailed(v.status)) {
+      return { voted: false, claimId, error: `submitVerdict failed: ${JSON.stringify(v.status).slice(0, 300)}` };
+    }
+  }
+
+  if (opts.verdict === "reject") {
+    const tally = await nearViewCall(env, cfg.contract, "getVerdicts",
+      { marketId: opts.marketId }).catch(() => null) as VerdictsView | null;
+    return { voted: true, claimId, verdict: "reject", already_voted: already,
+      acceptVotes: tally?.acceptTally?.[claimId] ?? 0, quorumM: tally?.quorumM };
+  }
+
+  const rel = await nearFunctionCall(env, ops, cfg.contract, {
+    methodName: "release",
+    args: {
+      marketId: opts.marketId, oraclePubkey: cfg.oraclePubkeyHex,
+      verdictSig: opts.verdictSig ?? null, winningClaimId: claimId,
+    },
+    gas: GAS, deposit: 0n,
+  }).catch((e) => ({ txHash: "", status: String(e) }));
+  if (txFailed(rel.status)) {
+    const tally = await nearViewCall(env, cfg.contract, "getVerdicts",
+      { marketId: opts.marketId }).catch(() => null) as VerdictsView | null;
+    return { voted: true, claimId, verdict: "accept", already_voted: already,
+      quorum_pending: true, released: null,
+      acceptVotes: tally?.acceptTally?.[claimId], quorumM: tally?.quorumM };
+  }
+  return { voted: true, claimId, verdict: "accept", already_voted: already,
+    released: rel, quorum_pending: false };
 }

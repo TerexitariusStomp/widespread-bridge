@@ -16,6 +16,7 @@ import { agentChallenge, agentRegister, marketClaim, shipPrepare, shipSubmit, ma
 import { getCoordinator } from "./coordinator";
 import { listSightings, discoveryStats, ingestSighting, type Sighting } from "./sightings";
 import { submitOutcome, disputeOutcome, getOutcome } from "./outcome";
+import { nearViewCall } from "./nearops";
 
 const json = (v: unknown) => ({
   content: [{ type: "text" as const, text: JSON.stringify(v, null, 1) }],
@@ -131,6 +132,40 @@ export async function handleMcpRequest(req: Request, env: Env, ctx: ExecutionCon
     description: "Agent's registration + records (claims, verdicts, payout traces) for a DID.",
     inputSchema: { did: z.string() },
   }, async ({ did }) => json(await agentStatus(env, { did })));
+
+  // ------------------------------------------- oracle jury (decentralized settlement)
+  server.registerTool("wide_oracle_register", {
+    annotations: { title: 'Register Oracle Seat', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    description: "Join the M-of-N oracle jury: returns ready-to-broadcast registerOracle args — sign + send the FunctionCall from YOUR NEAR account; that account becomes the seat's owner and the only identity that can cast its verdicts. Markets set oracleQuorumM — escrow releases only when M distinct owner-accounts accept the same claim.",
+    inputSchema: { pubkey_hex: z.string() },
+  }, async ({ pubkey_hex }) => {
+    const contract = (env as { NEAR_CONTRACT?: string }).NEAR_CONTRACT;
+    if (!contract) return json({ error: "NEAR_CONTRACT not configured" });
+    return json({
+      broadcast: {
+        receiver: contract, method: "registerOracle",
+        args: { pubkey: pubkey_hex },
+        note: "sign this FunctionCall from the account you want as the oracle's owner — owner casts all votes",
+      },
+      then: "adjudicate claims off-chain and vote via submitVerdict {marketId, claimId, verdict, oraclePubkey, verdictSig} from the owner account",
+    });
+  });
+
+  server.registerTool("wide_oracle_tally", {
+    annotations: { title: 'Oracle Tally', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    description: "Public jury surface: registered oracle seats + per-market verdict votes and the quorumM a release needs. Watch a quorum form — or refuse to.",
+    inputSchema: { market_id: z.string().optional() },
+  }, async ({ market_id }) => {
+    const contract = (env as { NEAR_CONTRACT?: string }).NEAR_CONTRACT;
+    if (!contract) return json({ error: "NEAR_CONTRACT not configured" });
+    const [oracles, verdicts] = await Promise.all([
+      nearViewCall(env, contract, "listOracles", {}).catch(() => null),
+      market_id
+        ? nearViewCall(env, contract, "getVerdicts", { marketId: market_id }).catch(() => null)
+        : Promise.resolve(null),
+    ]);
+    return json({ oracles, verdicts });
+  });
 
   // --------------------------------------------------- funder-side (write)
   server.registerTool("wide_bounty_declare", {
