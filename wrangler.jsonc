@@ -26,8 +26,8 @@
     // Protocol revenue treasury — mirror platformBps cuts settle here
     // (contract-side 2% FEE_BPS routes via setFeeSink, same account).
     "CUT_SINK": "wide-mkt-11561.testnet",
-    "ORACLE_PUBKEY_HEX": "1ad812e3b4a566d8a33358529adc431e3c752b6a0c2ca3fa70d92ee1423e0ef1",
-    "ORACLE_ACCOUNT": "wide-mkt-11561.testnet",
+    "ORACLE_PUBKEY_HEX": "63077a40e99af271b209478b100bf75d2cd3bc0f971cb8e71b2a72fd342f43f6",
+    "ORACLE_ACCOUNT": "50a25bb188de7d898283fe04b5e7786b1027662faef64d5d39a1af12d9758e6b",
     "NEAR_AI_MODEL": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
     // Workers AI model for the adjudicator seat.
     "LLM_MODEL": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
@@ -82,9 +82,8 @@
   "analytics_engine_datasets": [
     { "binding": "widespread", "dataset": "Widespread" }
   ],
-  // The scheduled() handler scans watched op-logs when a cron slot exists.
-  // Free tier allows 5 cron triggers/account — this account is full, so the
-  // dashboard's /api/state polling drives the same opportunistic scan.
-  // Uncomment when a slot is free:
-  // "triggers": { "crons": ["*/5 * * * *"] }
+  // Juror + claim-stream scan every 5 min. Free tier allows 5 cron
+  // triggers/account — if the deploy below fails on the trigger limit,
+  // the dashboard's /api/state polling still drives the same scan.
+  "triggers": { "crons": ["*/5 * * * *"] },
 }
