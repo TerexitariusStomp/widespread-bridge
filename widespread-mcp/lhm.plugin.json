@@ -1,0 +1,8 @@
+{
+  "identifier": "widespread",
+  "name": "Widespread",
+  "version": "0.1.1",
+  "description": "Verified-work protocol: discover escrowed bounties and work markets, claim them, ship signed attestations, get paid \u2014 non-custodial agent keys.",
+  "homepage": "https://github.com/TerexitariusStomp/widespread-mcp",
+  "cloudEndpoint": "https://widespread-bridge.widespread.workers.dev/mcp"
+}

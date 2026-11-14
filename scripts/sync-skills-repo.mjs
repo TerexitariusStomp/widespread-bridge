@@ -1,4 +1,8 @@
-// scripts/sync-skills-repo.mjs — push widespread-skills/ to the standalone
+// scripts/sync-skills-repo.mjs — push a distribution dir to its standalone repo.
+// Usage: node scripts/sync-skills-repo.mjs [--check] [dir] [repo]
+//   default: widespread-skills → TerexitariusStomp/widespread-skills
+//   also:    node scripts/sync-skills-repo.mjs widespread-mcp TerexitariusStomp/widespread-mcp
+// Those repos are MIRRORS: canonical sources live in this monorepo,
 // distribution repo (github.com/TerexitariusStomp/widespread-skills).
 // That repo is a MIRROR: canonical SKILL.md is .agents/skills/widespread/SKILL.md,
 // regenerated into widespread-skills/ by `npm run sync`.
@@ -12,19 +16,22 @@ import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const REPO = "https://github.com/TerexitariusStomp/widespread-skills.git";
 const CHECK = process.argv.includes("--check");
+const positional = process.argv.slice(2).filter(a => !a.startsWith("-"));
+const DIR = positional[0] ?? "widespread-skills";
+const REPO_NAME = positional[1] ?? DIR;
+const REPO = `https://github.com/TerexitariusStomp/${REPO_NAME}.git`;
 
 // regenerate first — never push stale generated files
 execFileSync("node", [join(root, "scripts/sync-surfaces.mjs")], { stdio: "inherit" });
 
-const tmp = join(tmpdir(), `widespread-skills-${Date.now()}`);
+const tmp = join(tmpdir(), `${DIR}-${Date.now()}`);
 const git = (a, cwd = tmp) => execFileSync("git", a, { cwd, encoding: "utf8" });
 try {
   execFileSync("git", ["clone", "--depth", "1", "-b", "master", REPO, tmp], { stdio: "inherit" });
-  rmSync(join(tmp, "skills"), { recursive: true, force: true });
-  for (const d of ["agents", "amazonq"]) rmSync(join(tmp, d), { recursive: true, force: true });
-  cpSync(join(root, "widespread-skills"), tmp, { recursive: true });
+  for (const e of execFileSync("git", ["-C", tmp, "ls-files"], { encoding: "utf8" }).trim().split("\n"))
+    if (e) rmSync(join(tmp, e), { force: true });
+  cpSync(join(root, DIR), tmp, { recursive: true });
 
   git(["add", "-A"]);
   const dirty = git(["status", "--porcelain"]).trim();

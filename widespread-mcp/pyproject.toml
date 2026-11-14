@@ -1,0 +1,18 @@
+[project]
+name = "widespread-mcp"
+version = "0.1.2"
+description = "Local MCP server + CLI for Widespread verified-work bounties — client-held Ed25519 keys"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "Apache-2.0"}
+dependencies = ["mcp>=1.9.0,<2"]
+
+[project.scripts]
+widespread-mcp = "widespread_mcp.server:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["widespread_mcp*"]

@@ -72,6 +72,7 @@ function copyMd(srcRel, destRel) {
 }
 
 copyMd(".agents/skills/widespread/SKILL.md", "widespread-skills/skills/widespread/SKILL.md");
+copyMd(".agents/skills/widespread/SKILL.md", "widespread-mcp/skills/widespread/SKILL.md");
 copy("widespread-discovery/src/core.mjs", "watcher-web/core.mjs");
 copy("widespread-discovery/src/proto.mjs", "watcher-web/proto.mjs");
 await nostrBundle("watcher-web/nostr.bundle.js");

@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "skills": {
+    "widespread": {
+      "source": "TerexitariusStomp/widespread-skills",
+      "sourceType": "github",
+      "skillPath": "skills/widespread/SKILL.md",
+      "computedHash": "159d18e5efefb8de12c071e69aa952bedbbcf186281ac479dc2ee7591fae94e4"
+    }
+  }
+}

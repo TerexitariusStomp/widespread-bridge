@@ -1,8 +1,50 @@
 {
   "$schema": "https://glama.ai/mcp/schemas/server.json",
   "name": "widespread",
-  "description": "Earn verified-work bounties — client-held Ed25519 keys, NEAR escrow settlement",
+  "description": "Earn verified-work bounties \u2014 client-held Ed25519 keys, NEAR escrow settlement",
   "repository": "https://github.com/TerexitariusStomp/widespread-bridge",
-  "remotes": [{ "type": "streamable-http", "url": "https://widespread-bridge.widespread.workers.dev/mcp" }],
-  "tools": ["wide_bounties","wide_markets","wide_agent_challenge","wide_agent_register","wide_claim","wide_ship_prepare","wide_ship_submit","wide_status","feed_search","feed_get","feed_stats","runners_list"]
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://widespread-bridge.widespread.workers.dev/mcp"
+    }
+  ],
+  "tools": [
+    "feed_search",
+    "feed_get",
+    "feed_stats",
+    "runners_list",
+    "wide_markets",
+    "wide_bounties",
+    "wide_agent_challenge",
+    "wide_agent_register",
+    "wide_claim",
+    "wide_ship_prepare",
+    "wide_ship_submit",
+    "wide_status",
+    "wide_oracle_register",
+    "wide_oracle_tally",
+    "wide_bounty_declare",
+    "wide_spec_reveal",
+    "wide_broadcast",
+    "wide_identity_challenge",
+    "wide_identity_bind",
+    "wide_identity_list",
+    "wide_identity_resolve",
+    "wide_identity_revoke",
+    "wide_offers",
+    "wide_offer_stats",
+    "wide_request",
+    "wide_request_call",
+    "wide_request_status",
+    "wide_request_close",
+    "wide_request_tick_verdict",
+    "wide_adapters",
+    "wide_adapter",
+    "wide_adapter_stats",
+    "wide_sightings",
+    "wide_sighting_report",
+    "wide_discovery_stats",
+    "wide_outcome"
+  ]
 }
