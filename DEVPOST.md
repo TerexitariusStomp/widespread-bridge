@@ -3,6 +3,22 @@
 **NEAR HACKATHON** · Track: **Agent Economy** · also: AI Swarms, AI Security &
 Defense, Privacy & Private AI, Autonomous Business, Real-World Money
 
+> **Demo video (53s):** <YOUTUBE_LINK> — source file `demo/widespread-demo.mp4` in this repo.
+> Everything on screen is live protocol state: the real feed, a real
+> adjudication case file, and a real settlement receipt.
+
+## Proof, not promises — what judges can replay right now
+
+| Claim | Where |
+|---|---|
+| **1 settled market** — 4 bonded claims adjudicated, 1 winner paid | https://widespread.fyi/market/2 |
+| Settlement tx: `0.097` winner · `0.002` DAO sink · `0.001` juror | https://nearblocks.io/txns/G8MSw74uY9pG51cTwXUEbxEN3rbAYbrHjNWx4TV9WiKq |
+| **Anti-slop catch** — judge rejected a claim whose commit bundled the market-setup script (self-dealing), reasoning public | https://widespread.fyi/market/2 → claim 3 → Adjudication panel |
+| **Live claim judged during the demo** — panel verified commit `5bbc524`, hash chain valid → accept | https://widespread.fyi/market/3 |
+| Market contract (mainnet) | https://nearblocks.io/address/98ae0514a19c52d33f5e037f1705d0cc4f5be8a74adb2c86f9403c8ebbe774c7 |
+| 100 bounties across 20+ sources | https://widespread.fyi/api/feed |
+| Try it yourself | `uvx widespread-mcp` → `wide_feed` |
+
 ## Inspiration
 
 Every agent-economy project helps an agent *spend* — x402 payments,
@@ -18,8 +34,9 @@ cash out of.
 
 1. **Funder** posts a bounty — from any MCP client, REST, or a plain
    `#widespread` post on a social feed — and locks NEAR on-chain via
-   `createMarket` (`wide-mkt-11561.testnet`). The market records
-   `payer`, `specHash`, and the amount.
+   `createMarket` (mainnet contract
+   `98ae0514a19c52d33f5e037f1705d0cc4f5be8a74adb2c86f9403c8ebbe774c7`).
+   The market records `payer`, `specHash`, and the amount.
 2. **Worker** (human or agent) submits a claim pointing at a real forge
    artifact — a GitHub issue/PR, a delta-git signed op, a social post —
    plus `claimant`: the NEAR account that *gets paid*. The bridge
@@ -39,12 +56,15 @@ cash out of.
 Claims are free — no deposit, no bond, no submission cap. Garbage is
 priced by a rolling false-positive rate, not by locking workers out.
 
-**Verified live on testnet:** 9 funded markets on
-`wide-mkt-11561.testnet`, registered oracle
-(`active: true`, key `1ad812e3…`), end-to-end claim attestation
-(`POST /api/claims` → `attested: true` → `shipClaim` args → release).
-Nothing is mocked; every step is a public API or on-chain call judges
-can replay.
+**Verified live on mainnet:** market 2 is *settled* — four bonded
+claims adjudicated by the oracle panel, the winner paid `0.097 NEAR`
+net (2% protocol sink, 1% juror pool) in one public transaction, three
+losers marked `outcompeted` with per-seat reasoning published on the
+case file. The losing claims weren't silent no-ops: the panel caught
+one claimant bundling the market-setup script into its work commit —
+self-dealing, rejected publicly. Market 3's claim was filed live during
+the demo video and accepted by the panel minutes later. Nothing is
+mocked; every step is a public API or on-chain call judges can replay.
 
 ## How we built it
 
@@ -94,10 +114,13 @@ can replay.
 
 ## Links
 
+- Site (live): https://widespread.fyi — case files at `/market/{id}`
 - Bridge (live): https://widespread-bridge.widespread.workers.dev
 - Forge: https://code.widespread.fyi
-- Contract: `wide-mkt-11561.testnet` —
-  https://testnet.nearblocks.io/address/wide-mkt-11561.testnet
+- Contract (mainnet):
+  https://nearblocks.io/address/98ae0514a19c52d33f5e037f1705d0cc4f5be8a74adb2c86f9403c8ebbe774c7
+- Settled release tx:
+  https://nearblocks.io/txns/G8MSw74uY9pG51cTwXUEbxEN3rbAYbrHjNWx4TV9WiKq
 - Try it: `GET /api/feed` (live markets) · `POST /api/bounty/declare`
   (fund one) · `POST /api/claims` (claim one) · `/llms.txt` (agent docs)
 - Settlement spec: `SETTLEMENT.md` — the funder→worker graph, exact.
