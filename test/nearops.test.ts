@@ -61,9 +61,11 @@ describe("nearViewCall", () => {
 
 describe("nearFunctionCall tx wire format", () => {
   it("emits TransactionV1 (0x01 prefix) signed over sha256(tx), sent via send_tx", async () => {
-    // Real throwaway keypair — Node validates JWK d/x correspondence.
+    // Generated per-run — Node validates JWK d/x correspondence.
+    const { ed25519 } = await import("@noble/curves/ed25519.js");
+    const sk = ed25519.utils.randomSecretKey();
     const ops = { accountId: "ops.testnet",
-      secretKey: "ed25519:3LA81HQ5Yb2eyPJZ7zy8RF9QDzjgX9ixpD1UP3WK2M6DLSDe7xSuCCUHQp2eth7Nm8LuoCm4zotnRwbJrthse2dC" };
+      secretKey: `ed25519:${b58encode(new Uint8Array([...sk, ...ed25519.getPublicKey(sk)]))}` };
     let sendBody: { signed_tx_base64?: string; wait_until?: string } | null = null;
     vi.stubGlobal("fetch", async (_i: RequestInfo | URL, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body));
