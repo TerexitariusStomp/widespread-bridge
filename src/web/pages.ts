@@ -322,6 +322,13 @@ export async function marketPage(env: Env, id: string): Promise<Response> {
   if (!m) return html(pageShell({ title: `Market ${esc(id)}`, nav: "bounties",
     body: `<div class="empty"><div class="big">No market ${esc(id)}</div><div class="mut"><a href="/bounties">← back to bounties</a></div></div>` }));
 
+  type PanelSeat = { model?: string; verdict?: string; confidence?: number; reasoning?: string };
+  type OcvRec = { verdict?: string; picked?: string | null; confidence?: number; model?: string;
+    reasoning?: string; voted?: boolean; released_tx?: string | null; error?: string | null;
+    judged_at?: number; panel?: PanelSeat[] | null };
+  const ocv = await Promise.all((claims.claims ?? []).map((c) =>
+    env.CLAIMS.get(`ocv:${id}:${c.claimId}`, "json").catch(() => null) as Promise<OcvRec | null>));
+
   const locked = fmtNear(BigInt(String(m.locked ?? "0")));
   const statusCls = m.status === "open" ? "ok" : m.status === "paid" ? "gold" : "";
   const claimRows = (claims.claims ?? []).map((c) => `<tr>
@@ -340,6 +347,24 @@ export async function marketPage(env: Env, id: string): Promise<Response> {
     <td class="small"><span class="pill">${esc(String(d.status))}</span></td>
     <td class="small">${esc(String(d.ruling ?? "—"))}</td>
     <td class="mono small">${esc(String(d.disputer ?? "").split(".")[0])}</td></tr>`).join("");
+  const panelBlocks = (claims.claims ?? []).map((c, i) => {
+    const rec = ocv[i];
+    if (!rec) return "";
+    const seats = (rec.panel ?? []).map((s) => `<tr>
+      <td class="mono small">${esc((s.model ?? "").split("/").pop() || "judge")}</td>
+      <td class="small"><span class="pill ${s.verdict === "accept" ? "ok" : ""}">${esc(s.verdict ?? "—")}</span></td>
+      <td class="small">${s.confidence != null ? `${Math.round(s.confidence * 100)}%` : "—"}</td>
+      <td class="small mut">${esc(s.reasoning ?? "")}</td></tr>`).join("");
+    const confPct = rec.confidence != null ? ` · ${Math.round(rec.confidence * 100)}%` : "";
+    return `<details class="spec" style="margin-top:8px">
+      <summary>claim ${esc(c.claimId)} — ${esc(rec.verdict ?? "judged")}${confPct}</summary>
+      <div class="body">
+        ${rec.reasoning ? `<p class="small mut">${esc(rec.reasoning)}</p>` : ""}
+        ${seats ? `<table class="tbl"><tr><th>seat</th><th>verdict</th><th>conf</th><th>reasoning</th></tr>${seats}</table>` : ""}
+        ${rec.released_tx ? `<p class="mono faint small"><a href="https://nearblocks.io/txns/${esc(rec.released_tx)}" target="_blank" rel="noopener">release tx ↗</a></p>` : ""}
+        ${rec.error ? `<p class="small" style="color:var(--warn)">${esc(rec.error)}</p>` : ""}
+      </div></details>`;
+  }).join("");
   const spread = (k: string, v: string) => `<div class="spread"><span class="k">${k}</span><span class="v">${v}</span></div>`;
   const body = `
 <div class="page-head">
@@ -364,7 +389,8 @@ export async function marketPage(env: Env, id: string): Promise<Response> {
 </div>
 <h2 style="margin:20px 0 10px">Claims <span class="faint small">${claims.total ?? 0} total · ${claims.pending ?? 0} pending</span></h2>
 ${claimRows ? `<div class="card flat"><table class="tbl"><tr><th>#</th><th>claimant</th><th>status</th><th>attestation</th><th>hash</th></tr>${claimRows}</table></div>`
-  : `<div class="empty"><div class="big">No claims yet</div><div class="mut">First verified submission takes the escrow.</div></div>`}`;
+  : `<div class="empty"><div class="big">No claims yet</div><div class="mut">First verified submission takes the escrow.</div></div>`}
+${panelBlocks ? `<h2 style="margin:20px 0 10px">Adjudication panel</h2><div class="card flat">${panelBlocks}</div>` : ""}`;
   return html(pageShell({
     title: `Market ${id} — Widespread`,
     description: `On-chain work market ${id}: ${locked} NEAR escrowed, ${claims.total ?? 0} claims, quorum ${verdicts.quorumM ?? 1}.`,
