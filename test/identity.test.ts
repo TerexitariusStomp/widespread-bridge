@@ -259,7 +259,7 @@ describe("declare cross-surface target", () => {
     const kv = fakeKV({ "idhandle:bluesky:alice.bsky.social": JSON.stringify({ did: DID, tier: "proof" }), [`idbind:${DID}:bluesky:alice.bsky.social`]: JSON.stringify({ did: DID, platform: "bluesky", handle: "alice.bsky.social", tier: "proof", proof: "u", verified_at: 1 }) });
     const env = fakeEnv({ CLAIMS: kv as never });
     const d = await bountyDeclare(env, {
-      domain: "social-media", spec: "ghostwrite a bsky post about escrow", amount: "25",
+      domain: "social-media", spec: "ghostwrite a bsky post about escrow", amount: "25", capacity: { dims: ["C_k"], evidence_plan: { measure: "deliverable verified", horizon_days: 30 } },
       target_platform: "bluesky", target_handle: "alice.bsky.social",
     });
     if ("error" in d) throw new Error(d.error);
@@ -270,7 +270,7 @@ describe("declare cross-surface target", () => {
 
   it("unbound target warns but still declares", async () => {
     const d = await bountyDeclare(fakeEnv(), {
-      domain: "social-media", spec: "ghostwrite a linkedin post", amount: "25",
+      domain: "social-media", spec: "ghostwrite a linkedin post", amount: "25", capacity: { dims: ["C_k"], evidence_plan: { measure: "deliverable verified", horizon_days: 30 } },
       target_platform: "linkedin", target_handle: "alice",
     });
     if ("error" in d) throw new Error(d.error);

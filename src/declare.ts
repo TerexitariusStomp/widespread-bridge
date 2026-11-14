@@ -39,36 +39,50 @@ export interface DeclareArgs {
    *  this declaration on-platform earn a recorded entitlement when the
    *  declaration funds. Default 0. */
   sighting_bps?: number;
-  /** MORE capacity objective (Stage A, docs/more-alignment.md §2 P1).
-   *  Optional — untagged markets behave exactly as before. `dims` without
-   *  `evidence_plan` is legal but marks the market unverifiable-
-   *  contribution: visible class, not silent greenwash. */
+  /** MORE capacity objective — REQUIRED (the only declare path; nobody
+   *  was using untagged markets, so the legible-objective path is the
+   *  only path). dims non-empty; evidence_plan.measure + horizon_days
+   *  required. attester defaults to "watcher" paid by "protocol" — the
+   *  unbiased defaults from the auditor-payor science. */
   capacity?: CapacityTag;
   /** Convenience: comma-separated dims ("C_k,C_h") — merged into
-   *  capacity.dims when `capacity` isn't given. */
+   *  capacity.dims. */
   dims?: string;
 }
 
 const CAPACITY_DIMS = new Set(["C_e", "C_h", "C_k", "C_inst", "C_m"]);
 
-/** Normalize declared capacity: validate dims, attach evidence_plan
- *  requirement signal. Returns null when nothing was declared. */
-function normalizeCapacity(a: DeclareArgs): CapacityTag | null {
+/** Normalize declared capacity — REQUIRED. Every market declares which
+ *  life-capacity dimension it serves and how the outcome is verified.
+ *  Returns {cap} or {error}. */
+function normalizeCapacity(a: DeclareArgs): { cap?: CapacityTag; error?: string } {
   const dims = new Set<CapacityDim>();
   for (const d of a.capacity?.dims ?? []) if (CAPACITY_DIMS.has(d)) dims.add(d);
   if (a.dims) for (const d of a.dims.split(",")) {
     const t = d.trim() as CapacityDim;
     if (CAPACITY_DIMS.has(t)) dims.add(t);
   }
-  if (!dims.size && !a.capacity) return null;
+  if (!dims.size) {
+    return { error: "capacity required — declare dims (C_e|C_h|C_k|C_inst|C_m) via capacity.dims or dims:\"C_k,C_h\"" };
+  }
+  const plan = a.capacity?.evidence_plan;
+  if (!plan?.measure?.trim() || plan.horizon_days == null) {
+    return { error: "capacity.evidence_plan required — {measure, horizon_days} minimum; attester defaults to watcher/protocol" };
+  }
   const cap: CapacityTag = {
     dims: [...dims],
     ...(a.capacity?.subsystem ? { subsystem: a.capacity.subsystem } : {}),
     ...(a.capacity?.floor_attestation ? { floor_attestation: a.capacity.floor_attestation } : {}),
-    ...(a.capacity?.evidence_plan ? { evidence_plan: a.capacity.evidence_plan } : {}),
+    evidence_plan: {
+      measure: plan.measure.trim(),
+      ...(plan.baseline ? { baseline: plan.baseline } : {}),
+      attester: plan.attester ?? "watcher",
+      attester_paid_by: plan.attester_paid_by ?? "protocol",
+      horizon_days: plan.horizon_days,
+    },
     ...(a.capacity?.trustee_ref ? { trustee_ref: a.capacity.trustee_ref } : {}),
   };
-  return cap;
+  return { cap };
 }
 
 /** Stage-A floor screen (display-only, spec §2 P2): heuristic flags on
@@ -105,7 +119,9 @@ export async function bountyDeclare(env: Env, a: DeclareArgs) {
     ? { platform: a.target_platform.toLowerCase(), handle: a.target_handle.replace(/^@/, "") }
     : null;
   const bound = target ? await resolveHandle(env, target.platform, target.handle) : null;
-  const capacity = normalizeCapacity(a);
+  const capRes = normalizeCapacity(a);
+  if (capRes.error) return { error: capRes.error };
+  const capacity = capRes.cap!;
   const flags = floorFlags(a.spec);
   const canonical = [
     `#${tag} bounty ${hash}`,
@@ -133,7 +149,7 @@ export async function bountyDeclare(env: Env, a: DeclareArgs) {
     deliverable_class: deliverable === "resource" ? "resource" : (target ? deliverable : undefined),
     funder_did: a.funder_did,
     ...(a.sighting_bps ? { sighting_bps: Math.min(1000, Math.max(0, Math.round(a.sighting_bps))) } : {}),
-    ...(capacity ? { capacity } : {}),
+    capacity,
     ...(flags.length ? { floor_flags: flags } : {}),
     created_at: Date.now(),
   };
@@ -159,7 +175,7 @@ export async function bountyDeclare(env: Env, a: DeclareArgs) {
     domain,
     for: target ? { ...target, bound: !!bound } : undefined,
     deliverable_class: deliverable === "resource" ? "resource" : (target ? deliverable : undefined),
-    ...(capacity ? { capacity } : {}),
+    capacity,
     ...(flags.length ? { floor_flags: flags } : {}),
     created_at: Date.now(),
     updated_at: Date.now(),

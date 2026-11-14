@@ -152,7 +152,7 @@ export async function handleMcpRequest(req: Request, env: Env, ctx: ExecutionCon
           horizon_days: z.number(),
         }).optional(),
         trustee_ref: z.string().optional(),
-      }).optional().describe("MORE capacity objective (optional; untagged markets unchanged)"),
+      }).describe("REQUIRED MORE capacity objective — every market declares its life-capacity dims + evidence plan"),
     },
   }, async (a) => json(await bountyDeclare(env, a)));
 

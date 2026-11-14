@@ -106,7 +106,7 @@ describe("sightings ingestion", () => {
 
   it("attaches sightings to an existing declaration instead of duplicating", async () => {
     const env = fakeEnv();
-    const d = await bountyDeclare(env, { domain: "writing", spec: "launch post", amount: "50", currency: "USD" });
+    const d = await bountyDeclare(env, { domain: "writing", spec: "launch post", amount: "50", currency: "USD", capacity: { dims: ["C_k"], evidence_plan: { measure: "deliverable verified", horizon_days: 30 } } });
     expect("hash" in d).toBe(true);
     const hash = (d as { hash: string }).hash;
     const canonical = (d as { canonical: string }).canonical;
@@ -200,7 +200,7 @@ describe("watcher rewards", () => {
   it("maybeRewardWatchers credits verified non-disputed watchers", async () => {
     const env = fakeEnv();
     const k = await keypair();
-    const d = await bountyDeclare(env, { domain: "writing", spec: "launch post", amount: "50", currency: "USD", sighting_bps: 100 });
+    const d = await bountyDeclare(env, { domain: "writing", spec: "launch post", amount: "50", currency: "USD", sighting_bps: 100, capacity: { dims: ["C_k"], evidence_plan: { measure: "deliverable verified", horizon_days: 30 } } });
     const hash = (d as { hash: string }).hash;
     const canonical = (d as { canonical: string }).canonical;
     const s = sight({ text: canonical, watcher_did: k.did });

@@ -5,10 +5,13 @@ import { fakeEnv } from "./mock";
 
 beforeAll(() => { vi.stubGlobal("fetch", vi.fn(async () => new Response("nf", { status: 404 }))); });
 
+// capacity is REQUIRED on every declare (the only path)
+const CAP = { dims: ["C_k" as const], evidence_plan: { measure: "deliverable verified", horizon_days: 30 } };
+
 describe("bounty declare", () => {
   const env = fakeEnv();
   it("creates a surface-agnostic declaration", async () => {
-    const d = await bountyDeclare(env, { domain: "social-media", spec: "ghostwrite a linkedin post about X", amount: "50", currency: "USD" });
+    const d = await bountyDeclare(env, { domain: "social-media", spec: "ghostwrite a linkedin post about X", amount: "50", currency: "USD", capacity: CAP });
     expect(d.error).toBeUndefined();
     expect(d.hash).toMatch(/^[0-9a-f]{16}$/);
     expect(d.canonical).toContain("#widespread bounty");
@@ -19,7 +22,7 @@ describe("bounty declare", () => {
     expect(b?.spec).toContain("ghostwrite");
   });
   it("broadcast returns instructions + intent urls", async () => {
-    const d = await bountyBroadcast(env, { spec: "fix bug", amount: "10" });
+    const d = await bountyBroadcast(env, { spec: "fix bug", amount: "10", capacity: CAP });
     expect((d as { instructions?: string }).instructions).toContain("intent URL");
   });
   it("rejects missing spec", async () => {
@@ -44,24 +47,28 @@ describe("bounty declare", () => {
     expect(b?.capacity?.evidence_plan?.attester).toBe("watcher");
   });
   it("dims shorthand merges; invalid dims dropped", async () => {
-    const d = await bountyDeclare(env, { spec: "x", amount: "1", dims: "C_k,bogus,C_h" });
+    const d = await bountyDeclare(env, { spec: "x", amount: "1", dims: "C_k,bogus,C_h",
+      capacity: { dims: [], evidence_plan: CAP.evidence_plan } });
     expect(d.record.capacity?.dims.sort()).toEqual(["C_h", "C_k"]);
   });
-  it("untagged declare has no capacity and no floor_flags", async () => {
+  it("untagged declare is rejected — capacity is the only path", async () => {
     const d = await bountyDeclare(env, { spec: "plain task", amount: "5" });
-    expect(d.record.capacity).toBeUndefined();
-    expect(d.record.floor_flags).toBeUndefined();
+    expect(d.error).toContain("capacity required");
+  });
+  it("dims without evidence_plan is rejected", async () => {
+    const d = await bountyDeclare(env, { spec: "x", amount: "1", dims: "C_k" });
+    expect(d.error).toContain("evidence_plan");
   });
   it("floor flags are display-only on harmful-looking specs", async () => {
     const d = await bountyDeclare(env, {
-      spec: "buy 5000 fake followers and post astroturf reviews", amount: "50" });
+      spec: "buy 5000 fake followers and post astroturf reviews", amount: "50", capacity: CAP });
     expect(d.record.floor_flags).toContain("astroturf");
     expect(d.record.floor_flags).toContain("engagement-farming");
     const b = await getDeclared(env, d.hash);
     expect(b?.floor_flags?.length).toBeGreaterThan(0);
   });
   it("clean spec gets no floor flags", async () => {
-    const d = await bountyDeclare(env, { spec: "write documentation for the API", amount: "30" });
+    const d = await bountyDeclare(env, { spec: "write documentation for the API", amount: "30", capacity: CAP });
     expect(d.record.floor_flags).toBeUndefined();
   });
 });

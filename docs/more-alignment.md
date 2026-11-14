@@ -404,6 +404,12 @@ optional-field extension points are nearly free at genesis and nearly
 impossible once external clients pin the grammar (the Nostr `t`-tag
 lesson). Stages B/C can wait indefinitely without debt.
 
+**Update (implemented):** with zero live untagged markets, capacity is
+**required** on every `bountyDeclare` — dims non-empty +
+`evidence_plan.{measure,horizon_days}` minimum; attester defaults to
+`watcher`/`protocol` (the unbiased pair). The "unverifiable-
+contribution" class is closed at the door rather than labeled.
+
 **Exit criteria per gate (observable, not vibes):**
 - A→B: ≥1 real funder requests a capacity-tagged market, OR demo
   demand (impact-funder audience responds to the wedge)
