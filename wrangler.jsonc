@@ -17,15 +17,15 @@
     // NEAR market contract — the on-chain source of truth for /api/markets.
     "NEAR_CONTRACT": "98ae0514a19c52d33f5e037f1705d0cc4f5be8a74adb2c86f9403c8ebbe774c7",
     // Ops account that auto-escrows fiat-funded mirrors (key in
-    // NEAR_OPS_SECRET_KEY secret). Testnet demo account.
-    "NEAR_OPS_ACCOUNT": "wide-ops-328424.testnet",
+    // NEAR_OPS_SECRET_KEY secret). Mainnet, DAO-subaccount.
+    "NEAR_OPS_ACCOUNT": "escrow.widespread-protocol-fee-sink-dao.near",
     "FUTARCHY_CONTRACT": "foreguild-ft-69240.testnet",
     "HATS_CONTRACT": "intentional-hats-632291.testnet",
     "HATS_ORG": "2",
     "NEAR_RPC_URL": "https://rpc.mainnet.near.org",
     // Protocol revenue treasury — mirror platformBps cuts settle here
     // (contract-side 2% FEE_BPS routes via setFeeSink, same account).
-    "CUT_SINK": "wide-mkt-11561.testnet",
+    "CUT_SINK": "widespread-protocol-fee-sink-dao.near",
     "ORACLE_PUBKEY_HEX": "63077a40e99af271b209478b100bf75d2cd3bc0f971cb8e71b2a72fd342f43f6",
     "ORACLE_ACCOUNT": "50a25bb188de7d898283fe04b5e7786b1027662faef64d5d39a1af12d9758e6b",
     "NEAR_AI_MODEL": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
