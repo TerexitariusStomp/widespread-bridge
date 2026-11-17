@@ -6,7 +6,11 @@ export async function nearView(
   method: string,
   args: object
 ): Promise<unknown> {
-  const rpc = env.NEAR_RPC_URL ?? "https://rpc.testnet.near.org";
+  // *.testnet accounts only exist on testnet — query them there even
+  // when the configured default RPC points at mainnet.
+  const rpc = accountId.endsWith(".testnet")
+    ? "https://rpc.testnet.near.org"
+    : env.NEAR_RPC_URL ?? "https://rpc.testnet.near.org";
   const res = await fetch(rpc, {
     method: "POST",
     headers: { "content-type": "application/json" },

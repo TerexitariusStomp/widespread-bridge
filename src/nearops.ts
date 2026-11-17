@@ -75,10 +75,16 @@ export function parseNearKey(secretKey: string): { seed: Uint8Array; pubkey: Uin
   return { seed: raw.slice(0, 32), pubkey: raw.slice(32) };
 }
 
-const rpc = (env: { NEAR_RPC_URL?: string }) => env.NEAR_RPC_URL ?? "https://rpc.testnet.near.org";
+// Account-id determines the network: a *.testnet account only exists on
+// testnet, so query it there regardless of the configured default RPC
+// (the market contract moved to mainnet; futarchy/hats are still testnet).
+const TESTNET_RPC = "https://rpc.testnet.near.org";
+const rpc = (env: { NEAR_RPC_URL?: string }, accountId?: string) =>
+  accountId?.endsWith(".testnet") ? TESTNET_RPC
+    : env.NEAR_RPC_URL ?? TESTNET_RPC;
 
-async function rpcCall<T>(env: { NEAR_RPC_URL?: string }, method: string, params: unknown): Promise<T> {
-  const res = await fetch(rpc(env), {
+async function rpcCall<T>(env: { NEAR_RPC_URL?: string }, method: string, params: unknown, accountId?: string): Promise<T> {
+  const res = await fetch(rpc(env, accountId), {
     method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", id: "ops", method, params }),
     signal: AbortSignal.timeout(10000),
@@ -104,14 +110,14 @@ async function accessKeyNonce(env: { NEAR_RPC_URL?: string }, accountId: string,
     env, "query", {
       request_type: "view_access_key", finality: "final",
       account_id: accountId, public_key: `ed25519:${pubkeyB58}`,
-    });
+    }, accountId);
   if (r.permission !== "FullAccess" || r.nonce == null)
     throw new Error(`no full-access key on ${accountId} (got ${r.permission ?? "none"})`);
   return BigInt(r.nonce) + 1n;
 }
 
-async function latestBlockHash(env: { NEAR_RPC_URL?: string }): Promise<Uint8Array> {
-  const b = await rpcCall<{ header?: { hash?: string } }>(env, "block", { finality: "final" });
+async function latestBlockHash(env: { NEAR_RPC_URL?: string }, accountId?: string): Promise<Uint8Array> {
+  const b = await rpcCall<{ header?: { hash?: string } }>(env, "block", { finality: "final" }, accountId);
   const h = b.header?.hash;
   if (!h) throw new Error("no block hash");
   return b58decode(h);
@@ -153,7 +159,7 @@ export async function nearFunctionCall(
   const { seed, pubkey } = parseNearKey(ops.secretKey);
   const pubkeyB58 = b58encode(pubkey);
   const nonce = await accessKeyNonce(env, ops.accountId, pubkeyB58);
-  const blockHash = await latestBlockHash(env);
+  const blockHash = await latestBlockHash(env, ops.accountId);
 
   // Transaction borsh
   const argsBytes = new TextEncoder().encode(JSON.stringify(call.args));
@@ -196,7 +202,7 @@ export async function nearFunctionCall(
     transaction?: { hash?: string };
     receipts_outcome?: { outcome?: { status?: unknown } }[];
     status?: unknown;
-  }>(env, "send_tx", { signed_tx_base64: b64, wait_until: "FINAL" });
+  }>(env, "send_tx", { signed_tx_base64: b64, wait_until: "FINAL" }, ops.accountId);
   const status = result.receipts_outcome?.map((r) => r?.outcome?.status ?? r) ?? result.status ?? result;
   return { txHash: result.transaction?.hash ?? "", status };
 }
@@ -217,7 +223,7 @@ export async function nearViewCall(
     request_type: "call_function", finality: "final",
     account_id: contractId, method_name: methodName,
     args_base64: btoa(bin),
-  });
+  }, contractId);
   const out = new Uint8Array(r.result ?? []);
   return JSON.parse(new TextDecoder().decode(out));
 }
