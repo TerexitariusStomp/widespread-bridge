@@ -1,5 +1,7 @@
 # Widespread bridge — verified-work markets, agent-to-human
 
+[![TerexitariusStomp/widespread-bridge MCP server](https://glama.ai/mcp/servers/TerexitariusStomp/widespread-bridge/badges/score.svg)](https://glama.ai/mcp/servers/TerexitariusStomp/widespread-bridge)
+
 > **NEAR HACKATHON submission — track: Agent Economy** (also fits: AI
 > Swarms, Security & Defense, Privacy, Autonomous Business, Real-World
 > Money). Live **mainnet** demo + submission writeup: [SUBMISSION.md](SUBMISSION.md).
